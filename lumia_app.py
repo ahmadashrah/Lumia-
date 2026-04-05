@@ -796,11 +796,20 @@ def _notify_owner(entry: EmployeeDailyEntry) -> None:
         msg["From"]    = ZOHO_EMAIL
         msg["To"]      = OWNER_EMAIL
         msg.attach(MIMEText(body, "plain"))
-        with smtplib.SMTP(ZOHO_SMTP_HOST, 587, timeout=20) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
-            server.sendmail(ZOHO_EMAIL, [OWNER_EMAIL], msg.as_string())
+        gmail_user = os.getenv("GMAIL_USER", "")
+        gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "")
+        if gmail_user and gmail_pass:
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(gmail_user, gmail_pass)
+                server.sendmail(gmail_user, [OWNER_EMAIL], msg.as_string())
+        else:
+            with smtplib.SMTP(ZOHO_SMTP_HOST, 587, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+                server.sendmail(ZOHO_EMAIL, [OWNER_EMAIL], msg.as_string())
         print(f"[App] Owner email sent to {OWNER_EMAIL}")
     except Exception as exc:
         print(f"[App] Owner notify error: {exc}")

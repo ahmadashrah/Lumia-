@@ -791,13 +791,16 @@ def _notify_owner(entry: EmployeeDailyEntry) -> None:
             f"--- TOMORROW'S PLAN ---\n{entry.tomorrows_plan or '—'}\n\n"
             f"Notes: {entry.notes or '—'}\n"
         )
-        msg            = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = ZOHO_EMAIL
-        msg["To"]      = OWNER_EMAIL
-        msg.attach(MIMEText(body, "plain"))
         gmail_user = os.getenv("GMAIL_USER", "")
         gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "")
+        from_addr  = gmail_user if gmail_user else ZOHO_EMAIL
+
+        msg            = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = from_addr
+        msg["To"]      = OWNER_EMAIL
+        msg.attach(MIMEText(body, "plain"))
+
         if gmail_user and gmail_pass:
             with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
                 server.ehlo()

@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 
 import anthropic as _anthropic
 from flask import Flask, render_template_string, request, jsonify
+from supabase import create_client
 
 from ashrah_backfill import (
     DailyReport,
@@ -31,6 +32,11 @@ from ashrah_backfill import (
 )
 
 app = Flask(__name__)
+
+# Supabase client
+_sb_url = os.getenv("SUPABASE_URL", "")
+_sb_key = os.getenv("SUPABASE_KEY", "")
+supabase_client = create_client(_sb_url, _sb_key) if _sb_url and _sb_key else None
 
 EMPLOYEES = ["Abdelhadi", "Ammar", "Weas", "Ismael", "Ermias", "Maria"]
 
@@ -753,6 +759,31 @@ def submit():
         )
 
         EmployeeLogSheet(EXCEL_LOG_PATH).append_entries([entry])
+
+        # Save to Supabase
+        if supabase_client:
+            try:
+                supabase_client.table("checkins").insert({
+                    "entry_date":        entry.entry_date,
+                    "worker_name":       entry.worker_name,
+                    "site_address":      entry.site_address,
+                    "job_id":            entry.job_id,
+                    "tape_covering":     entry.tape_covering,
+                    "drop_sheets":       entry.drop_sheets,
+                    "patching_process":  entry.patching_process,
+                    "paint_execution":   entry.paint_execution,
+                    "site_control":      entry.site_control,
+                    "washing_tool_care": entry.washing_tool_care,
+                    "avg_score":         entry.self_score,
+                    "work_description":  entry.work_description,
+                    "custom_scores":     entry.custom_scores,
+                    "tomorrows_plan":    entry.tomorrows_plan,
+                    "notes":             entry.notes,
+                }).execute()
+                print(f"[App] Saved to Supabase ✓")
+            except Exception as exc:
+                print(f"[App] Supabase error: {exc}")
+
         threading.Thread(target=_notify_owner,      args=(entry,), daemon=True).start()
         threading.Thread(target=_send_client_report, args=(entry,), daemon=True).start()
 

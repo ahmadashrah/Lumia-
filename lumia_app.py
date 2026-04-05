@@ -197,34 +197,48 @@ HTML = """<!DOCTYPE html>
 
     /* Score rows */
     .score-row {
+      margin-bottom: 20px;
+    }
+    .score-row-header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
+      justify-content: space-between;
+      margin-bottom: 6px;
     }
     .score-label {
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 600;
       color: #333;
-      width: 160px;
-      flex-shrink: 0;
-    }
-    input[type="range"] {
-      flex: 1;
-      accent-color: #1F3864;
-      cursor: pointer;
     }
     .score-badge {
-      min-width: 40px;
-      height: 40px;
+      min-width: 44px;
+      height: 44px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: 20px;
       font-weight: bold;
       color: #fff;
       transition: background 0.3s;
       flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    }
+    .slider-wrap {
+      position: relative;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      accent-color: #1F3864;
+      cursor: pointer;
+    }
+    .slider-minmax {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #999;
+      margin-top: 2px;
     }
 
     .submit-btn {
@@ -322,10 +336,15 @@ HTML = """<!DOCTYPE html>
 
       {% for field_name, label_text in categories %}
       <div class="score-row">
-        <span class="score-label">{{ label_text }}</span>
-        <input type="range" name="{{ field_name }}" min="1" max="10" value="5"
-               oninput="updateScore(this)" data-label="{{ field_name }}_val">
-        <div class="score-badge" id="{{ field_name }}_val" style="background:#f0ad4e">5</div>
+        <div class="score-row-header">
+          <span class="score-label">{{ label_text }}</span>
+          <div class="score-badge" id="{{ field_name }}_val" style="background:#f0ad4e">5</div>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" name="{{ field_name }}" min="1" max="10" value="5"
+                 oninput="updateScore(this)" data-label="{{ field_name }}_val">
+          <div class="slider-minmax"><span>1</span><span>10</span></div>
+        </div>
       </div>
       {% endfor %}
 

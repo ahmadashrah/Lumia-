@@ -126,6 +126,10 @@ class EmployeeDailyEntry:
     paint_execution: int = 0
     site_control: int = 0
     washing_tool_care: int = 0
+    # Optional employee-defined scores
+    custom_scores: str = ""   # e.g. "Primer: 9 | Window Trim: 8"
+    # Tomorrow's plan
+    tomorrows_plan: str = ""
 
 
 @dataclass
@@ -861,11 +865,11 @@ HEADERS = [
     "Date", "Employee Name", "Job ID", "Site Address",
     "Tape & Covering", "Drop Sheets", "Patching Process",
     "Paint Execution", "Site Control", "Washing & Tool Care",
-    "Avg Score", "Daily Summary", "Notes"
+    "Avg Score", "Daily Summary", "Custom Scores", "Tomorrow's Plan", "Notes"
 ]
 
 # Column widths
-COL_WIDTHS = [14, 22, 14, 36, 16, 14, 16, 16, 14, 20, 12, 48, 30]
+COL_WIDTHS = [14, 22, 14, 36, 16, 14, 16, 16, 14, 20, 12, 48, 36, 48, 30]
 
 # Colours
 HEADER_BG   = "1F3864"   # dark navy
@@ -951,6 +955,8 @@ class EmployeeLogSheet:
             entry.washing_tool_care or "—",
             avg if avg else "—",
             entry.work_description,
+            entry.custom_scores or "—",
+            entry.tomorrows_plan or "—",
             entry.notes,
         ]
         # Score columns are indices 4-10 (0-based) → col 5-11 (1-based)

@@ -753,7 +753,7 @@ def submit():
         )
 
         EmployeeLogSheet(EXCEL_LOG_PATH).append_entries([entry])
-        _notify_owner(entry)
+        threading.Thread(target=_notify_owner,      args=(entry,), daemon=True).start()
         threading.Thread(target=_send_client_report, args=(entry,), daemon=True).start()
 
         return jsonify({"ok": True})
@@ -796,7 +796,9 @@ def _notify_owner(entry: EmployeeDailyEntry) -> None:
         msg["From"]    = ZOHO_EMAIL
         msg["To"]      = OWNER_EMAIL
         msg.attach(MIMEText(body, "plain"))
-        with smtplib.SMTP_SSL(ZOHO_SMTP_HOST, int(ZOHO_SMTP_PORT)) as server:
+        with smtplib.SMTP(ZOHO_SMTP_HOST, 587, timeout=20) as server:
+            server.ehlo()
+            server.starttls()
             server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
             server.sendmail(ZOHO_EMAIL, [OWNER_EMAIL], msg.as_string())
         print(f"[App] Owner email sent to {OWNER_EMAIL}")

@@ -845,12 +845,14 @@ class DailyReportSender:
         recipients = [to_email] + (cc_emails or [])
 
         try:
-            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+            with smtplib.SMTP(self.smtp_host, 587, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
                 server.login(self.user, self.password)
                 server.sendmail(self.from_email, recipients, msg.as_string())
             print(f"[DailyReportSender] Sent to {to_email}")
             return True
-        except smtplib.SMTPException as exc:
+        except Exception as exc:
             print(f"[DailyReportSender] SMTP error: {exc}")
             return False
 

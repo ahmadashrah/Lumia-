@@ -791,29 +791,26 @@ def _notify_owner(entry: EmployeeDailyEntry) -> None:
             f"--- TOMORROW'S PLAN ---\n{entry.tomorrows_plan or '—'}\n\n"
             f"Notes: {entry.notes or '—'}\n"
         )
-        gmail_user = os.getenv("GMAIL_USER", "")
-        gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "")
-        from_addr  = gmail_user if gmail_user else ZOHO_EMAIL
-
-        msg            = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = from_addr
-        msg["To"]      = OWNER_EMAIL
-        msg.attach(MIMEText(body, "plain"))
-
-        if gmail_user and gmail_pass:
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
-                server.ehlo()
-                server.starttls()
-                server.login(gmail_user, gmail_pass)
-                server.sendmail(gmail_user, [OWNER_EMAIL], msg.as_string())
+        import httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key:
+            print("[App] Skipping owner email — RESEND_API_KEY not set")
+            return
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={
+                "from": "Lumia <onboarding@resend.dev>",
+                "to":   [OWNER_EMAIL],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=15,
+        )
+        if r.status_code == 200:
+            print(f"[App] Owner email sent to {OWNER_EMAIL}")
         else:
-            with smtplib.SMTP(ZOHO_SMTP_HOST, 587, timeout=20) as server:
-                server.ehlo()
-                server.starttls()
-                server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
-                server.sendmail(ZOHO_EMAIL, [OWNER_EMAIL], msg.as_string())
-        print(f"[App] Owner email sent to {OWNER_EMAIL}")
+            print(f"[App] Resend error: {r.status_code} {r.text}")
     except Exception as exc:
         print(f"[App] Owner notify error: {exc}")
 

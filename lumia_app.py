@@ -1508,7 +1508,9 @@ async function loadReviews() {
   }
 }
 
-async function _loadReviews(dt) {
+loadReviews();
+</script>
+</body></html>"""
 
 
 @app.route("/review")

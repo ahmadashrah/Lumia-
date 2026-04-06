@@ -1374,7 +1374,7 @@ textarea:focus { border-color:#1F3864; }
 <div class="content">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
     <h2 style="font-size:18px;color:#1F3864">Today's Check-Ins</h2>
-    <input type="date" id="review-date" onchange="loadReviews()"
+    <input type="date" id="review-date" onchange="_loadReviews(this.value)"
            style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px">
   </div>
   <div id="checkins-container"><p style="color:#999">Loading...</p></div>
@@ -1388,8 +1388,7 @@ function scoreColor(v) {
   if (v>=8) return '#4CAF50'; if (v>=5) return '#f0ad4e'; return '#d9534f';
 }
 
-async function loadReviews() {
-  const dt = document.getElementById('review-date').value;
+async function _loadReviews(dt) {
   const r = await fetch('/api/checkins?date=' + dt + '&limit=50');
   const data = await r.json();
   if (!data.length) {
@@ -1493,9 +1492,23 @@ async function submitReview(checkinId) {
   }
 }
 
-loadReviews();
-</script>
-</body></html>"""
+async function loadReviews() {
+  const dt = document.getElementById('review-date').value;
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetId  = urlParams.get('checkin_id');
+  await _loadReviews(dt);
+  if (targetId) {
+    setTimeout(() => {
+      const card = document.getElementById('card-' + targetId);
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        card.style.boxShadow = '0 0 0 3px #1F3864';
+      }
+    }, 300);
+  }
+}
+
+async function _loadReviews(dt) {
 
 
 @app.route("/review")

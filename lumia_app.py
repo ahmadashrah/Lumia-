@@ -1021,6 +1021,7 @@ tr:hover td { background:#fafbfd; }
 <div class="tabs">
   <div class="tab active" onclick="showTab('overview')">Overview</div>
   <div class="tab" onclick="showTab('checkins')">Check-Ins</div>
+  <div class="tab" onclick="showTab('reviews')">Reviews</div>
   <div class="tab" onclick="showTab('jobs')">Jobs</div>
   <div class="tab" onclick="showTab('managers')">Managers</div>
   <div class="tab" onclick="showTab('clients')">Clients</div>
@@ -1055,6 +1056,30 @@ tr:hover td { background:#fafbfd; }
       <button class="btn btn-sm" onclick="loadCheckins()">Filter</button>
     </div>
     <div id="all-checkins"><p style="color:#999">Loading...</p></div>
+  </div>
+</div>
+
+<!-- REVIEWS -->
+<div class="page" id="tab-reviews">
+  <div class="card">
+    <h2>Manager Reviews</h2>
+    <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
+      <input type="date" id="review-filter-date" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px">
+      <select id="review-filter-emp" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px">
+        <option value="">All Employees</option>
+        {% for emp in employees %}
+        <option value="{{ emp }}">{{ emp }}</option>
+        {% endfor %}
+      </select>
+      <select id="review-filter-trust" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px">
+        <option value="">All Trust Levels</option>
+        <option value="trusted">Trusted</option>
+        <option value="watch">Watch</option>
+        <option value="concern">Concern</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadAllReviews()">Filter</button>
+    </div>
+    <div id="all-reviews-container"><p style="color:#999">Loading...</p></div>
   </div>
 </div>
 
@@ -1155,6 +1180,7 @@ function showTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   if (name === 'overview')  loadOverview();
   if (name === 'checkins')  loadCheckins();
+  if (name === 'reviews')   loadAllReviews();
   if (name === 'jobs')      loadJobs();
   if (name === 'managers')  loadManagers();
   if (name === 'clients')   loadClients();
@@ -1299,6 +1325,43 @@ async function removeClient(id) {
   if (!confirm('Remove this client?')) return;
   await fetch('/api/remove-client/' + id, {method:'POST'});
   loadClients();
+}
+
+async function loadAllReviews() {
+  const dt    = document.getElementById('review-filter-date').value;
+  const emp   = document.getElementById('review-filter-emp').value;
+  const trust = document.getElementById('review-filter-trust').value;
+  let url = '/api/all-reviews?limit=100';
+  if (dt)    url += '&date=' + dt;
+  if (emp)   url += '&employee=' + encodeURIComponent(emp);
+  if (trust) url += '&trust=' + trust;
+  const r = await fetch(url); const d = await r.json();
+  if (!d.length) {
+    document.getElementById('all-reviews-container').innerHTML =
+      '<p style="color:#999;text-align:center;padding:30px">No reviews found.</p>';
+    return;
+  }
+  function trustBadge(t) {
+    if (t==='trusted') return '<span class="badge badge-green">✓ Trusted</span>';
+    if (t==='watch')   return '<span class="badge badge-yellow">⚠ Watch</span>';
+    return '<span class="badge badge-red">✗ Concern</span>';
+  }
+  const rows = d.map(r => `<tr>
+    <td>${r.entry_date||'—'}</td>
+    <td><b>${r.worker_name||'—'}</b></td>
+    <td>${r.site_address||'—'}</td>
+    <td style="font-weight:700;color:${scoreColor(r.avg_score)}">${r.avg_score||'—'}/10</td>
+    <td style="font-weight:700;color:${scoreColor(r.accuracy_score)}">${r.accuracy_score||'—'}/10</td>
+    <td>${trustBadge(r.trust_level)}</td>
+    <td style="font-size:12px;color:#555">${r.reviewer_name||'—'}</td>
+    <td style="font-size:13px">${r.notes||'—'}</td>
+  </tr>`).join('');
+  document.getElementById('all-reviews-container').innerHTML =
+    `<table><tr>
+      <th>Date</th><th>Employee</th><th>Site</th>
+      <th>Self Score</th><th>Accuracy</th><th>Trust</th>
+      <th>Reviewed By</th><th>Notes</th>
+    </tr>${rows}</table>`;
 }
 
 loadOverview();
@@ -1537,6 +1600,34 @@ def api_checkins():
     if emp: q = q.eq("worker_name", emp)
     q = q.limit(lim)
     return jsonify(q.execute().data or [])
+
+
+@app.route("/api/all-reviews")
+@require_role("owner")
+def api_all_reviews():
+    if not supabase_client:
+        return jsonify([])
+    dt    = request.args.get("date")
+    emp   = request.args.get("employee")
+    trust = request.args.get("trust")
+    lim   = int(request.args.get("limit", 100))
+    # Join reviews with checkins
+    checkins_q = supabase_client.table("checkins").select("id,entry_date,worker_name,site_address,avg_score")
+    if dt:  checkins_q = checkins_q.eq("entry_date", dt)
+    if emp: checkins_q = checkins_q.eq("worker_name", emp)
+    checkins = checkins_q.limit(lim).execute().data or []
+    if not checkins:
+        return jsonify([])
+    c_map = {c["id"]: c for c in checkins}
+    reviews_q = supabase_client.table("reviews").select("*").in_("checkin_id", list(c_map.keys()))
+    if trust: reviews_q = reviews_q.eq("trust_level", trust)
+    reviews = reviews_q.execute().data or []
+    result = []
+    for rv in reviews:
+        c = c_map.get(rv["checkin_id"], {})
+        result.append({**c, **rv})
+    result.sort(key=lambda x: x.get("entry_date",""), reverse=True)
+    return jsonify(result)
 
 
 @app.route("/api/reviews")

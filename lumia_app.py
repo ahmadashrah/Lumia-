@@ -2586,6 +2586,27 @@ def api_reset_employee_password():
 # ---------------------------------------------------------------------------
 # API: MANUAL DAILY REPORTS TRIGGER
 # ---------------------------------------------------------------------------
+@app.route("/api/test-email", methods=["POST"])
+@require_role("owner")
+def api_test_email():
+    """Temporary debug endpoint — sends a test email and returns exact error."""
+    to_email = request.get_json().get("email", OWNER_EMAIL)
+    try:
+        import smtplib as _smtp
+        from email.mime.text import MIMEText as _MIMEText
+        msg = _MIMEText("This is a test email from Lumia.")
+        msg["Subject"] = "Lumia Test Email"
+        msg["From"]    = ZOHO_EMAIL
+        msg["To"]      = to_email
+        with _smtp.SMTP(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as srv:
+            srv.starttls()
+            srv.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+            srv.sendmail(ZOHO_EMAIL, to_email, msg.as_string())
+        return jsonify({"ok": True, "message": f"Test email sent to {to_email}"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
 @app.route("/api/send-daily-reports", methods=["POST"])
 @require_role("owner")
 def api_send_daily_reports():

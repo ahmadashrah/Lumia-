@@ -1316,42 +1316,42 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
 
 def _send_setup_email(name: str, email: str, token: str) -> bool:
-    """Send a password setup email to the employee via Resend API."""
-    resend_key = os.getenv("RESEND_API_KEY", "")
-    if not resend_key:
-        print("[Setup Email] RESEND_API_KEY not set — skipping")
+    """Send a password setup email to the employee via Zoho SMTP."""
+    if not ZOHO_PASSWORD:
+        print("[Setup Email] ZOHO_PASSWORD not set — skipping")
         return False
     base_url = os.getenv("APP_BASE_URL", "https://lumiatest1-production.up.railway.app")
     setup_link = f"{base_url}/set-password?token={token}"
     try:
-        import httpx
-        r = httpx.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {resend_key}"},
-            json={
-                "from": "Lumia <onboarding@resend.dev>",
-                "to": [email],
-                "subject": "Welcome to Lumia — Set Your Password",
-                "html": f"""
-                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-                  <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
-                    <h1 style="margin:0;font-size:28px;letter-spacing:3px">LUMIA</h1>
-                    <p style="margin:4px 0 0;opacity:.8;font-size:13px">Ashrah Painting Operations</p>
-                  </div>
-                  <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
-                    <p style="font-size:16px;color:#333">Hi <strong>{name}</strong>,</p>
-                    <p style="color:#555;margin-top:12px">You've been added to Lumia, the Ashrah Painting check-in system. Click the button below to set your password and get started.</p>
-                    <div style="text-align:center;margin:28px 0">
-                      <a href="{setup_link}" style="background:#1F3864;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px">Set My Password</a>
-                    </div>
-                    <p style="color:#999;font-size:12px;text-align:center">This link expires in 48 hours. If you didn't expect this email, ignore it.</p>
-                  </div>
-                </div>
-                """,
-            },
-            timeout=15,
-        )
-        return r.status_code == 200
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Welcome to Lumia — Set Your Password"
+        msg["From"]    = ZOHO_EMAIL
+        msg["To"]      = email
+        html_body = f"""
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+          <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+            <h1 style="margin:0;font-size:28px;letter-spacing:3px">LUMIA</h1>
+            <p style="margin:4px 0 0;opacity:.8;font-size:13px">Ashrah Painting Operations</p>
+          </div>
+          <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
+            <p style="font-size:16px;color:#333">Hi <strong>{name}</strong>,</p>
+            <p style="color:#555;margin-top:12px">You've been added to Lumia, the Ashrah Painting daily check-in system. Click the button below to set your password and get started.</p>
+            <div style="text-align:center;margin:28px 0">
+              <a href="{setup_link}" style="background:#1F3864;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px">Set My Password</a>
+            </div>
+            <p style="color:#999;font-size:12px;text-align:center">This link expires in 48 hours.<br>If you didn't expect this email, ignore it.</p>
+          </div>
+        </div>
+        """
+        text_body = f"Hi {name},\n\nYou've been added to Lumia. Set your password here:\n{setup_link}\n\nThis link expires in 48 hours."
+        msg.attach(MIMEText(text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+        with smtplib.SMTP(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as server:
+            server.starttls()
+            server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+            server.sendmail(ZOHO_EMAIL, email, msg.as_string())
+        print(f"[Setup Email] Sent to {email}")
+        return True
     except Exception as exc:
         print(f"[Setup Email] Error: {exc}")
         return False

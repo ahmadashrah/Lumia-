@@ -1346,10 +1346,15 @@ def _send_setup_email(name: str, email: str, token: str) -> bool:
         text_body = f"Hi {name},\n\nYou've been added to Lumia. Set your password here:\n{setup_link}\n\nThis link expires in 48 hours."
         msg.attach(MIMEText(text_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
-        with smtplib.SMTP(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as server:
-            server.starttls()
-            server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
-            server.sendmail(ZOHO_EMAIL, email, msg.as_string())
+        if ZOHO_SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as server:
+                server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+                server.sendmail(ZOHO_EMAIL, email, msg.as_string())
+        else:
+            with smtplib.SMTP(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as server:
+                server.starttls()
+                server.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+                server.sendmail(ZOHO_EMAIL, email, msg.as_string())
         print(f"[Setup Email] Sent to {email}")
         return True
     except Exception as exc:
@@ -2598,10 +2603,15 @@ def api_test_email():
         msg["Subject"] = "Lumia Test Email"
         msg["From"]    = ZOHO_EMAIL
         msg["To"]      = to_email
-        with _smtp.SMTP(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as srv:
-            srv.starttls()
-            srv.login(ZOHO_EMAIL, ZOHO_PASSWORD)
-            srv.sendmail(ZOHO_EMAIL, to_email, msg.as_string())
+        if ZOHO_SMTP_PORT == 465:
+            with _smtp.SMTP_SSL(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as srv:
+                srv.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+                srv.sendmail(ZOHO_EMAIL, to_email, msg.as_string())
+        else:
+            with _smtp.SMTP(ZOHO_SMTP_HOST, ZOHO_SMTP_PORT) as srv:
+                srv.starttls()
+                srv.login(ZOHO_EMAIL, ZOHO_PASSWORD)
+                srv.sendmail(ZOHO_EMAIL, to_email, msg.as_string())
         return jsonify({"ok": True, "message": f"Test email sent to {to_email}"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})

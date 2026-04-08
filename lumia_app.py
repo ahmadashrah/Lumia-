@@ -962,7 +962,7 @@ HTML = """<!DOCTYPE html>
     const msgs = document.getElementById('lumiaMessages');
     const div = document.createElement('div');
     div.className = 'lumia-msg ' + role;
-    div.innerHTML = '<div class="bubble">' + text.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+    div.innerHTML = '<div class="bubble">' + text.replace(/\x3c/g,'&lt;').replace(/\n/g,'<br>') + '</div>';
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;
   }

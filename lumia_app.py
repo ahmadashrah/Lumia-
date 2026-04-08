@@ -937,8 +937,10 @@ HTML = """<!DOCTYPE html>
           };
           wrap.appendChild(img); wrap.appendChild(rmBtn);
           previews.appendChild(wrap);
+        } else {
+          status.textContent = 'Upload error: ' + (d.error || 'unknown');
         }
-      } catch(e) { status.textContent = 'Upload failed for ' + file.name; }
+      } catch(e) { status.textContent = 'Upload failed: ' + e.message; }
     }
     status.textContent = uploadedPhotoUrls.length + ' photo(s) ready';
     input.value = '';
@@ -1421,25 +1423,28 @@ def set_password_page():
 @require_employee
 def api_upload_photo():
     if "photo" not in request.files:
-        return jsonify({"error": "No file"}), 400
+        return jsonify({"error": "No file provided"}), 400
     file = request.files["photo"]
     if not file.filename:
         return jsonify({"error": "Empty filename"}), 400
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
     filename = f"{date.today().isoformat()}/{uuid.uuid4().hex}.{ext}"
     file_bytes = file.read()
-    if supabase_client:
-        try:
-            supabase_client.storage.from_("checkin-photos").upload(
-                filename, file_bytes,
-                file_options={"content-type": file.content_type or "image/jpeg"}
-            )
-            public_url = supabase_client.storage.from_("checkin-photos").get_public_url(filename)
-            return jsonify({"url": public_url})
-        except Exception as exc:
-            print(f"[Photo Upload] Error: {exc}")
-            return jsonify({"error": str(exc)}), 500
-    return jsonify({"error": "Storage not configured"}), 500
+    content_type = file.content_type or "image/jpeg"
+    if not supabase_client:
+        return jsonify({"error": "Storage not configured"}), 500
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": content_type, "upsert": "true"}
+        )
+        public_url = supabase_client.storage.from_("checkin-photos").get_public_url(filename)
+        print(f"[Photo Upload] OK → {filename}")
+        return jsonify({"url": public_url})
+    except Exception as exc:
+        print(f"[Photo Upload] Error: {exc}")
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

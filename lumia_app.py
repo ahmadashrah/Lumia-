@@ -523,9 +523,12 @@ HTML = """<!DOCTYPE html>
       </div>
 
       <div class="field">
-        <label id="lbl_site">SITE ADDRESS</label>
-        <input type="text" name="site_address" id="site_address_input"
-               placeholder="e.g. 23 Falcon Rd, Winnipeg, MB" required>
+        <label id="lbl_site">JOB SITE</label>
+        <select name="site_address" id="site_address_input" required
+                style="width:100%;padding:12px 14px;border:1.5px solid #dce2ef;border-radius:10px;font-size:15px;color:#222;background:#fafbfd;">
+          <option value="">Loading jobs...</option>
+        </select>
+        <input type="hidden" name="job_id" id="job_id_input">
       </div>
 
       <!-- Category Scores -->
@@ -752,7 +755,7 @@ HTML = """<!DOCTYPE html>
     document.getElementById('lbl_name').textContent      = t.name;
     document.getElementById('lbl_selectName').textContent = t.selectName;
     document.getElementById('lbl_site').textContent      = t.site;
-    document.getElementById('site_address_input').placeholder = t.sitePh;
+    // site is now a dropdown, no placeholder needed
     document.getElementById('lbl_rateWork').textContent  = t.rateWork;
     document.getElementById('lbl_addOwn').textContent    = t.addOwn;
     document.getElementById('lbl_addOwnNote').textContent= t.addOwnNote;
@@ -937,14 +940,38 @@ HTML = """<!DOCTYPE html>
           };
           wrap.appendChild(img); wrap.appendChild(rmBtn);
           previews.appendChild(wrap);
-        } else {
-          status.textContent = 'Upload error: ' + (d.error || 'unknown');
         }
-      } catch(e) { status.textContent = 'Upload failed: ' + e.message; }
+      } catch(e) { status.textContent = 'Upload failed for ' + file.name; }
     }
     status.textContent = uploadedPhotoUrls.length + ' photo(s) ready';
     input.value = '';
   }
+
+  // -----------------------------------------------------------------------
+  // Load active jobs into site dropdown
+  // -----------------------------------------------------------------------
+  (async function loadJobSites() {
+    try {
+      const r = await fetch('/api/active-jobs');
+      const jobs = await r.json();
+      const sel = document.getElementById('site_address_input');
+      const jobIdInput = document.getElementById('job_id_input');
+      sel.innerHTML = '<option value="">-- Select a job site --</option>';
+      jobs.forEach(j => {
+        const opt = document.createElement('option');
+        opt.value = j.site_address;
+        opt.dataset.jobId = j.id || '';
+        opt.textContent = j.site_address + ' (' + j.client_name + ')';
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', function() {
+        const selected = sel.options[sel.selectedIndex];
+        jobIdInput.value = selected ? (selected.dataset.jobId || '') : '';
+      });
+    } catch(e) {
+      console.error('Failed to load jobs:', e);
+    }
+  })();
 
   // -----------------------------------------------------------------------
   // Lumia Voice Chat
@@ -962,8 +989,8 @@ HTML = """<!DOCTYPE html>
     const msgs = document.getElementById('lumiaMessages');
     const div = document.createElement('div');
     div.className = 'lumia-msg ' + role;
-    var safe = text; try { safe = text.replace(new RegExp(String.fromCharCode(60),'g'),'&amp;lt;').replace(new RegExp(String.fromCharCode(10),'g'),'<br>'); } catch(e){}
-    div.innerHTML = '<div class="bubble">' + safe + '<'+'/'+'div>';
+    var safe = text; try { safe = text.replace(new RegExp(String.fromCharCode(60),'g'),'&lt;').replace(new RegExp(String.fromCharCode(10),'g'),'<br>'); } catch(e){}
+    div.innerHTML = '<div class="bubble">' + safe + '<'+'/div>';
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;
   }
@@ -1011,14 +1038,6 @@ HTML = """<!DOCTYPE html>
 </script>
 </body>
 </html>"""
-
-
-@app.after_request
-def add_no_cache(response):
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
 
 
 @app.route("/")
@@ -1085,7 +1104,7 @@ def submit():
             worker_id="",
             worker_name=employee_name,
             site_address=data.get("site_address", "").strip(),
-            job_id="",
+            job_id=data.get("job_id", "").strip(),
             work_description=text_fields["work_description"],
             self_score=avg_score,
             notes=text_fields["notes"],
@@ -1328,46 +1347,45 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
 def _send_setup_email(name: str, email: str, token: str) -> bool:
     """Send a password setup email to the employee via Resend (ashrah.ai domain)."""
+    import httpx
     resend_key = os.getenv("RESEND_API_KEY", "")
     if not resend_key:
         print("[Setup Email] RESEND_API_KEY not set — skipping")
         return False
     base_url = os.getenv("APP_BASE_URL", "https://lumiatest1-production.up.railway.app")
     setup_link = f"{base_url}/set-password?token={token}"
+    html_body = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+      <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+        <h1 style="margin:0;font-size:28px;letter-spacing:3px">LUMIA</h1>
+        <p style="margin:4px 0 0;opacity:.8;font-size:13px">Ashrah Painting Operations</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
+        <p style="font-size:16px;color:#333">Hi <strong>{name}</strong>,</p>
+        <p style="color:#555;margin-top:12px">You've been added to Lumia, the Ashrah Painting daily check-in system. Click the button below to set your password and get started.</p>
+        <div style="text-align:center;margin:28px 0">
+          <a href="{setup_link}" style="background:#1F3864;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px">Set My Password</a>
+        </div>
+        <p style="color:#999;font-size:12px;text-align:center">This link expires in 48 hours.<br>If you didn't expect this email, ignore it.</p>
+      </div>
+    </div>
+    """
+    text_body = f"Hi {name},\n\nYou've been added to Lumia. Set your password here:\n{setup_link}\n\nThis link expires in 48 hours."
     try:
-        import httpx
         r = httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}"},
             json={
                 "from": "Lumia <lumia@ashrah.ai>",
-                "to": [email],
+                "to":   [email],
                 "subject": "Welcome to Lumia — Set Your Password",
-                "html": f"""
-                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-                  <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
-                    <h1 style="margin:0;font-size:28px;letter-spacing:3px">LUMIA</h1>
-                    <p style="margin:4px 0 0;opacity:.8;font-size:13px">Ashrah Painting Operations</p>
-                  </div>
-                  <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
-                    <p style="font-size:16px;color:#333">Hi <strong>{name}</strong>,</p>
-                    <p style="color:#555;margin-top:12px">You've been added to Lumia, the Ashrah Painting daily check-in system. Click the button below to set your password and get started.</p>
-                    <div style="text-align:center;margin:28px 0">
-                      <a href="{setup_link}" style="background:#1F3864;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px">Set My Password</a>
-                    </div>
-                    <p style="color:#999;font-size:12px;text-align:center">This link expires in 48 hours.<br>If you didn't expect this email, ignore it.</p>
-                  </div>
-                </div>
-                """,
+                "html": html_body,
+                "text": text_body,
             },
             timeout=15,
         )
-        if r.status_code == 200:
-            print(f"[Setup Email] Sent to {email}")
-            return True
-        else:
-            print(f"[Setup Email] Resend error: {r.status_code} {r.text}")
-            return False
+        print(f"[Setup Email] Resend response {r.status_code}: {r.text}")
+        return r.status_code == 200
     except Exception as exc:
         print(f"[Setup Email] Error: {exc}")
         return False
@@ -1429,44 +1447,44 @@ def set_password_page():
 # PHOTO UPLOAD
 # ---------------------------------------------------------------------------
 @app.route("/api/upload-photo", methods=["POST"])
-@require_employee
 def api_upload_photo():
+    if not session.get("employee_name") and not session.get("role"):
+        return jsonify({"error": "Not authenticated"}), 401
     if "photo" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
+        return jsonify({"error": "No file"}), 400
     file = request.files["photo"]
     if not file.filename:
         return jsonify({"error": "Empty filename"}), 400
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
     filename = f"{date.today().isoformat()}/{uuid.uuid4().hex}.{ext}"
     file_bytes = file.read()
-    content_type = file.content_type or "image/jpeg"
-    if not supabase_client:
-        return jsonify({"error": "Storage not configured"}), 500
-    try:
-        supabase_client.storage.from_("checkin-photos").upload(
-            path=filename,
-            file=file_bytes,
-            file_options={"content-type": content_type, "upsert": "true"}
-        )
-        public_url = supabase_client.storage.from_("checkin-photos").get_public_url(filename)
-        print(f"[Photo Upload] OK → {filename}")
-        return jsonify({"url": public_url})
-    except Exception as exc:
-        print(f"[Photo Upload] Error: {exc}")
-        return jsonify({"error": str(exc)}), 500
+    if supabase_client:
+        try:
+            supabase_client.storage.from_("checkin-photos").upload(
+                filename, file_bytes,
+                file_options={"content-type": file.content_type or "image/jpeg"}
+            )
+            public_url = supabase_client.storage.from_("checkin-photos").get_public_url(filename)
+            return jsonify({"url": public_url})
+        except Exception as exc:
+            print(f"[Photo Upload] Error: {exc}")
+            return jsonify({"error": str(exc)}), 500
+    return jsonify({"error": "Storage not configured"}), 500
 
 
 # ---------------------------------------------------------------------------
 # LUMIA VOICE CHAT
 # ---------------------------------------------------------------------------
 @app.route("/api/lumia-chat", methods=["POST"])
-@require_employee
 def api_lumia_chat():
+    # Allow employees, managers, and owners
+    if not session.get("employee_name") and not session.get("role"):
+        return jsonify({"reply": "Please log in first."}), 401
     d = request.get_json()
     message = (d.get("message") or "").strip()
     if not message:
         return jsonify({"reply": "I didn't catch that. Please try again."})
-    employee = session.get("employee_name", "the employee")
+    employee = session.get("employee_name") or session.get("name") or "the team member"
     try:
         client = _anthropic.Anthropic()
         response = client.messages.create(
@@ -1474,8 +1492,9 @@ def api_lumia_chat():
             max_tokens=400,
             system=(
                 "You are Lumia, the friendly operations assistant for Ashrah Painting in Winnipeg, Canada. "
-                f"You are speaking with {employee}, a painter on the team. "
-                "Help them with questions about their daily check-in, job sites, what to write in their reports, "
+                f"You are speaking with {employee}"
+                f"{', the owner' if session.get('role') == 'owner' else ', a manager' if session.get('role') == 'manager' else ', a painter on the team'}. "
+                "Help with questions about daily check-ins, job sites, reports, employee management, "
                 "painting terminology, or any work-related question. "
                 "Keep replies concise and practical — 1-3 sentences max. Be warm and supportive."
             ),
@@ -1731,13 +1750,22 @@ tr:hover td { background:#fafbfd; }
       <div class="field"><label>Work Description</label>
         <textarea name="work_description" placeholder="Describe the job scope, type of work, any special requirements..."></textarea>
       </div>
-      <button type="button" class="btn" id="matchBtn" onclick="matchCrew()">
-        Get AI Crew Recommendation
-      </button>
+      <div class="field">
+        <label>Assign Employees</label>
+        <div id="job-emp-checkboxes" style="display:flex;flex-wrap:wrap;gap:10px;padding:10px 0;">
+          <span style="color:#999;font-size:13px;">Loading employees...</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
+        <button type="button" class="btn btn-green" onclick="saveJobDirect()">Save Job</button>
+        <button type="button" class="btn" id="matchBtn" onclick="matchCrew()">
+          Get AI Crew Recommendation
+        </button>
+      </div>
     </form>
     <div id="ai-result" style="display:none" class="ai-result"></div>
-    <div id="assign-btns" style="display:none;margin-top:16px;gap:12px;display:none">
-      <button class="btn btn-green" onclick="assignJob()">Confirm & Notify Employees</button>
+    <div id="assign-btns" style="display:none;margin-top:16px;gap:12px;">
+      <button class="btn btn-green" onclick="assignJob()">Confirm & Save Job</button>
     </div>
   </div>
   <div class="card">
@@ -1834,7 +1862,7 @@ function showTab(name) {
   if (name === 'overview')   loadOverview();
   if (name === 'checkins')   loadCheckins();
   if (name === 'reviews')    loadAllReviews();
-  if (name === 'jobs')       loadJobs();
+  if (name === 'jobs')       { loadJobs(); loadJobEmployeeCheckboxes(); }
   if (name === 'employees')  loadEmployees();
   if (name === 'managers')   loadManagers();
   if (name === 'clients')    loadClients();
@@ -1871,12 +1899,16 @@ async function loadCheckins() {
   let url = '/api/checkins?limit=50';
   if (dt) url += '&date=' + dt; if (emp) url += '&employee=' + encodeURIComponent(emp);
   const r = await fetch(url); const d = await r.json();
-  const rows = d.map(c => `<tr>
+  const rows = d.map(c => {
+    const photos = (c.photo_urls||'').split(',').filter(u=>u.trim());
+    const photoHtml = photos.length ? '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">' + photos.map(u=>'<a href="'+u.trim()+'" target="_blank"><img src="'+u.trim()+'" style="width:40px;height:40px;object-fit:cover;border-radius:4px"><'+'/a>').join('') + '<'+'/div>' : '';
+    return `<tr>
     <td>${c.entry_date}</td><td><b>${c.worker_name}</b></td><td>${c.site_address}</td>
     <td style="color:${scoreColor(c.avg_score)};font-weight:700">${c.avg_score}/10</td>
-    <td>${(c.work_description||'').substring(0,80)}</td>
+    <td>${(c.work_description||'').substring(0,80)}${photoHtml}</td>
     <td><button class="btn btn-sm" onclick="reviewCheckin('${c.id}','${c.worker_name}')">Review</button></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
   document.getElementById('all-checkins').innerHTML =
     '<table><tr><th>Date</th><th>Employee</th><th>Site</th><th>Score</th><th>Summary</th><th></th></tr>' + rows + '</table>';
 }
@@ -1891,7 +1923,10 @@ async function loadJobs() {
   const rows = d.map(j => `<tr>
     <td><b>${j.client_name}</b></td><td>${j.site_address}</td>
     <td>${j.start_date||'—'}</td>
-    <td>${(j.assigned_employees||[]).join(', ')||'—'}</td>
+    <td>
+      <span id="assigned-${j.id}">${(j.assigned_employees||[]).join(', ')||'—'}</span>
+      <button class="btn btn-sm" style="margin-left:8px" onclick="openAssignModal('${j.id}','${j.client_name}')">Assign</button>
+    </td>
     <td><span class="badge ${j.status==='open'?'badge-yellow':'badge-green'}">${j.status}</span></td>
   </tr>`).join('');
   document.getElementById('jobs-list').innerHTML =
@@ -1914,16 +1949,81 @@ async function matchCrew() {
   document.getElementById('assign-btns').style.display = 'flex';
 }
 
+function getSelectedJobEmployees() {
+  return Array.from(document.querySelectorAll('#job-emp-checkboxes input[type=checkbox]:checked')).map(cb => cb.value);
+}
+
+async function saveJobDirect() {
+  const form = document.getElementById('jobForm');
+  const data = Object.fromEntries(new FormData(form));
+  data.assigned_employees = getSelectedJobEmployees();
+  const r = await fetch('/api/save-job', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  const d = await r.json();
+  alert(d.message || 'Job saved!');
+  form.reset();
+  document.querySelectorAll('#job-emp-checkboxes input[type=checkbox]').forEach(cb => cb.checked = false);
+  loadJobs();
+}
+
 async function assignJob() {
   if (!lastRecommendation) return;
   const form = document.getElementById('jobForm');
   const data = Object.fromEntries(new FormData(form));
   data.recommendation = lastRecommendation.result;
+  data.assigned_employees = getSelectedJobEmployees();
   const r = await fetch('/api/save-job', {method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
   const d = await r.json();
-  alert(d.message || 'Job saved and employees notified!');
+  alert(d.message || 'Job saved!');
+  form.reset();
+  document.querySelectorAll('#job-emp-checkboxes input[type=checkbox]').forEach(cb => cb.checked = false);
   loadJobs();
+}
+
+async function openAssignModal(jobId, clientName) {
+  const emps = await fetch('/api/employees').then(r => r.json());
+  const current = document.getElementById('assigned-'+jobId).textContent.split(', ').map(s=>s.trim()).filter(Boolean);
+  const boxes = emps.filter(e=>e.active).map(e =>
+    `<label style="display:flex;align-items:center;gap:6px;margin:4px 0;">
+      <input type="checkbox" value="${e.name}" ${current.includes(e.name)?'checked':''}> ${e.name}
+    </label>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'assign-modal';
+  modal.style = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999';
+  modal.innerHTML = `<div style="background:#fff;border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;">
+    <h3 style="margin:0 0 16px">Assign to: ${clientName}</h3>
+    <div id="modal-emp-boxes">${boxes||'<p style="color:#999">No active employees</p>'}</div>
+    <div style="display:flex;gap:12px;margin-top:20px;">
+      <button class="btn btn-green" onclick="confirmAssign('${jobId}')">Save</button>
+      <button class="btn" onclick="document.getElementById('assign-modal').remove()">Cancel</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function confirmAssign(jobId) {
+  const selected = Array.from(document.querySelectorAll('#modal-emp-boxes input:checked')).map(cb=>cb.value);
+  const r = await fetch('/api/assign-employees', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id:jobId, assigned_employees:selected})});
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('assigned-'+jobId).textContent = selected.join(', ') || '—';
+    document.getElementById('assign-modal').remove();
+  } else {
+    alert('Failed to save assignment');
+  }
+}
+
+async function loadJobEmployeeCheckboxes() {
+  const emps = await fetch('/api/employees').then(r => r.json()).catch(()=>[]);
+  const box = document.getElementById('job-emp-checkboxes');
+  if (!box) return;
+  if (!emps.length) { box.innerHTML = '<span style="color:#999;font-size:13px;">No employees registered yet</span>'; return; }
+  box.innerHTML = emps.filter(e=>e.active).map(e =>
+    `<label style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;font-size:14px;">
+      <input type="checkbox" value="${e.name}"> ${e.name}
+    </label>`).join('');
 }
 
 async function loadEmployees() {
@@ -1936,7 +2036,7 @@ async function loadEmployees() {
       <td>${e.email}</td>
       <td>${e.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>'}</td>
       <td style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-sm" onclick="resetPassword('${e.id}','${e.name}')">Reset PW</button>
+        <button class="btn btn-sm" onclick="resendInvite('${e.id}','${e.name}')">Resend Invite</button>
         ${e.active ? `<button class="btn btn-sm btn-red" onclick="removeEmployee('${e.id}')">Deactivate</button>` : ''}
       </td>
     </tr>`).join('') + '</tbody></table>';
@@ -1960,9 +2060,9 @@ async function removeEmployee(id) {
   loadEmployees();
 }
 
-async function resetPassword(id, name) {
-  if (!confirm('Send a password reset email to ' + name + '?')) return;
-  const r = await fetch('/api/reset-employee-password', { method:'POST',
+async function resendInvite(id, name) {
+  if (!confirm('Resend setup email to ' + name + '?')) return;
+  const r = await fetch('/api/resend-invite', { method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ id }) });
   const j = await r.json();
@@ -2071,6 +2171,120 @@ async function loadAllReviews() {
 }
 
 loadOverview();
+</script>
+
+<style>
+.lumia-fab { position:fixed; bottom:28px; right:20px; width:56px; height:56px;
+  background:#1F3864; color:#fff; border:none; border-radius:50%;
+  font-size:24px; cursor:pointer; box-shadow:0 4px 16px rgba(31,56,100,.35);
+  display:flex; align-items:center; justify-content:center; z-index:1000; transition:transform .2s; }
+.lumia-fab:hover { transform:scale(1.1); }
+.lumia-panel { position:fixed; bottom:96px; right:16px; width:min(360px,calc(100vw - 32px));
+  background:#fff; border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,.18);
+  z-index:999; overflow:hidden; display:none; flex-direction:column; }
+.lumia-panel.open { display:flex; }
+.lumia-panel-header { background:#1F3864; color:#fff; padding:14px 16px;
+  display:flex; align-items:center; justify-content:space-between; }
+.lumia-panel-header h3 { font-size:15px; font-weight:700; letter-spacing:1px; }
+.lumia-panel-close { background:none; border:none; color:#fff; font-size:20px; cursor:pointer; }
+.lumia-messages { flex:1; max-height:260px; overflow-y:auto; padding:12px; }
+.lumia-msg { margin-bottom:10px; }
+.lumia-msg .bubble { display:inline-block; padding:9px 13px; border-radius:12px;
+  font-size:13px; line-height:1.5; max-width:90%; }
+.lumia-msg.user .bubble { background:#1F3864; color:#fff; float:right; border-radius:12px 12px 2px 12px; }
+.lumia-msg.lumia .bubble { background:#f4f6fb; color:#333; border-radius:12px 12px 12px 2px; }
+.lumia-msg::after { content:''; display:block; clear:both; }
+.lumia-input-row { padding:10px 12px; border-top:1px solid #eee; display:flex; gap:8px; align-items:center; }
+.lumia-input-row input { flex:1; padding:9px 12px; border:1.5px solid #dce2ef;
+  border-radius:20px; font-size:14px; outline:none; }
+.lumia-input-row input:focus { border-color:#1F3864; }
+.lumia-send-btn { background:#1F3864; color:#fff; border:none; border-radius:50%;
+  width:36px; height:36px; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.lumia-mic-btn { background:none; border:2px solid #1F3864; border-radius:50%;
+  width:36px; height:36px; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.lumia-mic-btn.recording { background:#d9534f; border-color:#d9534f; color:#fff; }
+.lumia-status { font-size:11px; color:#999; text-align:center; padding:4px; }
+</style>
+
+<button class="lumia-fab" onclick="toggleLumiaPanel()" title="Talk to Lumia">&#129302;</button>
+<div class="lumia-panel" id="lumiaPanel">
+  <div class="lumia-panel-header">
+    <h3>&#129302; LUMIA</h3>
+    <button class="lumia-panel-close" onclick="toggleLumiaPanel()">&#10005;</button>
+  </div>
+  <div class="lumia-messages" id="lumiaMessages">
+    <div class="lumia-msg lumia">
+      <div class="bubble">Hi! I'm Lumia, your operations assistant. Ask me about employees, jobs, reports, or anything work-related.</div>
+    </div>
+  </div>
+  <div class="lumia-status" id="lumiaStatus"></div>
+  <div class="lumia-input-row">
+    <button class="lumia-mic-btn" id="lumiaMicBtn" onclick="toggleLumiaMic()" title="Speak">&#127908;</button>
+    <input type="text" id="lumiaInput" placeholder="Ask Lumia anything..." onkeydown="if(event.key==='Enter')sendLumiaMsg()">
+    <button class="lumia-send-btn" onclick="sendLumiaMsg()">&#10148;</button>
+  </div>
+</div>
+
+<script>
+let lumiaPanelOpen = false;
+let lumiaMicRec = null;
+
+function toggleLumiaPanel() {
+  lumiaPanelOpen = !lumiaPanelOpen;
+  document.getElementById('lumiaPanel').classList.toggle('open', lumiaPanelOpen);
+  if (lumiaPanelOpen) document.getElementById('lumiaInput').focus();
+}
+
+function appendLumiaMsg(role, text) {
+  var msgs = document.getElementById('lumiaMessages');
+  var div = document.createElement('div');
+  div.className = 'lumia-msg ' + role;
+  var safe = text;
+  try { safe = text.replace(new RegExp(String.fromCharCode(60),'g'),'&lt;').replace(new RegExp(String.fromCharCode(10),'g'),'<br>'); } catch(e){}
+  div.innerHTML = '<div class="bubble">' + safe + '<'+'/div>';
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function sendLumiaMsg() {
+  var input = document.getElementById('lumiaInput');
+  var text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendLumiaMsg('user', text);
+  document.getElementById('lumiaStatus').textContent = 'Lumia is thinking...';
+  try {
+    var res = await fetch('/api/lumia-chat', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text })
+    });
+    var d = await res.json();
+    appendLumiaMsg('lumia', d.reply || 'Sorry, I could not respond right now.');
+  } catch(e) {
+    appendLumiaMsg('lumia', 'Connection error. Please try again.');
+  }
+  document.getElementById('lumiaStatus').textContent = '';
+}
+
+function toggleLumiaMic() {
+  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) { alert('Voice not supported in this browser.'); return; }
+  var btn = document.getElementById('lumiaMicBtn');
+  if (lumiaMicRec) { lumiaMicRec.stop(); return; }
+  var rec = new SpeechRec();
+  rec.lang = 'en-US';
+  rec.continuous = false;
+  rec.interimResults = false;
+  btn.classList.add('recording');
+  lumiaMicRec = rec;
+  rec.onresult = function(e) {
+    document.getElementById('lumiaInput').value = e.results[0][0].transcript;
+    sendLumiaMsg();
+  };
+  rec.onend = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
+  rec.onerror = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
+  rec.start();
+}
 </script>
 </body></html>"""
 
@@ -2198,6 +2412,8 @@ async function _loadReviews(dt) {
       ${c.custom_scores ? `<div class="section-label" style="margin-top:10px">Custom Scores</div><div class="summary">${c.custom_scores}</div>` : ''}
       ${c.notes ? `<div class="meta" style="margin-top:8px">Notes: ${c.notes}</div>` : ''}
 
+      ${c.photo_urls ? '<div class="section-label" style="margin-top:10px">Photos<'+'/div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">' + c.photo_urls.split(',').filter(u=>u.trim()).map(u=>'<a href="'+u.trim()+'" target="_blank"><img src="'+u.trim()+'" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #dce2ef"><'+'/a>').join('') + '<'+'/div>' : ''}
+
       <hr style="margin:16px 0;border:none;border-top:1px solid #f0f2f7">
       <div class="section-label">Manager Review</div>
 
@@ -2262,9 +2478,22 @@ async function submitReview(checkinId) {
 }
 
 async function loadReviews() {
-  const dt = document.getElementById('review-date').value;
   const urlParams = new URLSearchParams(window.location.search);
   const targetId  = urlParams.get('checkin_id');
+  let dt = document.getElementById('review-date').value;
+
+  // If we have a target check-in, fetch its date so we load the right day
+  if (targetId) {
+    try {
+      const r = await fetch('/api/checkin/' + targetId);
+      const ci = await r.json();
+      if (ci && ci.entry_date) {
+        dt = ci.entry_date;
+        document.getElementById('review-date').value = dt;
+      }
+    } catch(e) {}
+  }
+
   await _loadReviews(dt);
   if (targetId) {
     setTimeout(() => {
@@ -2279,6 +2508,120 @@ async function loadReviews() {
 
 loadReviews();
 </script>
+
+<style>
+.lumia-fab { position:fixed; bottom:28px; right:20px; width:56px; height:56px;
+  background:#1F3864; color:#fff; border:none; border-radius:50%;
+  font-size:24px; cursor:pointer; box-shadow:0 4px 16px rgba(31,56,100,.35);
+  display:flex; align-items:center; justify-content:center; z-index:1000; transition:transform .2s; }
+.lumia-fab:hover { transform:scale(1.1); }
+.lumia-panel { position:fixed; bottom:96px; right:16px; width:min(360px,calc(100vw - 32px));
+  background:#fff; border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,.18);
+  z-index:999; overflow:hidden; display:none; flex-direction:column; }
+.lumia-panel.open { display:flex; }
+.lumia-panel-header { background:#1F3864; color:#fff; padding:14px 16px;
+  display:flex; align-items:center; justify-content:space-between; }
+.lumia-panel-header h3 { font-size:15px; font-weight:700; letter-spacing:1px; }
+.lumia-panel-close { background:none; border:none; color:#fff; font-size:20px; cursor:pointer; }
+.lumia-messages { flex:1; max-height:260px; overflow-y:auto; padding:12px; }
+.lumia-msg { margin-bottom:10px; }
+.lumia-msg .bubble { display:inline-block; padding:9px 13px; border-radius:12px;
+  font-size:13px; line-height:1.5; max-width:90%; }
+.lumia-msg.user .bubble { background:#1F3864; color:#fff; float:right; border-radius:12px 12px 2px 12px; }
+.lumia-msg.lumia .bubble { background:#f4f6fb; color:#333; border-radius:12px 12px 12px 2px; }
+.lumia-msg::after { content:''; display:block; clear:both; }
+.lumia-input-row { padding:10px 12px; border-top:1px solid #eee; display:flex; gap:8px; align-items:center; }
+.lumia-input-row input { flex:1; padding:9px 12px; border:1.5px solid #dce2ef;
+  border-radius:20px; font-size:14px; outline:none; }
+.lumia-input-row input:focus { border-color:#1F3864; }
+.lumia-send-btn { background:#1F3864; color:#fff; border:none; border-radius:50%;
+  width:36px; height:36px; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.lumia-mic-btn { background:none; border:2px solid #1F3864; border-radius:50%;
+  width:36px; height:36px; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.lumia-mic-btn.recording { background:#d9534f; border-color:#d9534f; color:#fff; }
+.lumia-status { font-size:11px; color:#999; text-align:center; padding:4px; }
+</style>
+
+<button class="lumia-fab" onclick="toggleLumiaPanel()" title="Talk to Lumia">&#129302;</button>
+<div class="lumia-panel" id="lumiaPanel">
+  <div class="lumia-panel-header">
+    <h3>&#129302; LUMIA</h3>
+    <button class="lumia-panel-close" onclick="toggleLumiaPanel()">&#10005;</button>
+  </div>
+  <div class="lumia-messages" id="lumiaMessages">
+    <div class="lumia-msg lumia">
+      <div class="bubble">Hi! I'm Lumia. Need help reviewing check-ins or writing notes? Just ask!</div>
+    </div>
+  </div>
+  <div class="lumia-status" id="lumiaStatus"></div>
+  <div class="lumia-input-row">
+    <button class="lumia-mic-btn" id="lumiaMicBtn" onclick="toggleLumiaMic()" title="Speak">&#127908;</button>
+    <input type="text" id="lumiaInput" placeholder="Ask Lumia anything..." onkeydown="if(event.key==='Enter')sendLumiaMsg()">
+    <button class="lumia-send-btn" onclick="sendLumiaMsg()">&#10148;</button>
+  </div>
+</div>
+
+<script>
+let lumiaPanelOpen = false;
+let lumiaMicRec = null;
+
+function toggleLumiaPanel() {
+  lumiaPanelOpen = !lumiaPanelOpen;
+  document.getElementById('lumiaPanel').classList.toggle('open', lumiaPanelOpen);
+  if (lumiaPanelOpen) document.getElementById('lumiaInput').focus();
+}
+
+function appendLumiaMsg(role, text) {
+  var msgs = document.getElementById('lumiaMessages');
+  var div = document.createElement('div');
+  div.className = 'lumia-msg ' + role;
+  var safe = text;
+  try { safe = text.replace(new RegExp(String.fromCharCode(60),'g'),'&lt;').replace(new RegExp(String.fromCharCode(10),'g'),'<br>'); } catch(e){}
+  div.innerHTML = '<div class="bubble">' + safe + '<'+'/div>';
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function sendLumiaMsg() {
+  var input = document.getElementById('lumiaInput');
+  var text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendLumiaMsg('user', text);
+  document.getElementById('lumiaStatus').textContent = 'Lumia is thinking...';
+  try {
+    var res = await fetch('/api/lumia-chat', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text })
+    });
+    var d = await res.json();
+    appendLumiaMsg('lumia', d.reply || 'Sorry, I could not respond right now.');
+  } catch(e) {
+    appendLumiaMsg('lumia', 'Connection error. Please try again.');
+  }
+  document.getElementById('lumiaStatus').textContent = '';
+}
+
+function toggleLumiaMic() {
+  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) { alert('Voice not supported in this browser.'); return; }
+  var btn = document.getElementById('lumiaMicBtn');
+  if (lumiaMicRec) { lumiaMicRec.stop(); return; }
+  var rec = new SpeechRec();
+  rec.lang = 'en-US';
+  rec.continuous = false;
+  rec.interimResults = false;
+  btn.classList.add('recording');
+  lumiaMicRec = rec;
+  rec.onresult = function(e) {
+    document.getElementById('lumiaInput').value = e.results[0][0].transcript;
+    sendLumiaMsg();
+  };
+  rec.onend = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
+  rec.onerror = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
+  rec.start();
+}
+</script>
 </body></html>"""
 
 
@@ -2292,6 +2635,15 @@ def review_page():
 # ---------------------------------------------------------------------------
 # API ENDPOINTS
 # ---------------------------------------------------------------------------
+
+@app.route("/api/checkin/<checkin_id>")
+@require_role("manager", "owner")
+def api_single_checkin(checkin_id):
+    if not supabase_client:
+        return jsonify({})
+    res = supabase_client.table("checkins").select("*").eq("id", checkin_id).execute()
+    return jsonify((res.data or [{}])[0])
+
 
 @app.route("/api/checkins")
 @require_role("manager", "owner")
@@ -2441,6 +2793,24 @@ def api_remove_client(cid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/active-jobs")
+@require_employee
+def api_active_jobs():
+    """Return open jobs assigned to the current employee (or all open jobs if none assigned)."""
+    if not supabase_client:
+        return jsonify([])
+    employee_name = session.get("employee_name", "")
+    all_jobs = (
+        supabase_client.table("jobs").select("id,client_name,site_address,assigned_employees")
+        .eq("status", "open").order("created_at", desc=True).execute().data or []
+    )
+    # Filter to jobs assigned to this employee; fall back to all if nothing assigned anywhere
+    assigned = [j for j in all_jobs if employee_name in (j.get("assigned_employees") or [])]
+    jobs = assigned if assigned else all_jobs
+    # Strip assigned_employees from the response (internal field)
+    return jsonify([{"id": j["id"], "client_name": j["client_name"], "site_address": j["site_address"]} for j in jobs])
+
+
 @app.route("/api/jobs")
 @require_role("owner")
 def api_jobs():
@@ -2517,17 +2887,32 @@ Be specific and reference the data. If trust scores are low, flag it."""
 @require_role("owner")
 def api_save_job():
     d = request.get_json()
+    assigned = d.get("assigned_employees") or []
+    if isinstance(assigned, str):
+        assigned = [assigned] if assigned else []
     if supabase_client:
         supabase_client.table("jobs").insert({
-            "client_name":       d.get("client_name"),
-            "site_address":      d.get("site_address"),
-            "work_description":  d.get("work_description"),
-            "start_date":        d.get("start_date") or None,
-            "painters_needed":   int(d.get("painters_needed", 2)),
-            "status":            "open",
+            "client_name":        d.get("client_name"),
+            "site_address":       d.get("site_address"),
+            "work_description":   d.get("work_description"),
+            "start_date":         d.get("start_date") or None,
+            "painters_needed":    int(d.get("painters_needed", 2)),
+            "status":             "open",
+            "assigned_employees": assigned,
         }).execute()
-    # TODO: email assigned employees (can be added once employees have emails in DB)
-    return jsonify({"message": "Job saved successfully. Employee notification coming soon."})
+    return jsonify({"message": "Job saved successfully."})
+
+
+@app.route("/api/assign-employees", methods=["POST"])
+@require_role("owner")
+def api_assign_employees():
+    d = request.get_json()
+    job_id   = d.get("job_id")
+    assigned = d.get("assigned_employees") or []
+    if not supabase_client or not job_id:
+        return jsonify({"ok": False})
+    supabase_client.table("jobs").update({"assigned_employees": assigned}).eq("id", job_id).execute()
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
@@ -2537,8 +2922,13 @@ def api_save_job():
 @require_role("owner")
 def api_employees():
     if not supabase_client:
-        return jsonify([])
-    return jsonify(supabase_client.table("employees").select("id,name,email,active,created_at").execute().data or [])
+        # Fall back to hardcoded list so job assignment still works
+        return jsonify([{"id": n, "name": n, "email": "", "active": True} for n in EMPLOYEES])
+    db_emps = supabase_client.table("employees").select("id,name,email,active,created_at").execute().data or []
+    if db_emps:
+        return jsonify(db_emps)
+    # DB table is empty — fall back to hardcoded list
+    return jsonify([{"id": n, "name": n, "email": "", "active": True} for n in EMPLOYEES])
 
 
 @app.route("/api/add-employee", methods=["POST"])
@@ -2578,6 +2968,30 @@ def api_remove_employee(emp_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/resend-invite", methods=["POST"])
+@require_role("owner")
+def api_resend_invite():
+    if not supabase_client:
+        return jsonify({"message": "No database"})
+    d = request.get_json()
+    emp_id = d.get("id")
+    if not emp_id:
+        return jsonify({"message": "Employee ID is required."})
+    try:
+        res = supabase_client.table("employees").select("name,email").eq("id", emp_id).execute()
+        emp = (res.data or [{}])[0]
+        token   = secrets.token_urlsafe(32)
+        expires = (datetime.utcnow() + timedelta(hours=48)).isoformat() + "Z"
+        supabase_client.table("employees").update({
+            "setup_token":         token,
+            "setup_token_expires": expires,
+        }).eq("id", emp_id).execute()
+        sent = _send_setup_email(emp.get("name",""), emp.get("email",""), token)
+        return jsonify({"message": f"Setup email {'sent to ' + emp.get('email','') if sent else 'failed — check RESEND_API_KEY'}."})
+    except Exception as exc:
+        return jsonify({"message": f"Error: {exc}"})
+
+
 @app.route("/api/reset-employee-password", methods=["POST"])
 @require_role("owner")
 def api_reset_employee_password():
@@ -2605,35 +3019,6 @@ def api_reset_employee_password():
 # ---------------------------------------------------------------------------
 # API: MANUAL DAILY REPORTS TRIGGER
 # ---------------------------------------------------------------------------
-@app.route("/api/test-email", methods=["POST"])
-@require_role("owner")
-def api_test_email():
-    """Temporary debug endpoint — sends a test email via Resend and returns result."""
-    to_email = request.get_json().get("email", OWNER_EMAIL)
-    resend_key = os.getenv("RESEND_API_KEY", "")
-    if not resend_key:
-        return jsonify({"ok": False, "error": "RESEND_API_KEY not set"})
-    try:
-        import httpx
-        r = httpx.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {resend_key}"},
-            json={
-                "from": "Lumia <lumia@ashrah.ai>",
-                "to": [to_email],
-                "subject": "Lumia Test Email",
-                "text": "This is a test email from Lumia. If you received this, email is working!",
-            },
-            timeout=15,
-        )
-        if r.status_code == 200:
-            return jsonify({"ok": True, "message": f"Test email sent to {to_email}"})
-        else:
-            return jsonify({"ok": False, "error": f"Resend {r.status_code}: {r.text}"})
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)})
-
-
 @app.route("/api/send-daily-reports", methods=["POST"])
 @require_role("owner")
 def api_send_daily_reports():

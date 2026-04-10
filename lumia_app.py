@@ -1461,6 +1461,126 @@ def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
     return emailed
 
 
+def _lookup_client_for_job(job_info: dict) -> dict | None:
+    """Find client email/name by matching job site_address against clients table + hardcoded CLIENTS."""
+    site_lower = (job_info.get("site_address") or "").lower()
+    # Check hardcoded CLIENTS first
+    for keyword, info in CLIENTS.items():
+        if keyword in site_lower:
+            return info
+    # Check Supabase clients table
+    if supabase_client:
+        try:
+            rows = supabase_client.table("clients").select("client_name,client_email,site_keyword").execute().data or []
+            for row in rows:
+                kw = (row.get("site_keyword") or "").lower().strip()
+                if kw and kw in site_lower:
+                    return {"client_name": row["client_name"], "client_email": row["client_email"]}
+        except Exception as exc:
+            print(f"[Client Lookup] Error: {exc}")
+    return None
+
+
+def _notify_client_of_assignment(job_info: dict, employee_names: list) -> bool:
+    """Email the client to let them know which painters are assigned to their project."""
+    import httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        print("[Client Assignment Email] RESEND_API_KEY not set — skipping")
+        return False
+    client = _lookup_client_for_job(job_info)
+    if not client:
+        print(f"[Client Assignment Email] No client found for site: {job_info.get('site_address')}")
+        return False
+
+    client_email = client["client_email"]
+    client_name  = client["client_name"]
+    names_list   = ", ".join(employee_names) if employee_names else "TBD"
+    start_date   = job_info.get("start_date") or "TBD"
+    site         = job_info.get("site_address") or "—"
+    description  = job_info.get("work_description") or "—"
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+      <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+        <h1 style="margin:0;font-size:26px;letter-spacing:2px">Ashrah Painting</h1>
+        <p style="margin:6px 0 0;opacity:.8;font-size:13px">Professional Painting Services</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
+        <p style="font-size:16px;color:#333;margin:0 0 16px">Dear <strong>{client_name}</strong>,</p>
+        <p style="color:#555;margin:0 0 20px;">We're pleased to confirm your upcoming painting project. Here are the details:</p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;color:#333;">
+          <tr style="background:#f4f6fb;">
+            <td style="padding:10px 14px;font-weight:600;width:140px;border-radius:6px 0 0 6px;">Site</td>
+            <td style="padding:10px 14px;">{site}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 14px;font-weight:600;">Start Date</td>
+            <td style="padding:10px 14px;">{start_date}</td>
+          </tr>
+          <tr style="background:#f4f6fb;">
+            <td style="padding:10px 14px;font-weight:600;">Assigned Crew</td>
+            <td style="padding:10px 14px;"><strong>{names_list}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding:10px 14px;font-weight:600;">Scope of Work</td>
+            <td style="padding:10px 14px;">{description}</td>
+          </tr>
+        </table>
+        <p style="color:#555;margin:20px 0 0;">Our crew will check in daily and you will receive end-of-day progress reports. If you have any questions, please don't hesitate to reach out.</p>
+        <p style="color:#555;margin:16px 0 0;">Thank you for choosing Ashrah Painting!</p>
+      </div>
+    </div>"""
+
+    text = (
+        f"Dear {client_name},\n\n"
+        f"We're pleased to confirm your painting project:\n\n"
+        f"Site: {site}\n"
+        f"Start Date: {start_date}\n"
+        f"Assigned Crew: {names_list}\n"
+        f"Scope of Work: {description}\n\n"
+        f"Our crew will check in daily and you will receive end-of-day progress reports.\n\n"
+        f"Thank you for choosing Ashrah Painting!"
+    )
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={
+                "from":    "Ashrah Painting <lumia@ashrah.ai>",
+                "to":      [client_email],
+                "cc":      [OWNER_EMAIL],
+                "subject": f"Your Painting Project — Crew Assignment Confirmed",
+                "html":    html,
+                "text":    text,
+            },
+            timeout=15,
+        )
+        success = r.status_code in (200, 201)
+        print(f"[Client Assignment Email] {'Sent' if success else 'Failed'} → {client_email} ({r.status_code})")
+        return success
+    except Exception as exc:
+        print(f"[Client Assignment Email] Error: {exc}")
+        return False
+
+
+def _log_assignment(job_info: dict, employee_names: list, client_notified: bool) -> None:
+    """Record the crew assignment in job_notifications table."""
+    if not supabase_client:
+        return
+    try:
+        supabase_client.table("job_notifications").insert({
+            "job_id":           job_info.get("id") or job_info.get("site_address"),
+            "site_address":     job_info.get("site_address"),
+            "client_name":      job_info.get("client_name"),
+            "assigned_crew":    employee_names,
+            "client_notified":  client_notified,
+            "notified_at":      datetime.utcnow().isoformat() + "Z",
+        }).execute()
+    except Exception as exc:
+        print(f"[Assignment Log] Error: {exc}")
+
+
 @app.route("/set-password", methods=["GET", "POST"])
 def set_password_page():
     token = request.args.get("token") or request.form.get("token", "")
@@ -1847,6 +1967,12 @@ tr:hover td { background:#fafbfd; }
     <h2>Active Jobs</h2>
     <div id="jobs-list"><p style="color:#999">Loading...</p></div>
   </div>
+
+  <div class="card">
+    <h2>Assignment Notifications Log</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">Record of every crew assignment — including whether the client was notified by email.</p>
+    <div id="assignment-log"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
 </div>
 
 <!-- EMPLOYEES -->
@@ -2027,7 +2153,35 @@ let _cachedEmps = [];
 let _jobs = [];
 
 async function initJobsTab() {
-  await Promise.all([loadJobs(), loadEmpCheckboxes()]);
+  await Promise.all([loadJobs(), loadEmpCheckboxes(), loadAssignmentLog()]);
+}
+
+async function loadAssignmentLog() {
+  const el = document.getElementById('assignment-log');
+  if (!el) return;
+  try {
+    const logs = await fetch('/api/assignment-log').then(r => r.json());
+    if (!logs.length) { el.innerHTML = '<p style="color:#999;font-size:13px;">No assignments logged yet.</p>'; return; }
+    const table = document.createElement('table');
+    table.innerHTML = '<thead><tr><th>Date</th><th>Client</th><th>Site</th><th>Crew Assigned</th><th>Client Emailed</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    logs.forEach(r => {
+      const tr = document.createElement('tr');
+      const notified = r.client_notified
+        ? '<span class="badge badge-green">Yes</span>'
+        : '<span class="badge badge-red">No</span>';
+      const crew = (r.assigned_crew || []).join(', ') || '—';
+      const dt = r.notified_at ? new Date(r.notified_at).toLocaleString() : '—';
+      tr.innerHTML = '<td>' + dt + '</td><td><b>' + (r.client_name||'—') + '</b></td>' +
+        '<td>' + (r.site_address||'—') + '</td><td>' + crew + '</td><td>' + notified + '</td>';
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    el.innerHTML = '';
+    el.appendChild(table);
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading log.</p>';
+  }
 }
 
 async function loadEmpCheckboxes() {
@@ -2178,7 +2332,8 @@ async function doAssign(jobId, idx) {
       if (label) label.textContent = selected.join(', ') || '—';
       if (_jobs[idx]) _jobs[idx].assigned_employees = selected;
       document.getElementById('assign-modal').remove();
-      if (d.emailed && d.emailed.length) alert('Notified: ' + d.emailed.join(', '));
+      loadAssignmentLog();
+      if (d.emailed && d.emailed.length) alert('Crew notified: ' + d.emailed.join(', ') + (d.client_notified ? '\nClient email sent.' : '\nClient not found — no client email sent.'));
     } else { alert('Error: ' + (d.error || 'Failed')); }
   } catch(e) { alert('Network error'); }
 }
@@ -3146,14 +3301,16 @@ def api_save_job():
     }
     if supabase_client:
         supabase_client.table("jobs").insert(job_info).execute()
-    # Email assigned employees in background
-    emailed = []
+
+    def _send_all():
+        _notify_assigned_employees(job_info, assigned)
+        client_notified = _notify_client_of_assignment(job_info, assigned)
+        _log_assignment(job_info, assigned, client_notified)
+
     if assigned:
-        def _send():
-            return _notify_assigned_employees(job_info, assigned)
-        t = threading.Thread(target=_send, daemon=True)
-        t.start()
-    msg = f"Job saved! Notifying {', '.join(assigned)}." if assigned else "Job saved (no employees assigned)."
+        threading.Thread(target=_send_all, daemon=True).start()
+
+    msg = f"Job saved! Crew ({', '.join(assigned)}) notified. Client email sent." if assigned else "Job saved (no employees assigned)."
     return jsonify({"message": msg})
 
 
@@ -3166,12 +3323,29 @@ def api_assign_employees():
     if not supabase_client or not job_id:
         return jsonify({"ok": False, "error": "Missing data"})
     supabase_client.table("jobs").update({"assigned_employees": assigned}).eq("id", job_id).execute()
-    # Get job info for the email
     job_row = (supabase_client.table("jobs").select("*").eq("id", job_id).execute().data or [None])[0]
     emailed = []
+    client_notified = False
     if assigned and job_row:
         emailed = _notify_assigned_employees(job_row, assigned)
-    return jsonify({"ok": True, "emailed": emailed})
+        client_notified = _notify_client_of_assignment(job_row, assigned)
+        _log_assignment(job_row, assigned, client_notified)
+    return jsonify({"ok": True, "emailed": emailed, "client_notified": client_notified})
+
+
+@app.route("/api/assignment-log")
+@require_role("owner")
+def api_assignment_log():
+    """Return crew assignment notification history."""
+    if not supabase_client:
+        return jsonify([])
+    try:
+        rows = supabase_client.table("job_notifications") \
+            .select("*").order("notified_at", desc=True).limit(50).execute().data or []
+        return jsonify(rows)
+    except Exception as exc:
+        print(f"[Assignment Log] Fetch error: {exc}")
+        return jsonify([])
 
 
 # ---------------------------------------------------------------------------

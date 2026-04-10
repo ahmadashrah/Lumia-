@@ -1739,6 +1739,7 @@ tr:hover td { background:#fafbfd; }
   <div class="tab" onclick="showTab('employees')">Employees</div>
   <div class="tab" onclick="showTab('managers')">Managers</div>
   <div class="tab" onclick="showTab('clients')">Clients</div>
+  <div class="tab" onclick="showTab('reports')">Reports</div>
 </div>
 
 <!-- OVERVIEW -->
@@ -1868,12 +1869,41 @@ tr:hover td { background:#fafbfd; }
     <h2>Registered Employees</h2>
     <div id="employees-list"><p style="color:#999">Loading...</p></div>
   </div>
+</div>
+
+<!-- REPORTS -->
+<div class="page" id="tab-reports">
+
   <div class="card">
-    <h2>Send Daily Reports Now</h2>
-    <p style="font-size:13px;color:#666;margin-bottom:14px;">Reports automatically send at 6:00 PM Winnipeg time. Click below to send immediately for today.</p>
-    <button class="btn btn-green" onclick="sendDailyReports()">&#128229; Send Reports Now</button>
-    <div id="daily-report-msg" style="margin-top:12px;font-size:13px;color:#2e7d32;"></div>
+    <h2>Send All Client Reports Now</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">
+      Sends a consolidated daily report to every client who has check-ins today.
+    </p>
+    <button class="btn btn-green" id="sendAllBtn" onclick="sendAllReports()">&#128229; Send All Reports Now</button>
+    <div id="send-all-msg" style="margin-top:12px;font-size:13px;"></div>
   </div>
+
+  <div class="card">
+    <h2>Send Report to Specific Client</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">
+      Pick a client and send their report immediately regardless of check-ins.
+    </p>
+    <div id="client-report-list"><p style="color:#999;font-size:13px;">Loading clients...</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Auto-Send Schedule</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">
+      Reports currently auto-send at <strong id="current-schedule-time">loading...</strong> (Winnipeg time). Change the time below.
+    </p>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <input type="time" id="schedule-time-input"
+             style="padding:10px 14px;border:1.5px solid #dce2ef;border-radius:8px;font-size:15px;">
+      <button class="btn btn-green" onclick="saveSchedule()">Save Schedule</button>
+    </div>
+    <div id="schedule-msg" style="margin-top:12px;font-size:13px;"></div>
+  </div>
+
 </div>
 
 <!-- MANAGERS -->
@@ -1940,6 +1970,7 @@ function showTab(name) {
   if (name === 'employees')  loadEmployees();
   if (name === 'managers')   loadManagers();
   if (name === 'clients')    loadClients();
+  if (name === 'reports')    initReportsTab();
 }
 
 function scoreColor(v) {
@@ -2195,13 +2226,97 @@ async function resendInvite(id, name) {
   alert(j.message);
 }
 
-async function sendDailyReports() {
-  const btn = event.target;
+// ── REPORTS TAB ─────────────────────────────────────────────────────────────
+async function initReportsTab() {
+  loadReportSchedule();
+  loadClientReportList();
+}
+
+async function sendAllReports() {
+  const btn = document.getElementById('sendAllBtn');
+  const msg = document.getElementById('send-all-msg');
   btn.disabled = true; btn.textContent = 'Sending...';
-  const r = await fetch('/api/send-daily-reports', { method:'POST' });
-  const j = await r.json();
-  document.getElementById('daily-report-msg').textContent = j.message;
-  btn.disabled = false; btn.innerHTML = '&#128229; Send Reports Now';
+  msg.textContent = ''; msg.style.color = '#2e7d32';
+  try {
+    const r = await fetch('/api/send-daily-reports', { method: 'POST' });
+    const j = await r.json();
+    msg.textContent = j.message;
+  } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
+  btn.disabled = false; btn.innerHTML = '&#128229; Send All Reports Now';
+}
+
+async function loadClientReportList() {
+  const el = document.getElementById('client-report-list');
+  try {
+    const clients = await fetch('/api/clients').then(r => r.json());
+    if (!clients.length) {
+      el.innerHTML = '<p style="color:#999;font-size:13px;">No clients registered yet. Add them in the Clients tab.</p>';
+      return;
+    }
+    el.innerHTML = '';
+    clients.forEach(c => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eee;gap:12px;flex-wrap:wrap;';
+      row.innerHTML = '<div><b>' + c.client_name + '</b><br><span style="font-size:12px;color:#888;">' + c.client_email + '</span></div>';
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-sm btn-green';
+      btn.textContent = 'Send Report Now';
+      const statusEl = document.createElement('span');
+      statusEl.style.cssText = 'font-size:12px;color:#2e7d32;';
+      btn.onclick = async function() {
+        btn.disabled = true; btn.textContent = 'Sending...';
+        statusEl.textContent = '';
+        try {
+          const r = await fetch('/api/send-client-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client_id: c.id, client_name: c.client_name, client_email: c.client_email, site_keyword: c.site_keyword })
+          });
+          const j = await r.json();
+          statusEl.textContent = j.message;
+          statusEl.style.color = j.ok ? '#2e7d32' : '#c62828';
+        } catch(e) { statusEl.textContent = 'Error'; statusEl.style.color = '#c62828'; }
+        btn.disabled = false; btn.textContent = 'Send Report Now';
+      };
+      const right = document.createElement('div');
+      right.style.cssText = 'display:flex;align-items:center;gap:10px;';
+      right.appendChild(btn);
+      right.appendChild(statusEl);
+      row.appendChild(right);
+      el.appendChild(row);
+    });
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading clients.</p>';
+  }
+}
+
+async function loadReportSchedule() {
+  try {
+    const j = await fetch('/api/report-schedule').then(r => r.json());
+    const display = document.getElementById('current-schedule-time');
+    const input   = document.getElementById('schedule-time-input');
+    if (display) display.textContent = j.time || '18:00';
+    if (input)   input.value = j.time || '18:00';
+  } catch(e) {}
+}
+
+async function saveSchedule() {
+  const input = document.getElementById('schedule-time-input');
+  const msg   = document.getElementById('schedule-msg');
+  const time  = input.value;
+  if (!time) { msg.textContent = 'Please pick a time.'; msg.style.color = '#c62828'; return; }
+  msg.textContent = 'Saving...'; msg.style.color = '#666';
+  try {
+    const r = await fetch('/api/report-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ time })
+    });
+    const j = await r.json();
+    msg.textContent = j.message;
+    msg.style.color = j.ok ? '#2e7d32' : '#c62828';
+    if (j.ok) document.getElementById('current-schedule-time').textContent = time;
+  } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
 }
 
 async function loadManagers() {
@@ -3167,7 +3282,129 @@ def api_reset_employee_password():
 @require_role("owner")
 def api_send_daily_reports():
     threading.Thread(target=_run_daily_reports, daemon=True).start()
-    return jsonify({"message": "Daily reports are being sent in the background."})
+    return jsonify({"message": "Reports are being sent to all clients with check-ins today."})
+
+
+@app.route("/api/send-client-report", methods=["POST"])
+@require_role("owner")
+def api_send_client_report():
+    """Send today's report to one specific client immediately."""
+    d = request.get_json()
+    client_email   = (d.get("client_email") or "").strip()
+    client_name    = (d.get("client_name") or "").strip()
+    site_keyword   = (d.get("site_keyword") or "").strip().lower()
+    if not client_email or not site_keyword:
+        return jsonify({"ok": False, "message": "Missing client email or site keyword."})
+
+    today = date.today().isoformat()
+    if not supabase_client:
+        return jsonify({"ok": False, "message": "Database not connected."})
+
+    checkins = supabase_client.table("checkins").select("*") \
+        .eq("entry_date", today).execute().data or []
+    # Filter to this client's site
+    entries = [c for c in checkins if site_keyword in (c.get("site_address") or "").lower()]
+
+    if not entries:
+        return jsonify({"ok": False, "message": f"No check-ins found today for '{site_keyword}'."})
+
+    crew = [e["worker_name"] for e in entries]
+    work_completed = "\n\n".join(
+        f"{e['worker_name']}: {e.get('work_description','')}" for e in entries if e.get("work_description")
+    )
+    plans = [e.get("tomorrows_plan","") for e in entries if e.get("tomorrows_plan")]
+
+    tracker = WorkforceTracker()
+    for name in crew:
+        tracker.add_worker(Worker(worker_id=name, name=name, role="Painter", status="active"))
+
+    dr = DailyReport(
+        report_date=date.fromisoformat(today),
+        job_id="",
+        site_address=entries[0].get("site_address",""),
+        client_name=client_name,
+        client_email=client_email,
+        crew_present=crew,
+        work_completed=work_completed,
+        work_planned=" | ".join(plans),
+        issues="",
+        overall_status="On Schedule",
+    )
+
+    try:
+        reporter = DailyReportSender(
+            client=_anthropic.Anthropic(),
+            smtp_host=ZOHO_SMTP_HOST,
+            smtp_port=ZOHO_SMTP_PORT,
+            user=ZOHO_EMAIL,
+            password=ZOHO_PASSWORD,
+            from_email=ZOHO_EMAIL,
+        )
+        content = reporter.generate(dr, tracker)
+        sent = reporter.send(content, to_email=client_email, cc_emails=[OWNER_EMAIL])
+        if sent:
+            return jsonify({"ok": True, "message": f"Report sent to {client_email}."})
+        return jsonify({"ok": False, "message": "Report generated but email failed to send."})
+    except Exception as exc:
+        return jsonify({"ok": False, "message": f"Error: {exc}"})
+
+
+@app.route("/api/report-schedule", methods=["GET"])
+@require_role("owner")
+def api_get_report_schedule():
+    """Return the current auto-send time."""
+    hour, minute = 18, 0
+    if supabase_client:
+        try:
+            row = supabase_client.table("settings").select("value") \
+                .eq("key", "report_schedule_time").execute().data
+            if row:
+                hour, minute = map(int, row[0]["value"].split(":"))
+        except Exception:
+            pass
+    return jsonify({"ok": True, "time": f"{hour:02d}:{minute:02d}"})
+
+
+@app.route("/api/report-schedule", methods=["POST"])
+@require_role("owner")
+def api_set_report_schedule():
+    """Update the auto-send time and reschedule the job."""
+    d = request.get_json()
+    time_str = (d.get("time") or "").strip()
+    try:
+        hour, minute = map(int, time_str.split(":"))
+        assert 0 <= hour <= 23 and 0 <= minute <= 59
+    except Exception:
+        return jsonify({"ok": False, "message": "Invalid time format. Use HH:MM."})
+
+    # Persist to Supabase settings table
+    if supabase_client:
+        try:
+            existing = supabase_client.table("settings").select("id") \
+                .eq("key", "report_schedule_time").execute().data
+            if existing:
+                supabase_client.table("settings").update({"value": time_str}) \
+                    .eq("key", "report_schedule_time").execute()
+            else:
+                supabase_client.table("settings").insert(
+                    {"key": "report_schedule_time", "value": time_str}
+                ).execute()
+        except Exception as exc:
+            print(f"[Schedule] Could not save to DB: {exc}")
+
+    # Reschedule the APScheduler job
+    try:
+        _scheduler.reschedule_job(
+            "daily_reports",
+            trigger="cron",
+            hour=hour,
+            minute=minute,
+        )
+        print(f"[Scheduler] Rescheduled daily reports to {hour:02d}:{minute:02d} Winnipeg time")
+    except Exception as exc:
+        return jsonify({"ok": False, "message": f"Saved but scheduler error: {exc}"})
+
+    return jsonify({"ok": True, "message": f"Auto-send updated to {time_str} Winnipeg time."})
 
 
 def _run_daily_reports() -> None:

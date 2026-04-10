@@ -1391,6 +1391,76 @@ def _send_setup_email(name: str, email: str, token: str) -> bool:
         return False
 
 
+def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
+    """Email each assigned employee about their new job. Returns list of names emailed."""
+    import httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        print("[Job Email] RESEND_API_KEY not set — skipping")
+        return []
+    if not employee_names:
+        return []
+    # Look up emails from DB
+    email_map = {}
+    if supabase_client:
+        rows = supabase_client.table("employees").select("name,email").execute().data or []
+        email_map = {r["name"]: r["email"] for r in rows if r.get("email")}
+    emailed = []
+    for name in employee_names:
+        email = email_map.get(name)
+        if not email:
+            print(f"[Job Email] No email for {name} — skipping")
+            continue
+        subject = f"New Job Assignment — {job_info.get('client_name', 'Ashrah Painting')}"
+        html = f"""
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+          <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+            <h1 style="margin:0;font-size:28px;letter-spacing:3px">LUMIA</h1>
+            <p style="margin:4px 0 0;opacity:.8;font-size:13px">Ashrah Painting</p>
+          </div>
+          <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
+            <p style="font-size:16px;color:#333">Hi <strong>{name}</strong>,</p>
+            <p style="color:#555;margin:12px 0;">You have been assigned to a new job:</p>
+            <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;">
+              <tr><td style="padding:6px 0;font-weight:600;width:100px;">Client</td><td style="padding:6px 0;">{job_info.get('client_name','—')}</td></tr>
+              <tr><td style="padding:6px 0;font-weight:600;">Site</td><td style="padding:6px 0;">{job_info.get('site_address','—')}</td></tr>
+              <tr><td style="padding:6px 0;font-weight:600;">Start Date</td><td style="padding:6px 0;">{job_info.get('start_date') or 'TBD'}</td></tr>
+              <tr><td style="padding:6px 0;font-weight:600;">Description</td><td style="padding:6px 0;">{job_info.get('work_description') or '—'}</td></tr>
+            </table>
+            <p style="color:#555;margin:16px 0 0;">Please check in daily using the Lumia app.</p>
+          </div>
+        </div>"""
+        text = (
+            f"Hi {name},\n\nYou have been assigned to a new job:\n\n"
+            f"Client: {job_info.get('client_name','—')}\n"
+            f"Site: {job_info.get('site_address','—')}\n"
+            f"Start Date: {job_info.get('start_date') or 'TBD'}\n"
+            f"Description: {job_info.get('work_description') or '—'}\n\n"
+            f"Please check in daily using the Lumia app.\n\n— Ashrah Painting"
+        )
+        try:
+            r = httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}"},
+                json={
+                    "from": "Lumia <lumia@ashrah.ai>",
+                    "to":   [email],
+                    "subject": subject,
+                    "html": html,
+                    "text": text,
+                },
+                timeout=15,
+            )
+            if r.status_code in (200, 201):
+                emailed.append(name)
+                print(f"[Job Email] Sent to {name} <{email}>")
+            else:
+                print(f"[Job Email] Resend error for {name}: {r.status_code} {r.text}")
+        except Exception as exc:
+            print(f"[Job Email] Error for {name}: {exc}")
+    return emailed
+
+
 @app.route("/set-password", methods=["GET", "POST"])
 def set_password_page():
     token = request.args.get("token") or request.form.get("token", "")
@@ -1730,13 +1800,13 @@ tr:hover td { background:#fafbfd; }
 <!-- JOBS -->
 <div class="page" id="tab-jobs">
   <div class="card">
-    <h2>New Job <span style="font-size:11px;color:#888;font-weight:400">v2</span></h2>
-    <form id="jobForm">
+    <h2>Create Job</h2>
+    <form id="jobForm" onsubmit="return false">
       <div class="form-row">
         <div class="field"><label>Client Name</label>
-          <input type="text" name="client_name" required></div>
+          <input type="text" name="client_name" placeholder="e.g. John Smith" required></div>
         <div class="field"><label>Site Address</label>
-          <input type="text" name="site_address" required></div>
+          <input type="text" name="site_address" placeholder="e.g. 123 Main St, Winnipeg" required></div>
       </div>
       <div class="form-row">
         <div class="field"><label>Start Date</label>
@@ -1748,26 +1818,30 @@ tr:hover td { background:#fafbfd; }
           </select></div>
       </div>
       <div class="field"><label>Work Description</label>
-        <textarea name="work_description" placeholder="Describe the job scope, type of work, any special requirements..."></textarea>
+        <textarea name="work_description" rows="3" placeholder="Describe the job scope, type of work, special requirements..."></textarea>
       </div>
       <div class="field">
-        <label>Assign Employees</label>
-        <div id="job-emp-checkboxes" style="display:flex;flex-wrap:wrap;gap:10px;padding:10px 0;">
+        <label>Assign Employees <span style="font-weight:400;color:#888;font-size:12px;">(they will be emailed)</span></label>
+        <div id="job-emp-list" style="display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;min-height:44px;">
           <span style="color:#999;font-size:13px;">Loading employees...</span>
         </div>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
-        <button type="button" class="btn btn-green" onclick="saveJobDirect()">Save Job</button>
-        <button type="button" class="btn" id="matchBtn" onclick="matchCrew()">
-          Get AI Crew Recommendation
+      <div id="job-msg" style="display:none;font-size:13px;padding:8px 14px;border-radius:8px;margin-bottom:10px;"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-green" id="saveJobBtn" onclick="saveJob()">
+          Save Job &amp; Notify
+        </button>
+        <button type="button" class="btn" id="aiBtn" onclick="getAIRec()">
+          AI Crew Suggestion
         </button>
       </div>
     </form>
-    <div id="ai-result" style="display:none" class="ai-result"></div>
-    <div id="assign-btns" style="display:none;margin-top:16px;gap:12px;">
-      <button class="btn btn-green" onclick="assignJob()">Confirm & Save Job</button>
+    <div id="ai-box" style="display:none;margin-top:16px;padding:16px;background:#f4f6fb;border-radius:10px;border:1px solid #dce2ef;">
+      <h4 style="margin:0 0 8px;font-size:14px;color:#1F3864;">AI Recommendation</h4>
+      <pre id="ai-text" style="white-space:pre-wrap;font-size:13px;color:#333;margin:0;"></pre>
     </div>
   </div>
+
   <div class="card">
     <h2>Active Jobs</h2>
     <div id="jobs-list"><p style="color:#999">Loading...</p></div>
@@ -1862,7 +1936,7 @@ function showTab(name) {
   if (name === 'overview')   loadOverview();
   if (name === 'checkins')   loadCheckins();
   if (name === 'reviews')    loadAllReviews();
-  if (name === 'jobs')       { loadJobs(); loadJobEmployeeCheckboxes(); }
+  if (name === 'jobs')       initJobsTab();
   if (name === 'employees')  loadEmployees();
   if (name === 'managers')   loadManagers();
   if (name === 'clients')    loadClients();
@@ -1917,113 +1991,141 @@ function reviewCheckin(id, name) {
   window.location.href = '/review?checkin_id=' + id;
 }
 
-async function loadJobs() {
-  const r = await fetch('/api/jobs'); const d = await r.json();
-  if (!d.length) { document.getElementById('jobs-list').innerHTML = '<p style="color:#999">No jobs yet.</p>'; return; }
-  const rows = d.map(j => `<tr>
-    <td><b>${j.client_name}</b></td><td>${j.site_address}</td>
-    <td>${j.start_date||'—'}</td>
-    <td>
-      <span id="assigned-${j.id}">${(j.assigned_employees||[]).join(', ')||'—'}</span>
-      <button class="btn btn-sm" style="margin-left:8px" onclick="openAssignModal('${j.id}','${j.client_name}')">Assign</button>
-    </td>
-    <td><span class="badge ${j.status==='open'?'badge-yellow':'badge-green'}">${j.status}</span></td>
-  </tr>`).join('');
-  document.getElementById('jobs-list').innerHTML =
-    '<table><tr><th>Client</th><th>Site</th><th>Start</th><th>Assigned</th><th>Status</th></tr>' + rows + '</table>';
+// ── JOBS TAB ────────────────────────────────────────────────────────────
+let _cachedEmps = [];
+
+async function initJobsTab() {
+  await Promise.all([loadJobs(), loadEmpCheckboxes()]);
 }
 
-async function matchCrew() {
-  const form = document.getElementById('jobForm');
-  const data = Object.fromEntries(new FormData(form));
-  const btn = document.getElementById('matchBtn');
-  btn.innerHTML = '<span class="spinner"></span>Analysing...';
-  btn.disabled = true;
-  const r = await fetch('/api/match-crew', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
-  const d = await r.json();
-  btn.innerHTML = 'Get AI Crew Recommendation'; btn.disabled = false;
-  const el = document.getElementById('ai-result');
-  el.style.display = 'block'; el.textContent = d.result;
-  lastRecommendation = d;
-  document.getElementById('assign-btns').style.display = 'flex';
-}
-
-function getSelectedJobEmployees() {
-  return Array.from(document.querySelectorAll('#job-emp-checkboxes input[type=checkbox]:checked')).map(cb => cb.value);
-}
-
-async function saveJobDirect() {
-  const form = document.getElementById('jobForm');
-  const data = Object.fromEntries(new FormData(form));
-  data.assigned_employees = getSelectedJobEmployees();
-  const r = await fetch('/api/save-job', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
-  const d = await r.json();
-  alert(d.message || 'Job saved!');
-  form.reset();
-  document.querySelectorAll('#job-emp-checkboxes input[type=checkbox]').forEach(cb => cb.checked = false);
-  loadJobs();
-}
-
-async function assignJob() {
-  if (!lastRecommendation) return;
-  const form = document.getElementById('jobForm');
-  const data = Object.fromEntries(new FormData(form));
-  data.recommendation = lastRecommendation.result;
-  data.assigned_employees = getSelectedJobEmployees();
-  const r = await fetch('/api/save-job', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
-  const d = await r.json();
-  alert(d.message || 'Job saved!');
-  form.reset();
-  document.querySelectorAll('#job-emp-checkboxes input[type=checkbox]').forEach(cb => cb.checked = false);
-  loadJobs();
-}
-
-async function openAssignModal(jobId, clientName) {
-  const emps = await fetch('/api/employees').then(r => r.json());
-  const current = document.getElementById('assigned-'+jobId).textContent.split(', ').map(s=>s.trim()).filter(Boolean);
-  const boxes = emps.filter(e=>e.active).map(e =>
-    `<label style="display:flex;align-items:center;gap:6px;margin:4px 0;">
-      <input type="checkbox" value="${e.name}" ${current.includes(e.name)?'checked':''}> ${e.name}
-    </label>`).join('');
-  const modal = document.createElement('div');
-  modal.id = 'assign-modal';
-  modal.style = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999';
-  modal.innerHTML = `<div style="background:#fff;border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;">
-    <h3 style="margin:0 0 16px">Assign to: ${clientName}</h3>
-    <div id="modal-emp-boxes">${boxes||'<p style="color:#999">No active employees</p>'}</div>
-    <div style="display:flex;gap:12px;margin-top:20px;">
-      <button class="btn btn-green" onclick="confirmAssign('${jobId}')">Save</button>
-      <button class="btn" onclick="document.getElementById('assign-modal').remove()">Cancel</button>
-    </div>
-  </div>`;
-  document.body.appendChild(modal);
-}
-
-async function confirmAssign(jobId) {
-  const selected = Array.from(document.querySelectorAll('#modal-emp-boxes input:checked')).map(cb=>cb.value);
-  const r = await fetch('/api/assign-employees', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id:jobId, assigned_employees:selected})});
-  const d = await r.json();
-  if (d.ok) {
-    document.getElementById('assigned-'+jobId).textContent = selected.join(', ') || '—';
-    document.getElementById('assign-modal').remove();
-  } else {
-    alert('Failed to save assignment');
+async function loadEmpCheckboxes() {
+  const box = document.getElementById('job-emp-list');
+  if (!box) return;
+  try {
+    _cachedEmps = await fetch('/api/employees').then(r => r.json());
+    const active = _cachedEmps.filter(e => e.active);
+    if (!active.length) {
+      box.innerHTML = '<span style="color:#c00;font-size:13px;">No active employees — register them in the Employees tab first</span>';
+      return;
+    }
+    box.innerHTML = active.map(e =>
+      '<label style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;' +
+      'border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;font-size:14px;user-select:none;">' +
+      '<input type="checkbox" name="emp_cb" value="' + e.name + '"> ' + e.name + '</label>'
+    ).join('');
+  } catch(err) {
+    box.innerHTML = '<span style="color:#c00;font-size:13px;">Could not load employees</span>';
   }
 }
 
-async function loadJobEmployeeCheckboxes() {
-  const emps = await fetch('/api/employees').then(r => r.json()).catch(()=>[]);
-  const box = document.getElementById('job-emp-checkboxes');
-  if (!box) return;
-  if (!emps.length) { box.innerHTML = '<span style="color:#999;font-size:13px;">No employees registered yet</span>'; return; }
-  box.innerHTML = emps.filter(e=>e.active).map(e =>
-    `<label style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;font-size:14px;">
-      <input type="checkbox" value="${e.name}"> ${e.name}
-    </label>`).join('');
+function checkedEmps(container) {
+  return Array.from((container || document).querySelectorAll('input[name=emp_cb]:checked')).map(c => c.value);
+}
+
+function showJobMsg(text, ok) {
+  const el = document.getElementById('job-msg');
+  el.textContent = text;
+  el.style.display = 'block';
+  el.style.background = ok ? '#e8f5e9' : '#fce4ec';
+  el.style.color = ok ? '#2e7d32' : '#c62828';
+  setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+async function saveJob() {
+  const form = document.getElementById('jobForm');
+  const fd = Object.fromEntries(new FormData(form));
+  if (!fd.client_name || !fd.site_address) { showJobMsg('Client name and site address are required.', false); return; }
+  fd.assigned_employees = checkedEmps(document.getElementById('job-emp-list'));
+  if (!fd.assigned_employees.length) { showJobMsg('Select at least one employee to assign.', false); return; }
+  const btn = document.getElementById('saveJobBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    const r = await fetch('/api/save-job', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(fd)});
+    const d = await r.json();
+    showJobMsg(d.message || 'Job saved!', true);
+    form.reset();
+    document.querySelectorAll('#job-emp-list input').forEach(c => c.checked = false);
+    document.getElementById('ai-box').style.display = 'none';
+    loadJobs();
+  } catch(e) { showJobMsg('Network error', false); }
+  btn.disabled = false; btn.innerHTML = 'Save Job &amp; Notify';
+}
+
+async function getAIRec() {
+  const form = document.getElementById('jobForm');
+  const fd = Object.fromEntries(new FormData(form));
+  const btn = document.getElementById('aiBtn');
+  btn.innerHTML = '<span class="spinner"></span> Analysing...'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/match-crew', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(fd)});
+    const d = await r.json();
+    document.getElementById('ai-text').textContent = d.result;
+    document.getElementById('ai-box').style.display = 'block';
+  } catch(e) { showJobMsg('AI error', false); }
+  btn.textContent = 'AI Crew Suggestion'; btn.disabled = false;
+}
+
+async function loadJobs() {
+  const el = document.getElementById('jobs-list');
+  const d = await fetch('/api/jobs').then(r => r.json()).catch(() => []);
+  if (!d.length) { el.innerHTML = '<p style="color:#999">No jobs yet.</p>'; return; }
+  el.innerHTML = '<table><thead><tr><th>Client</th><th>Site</th><th>Start</th>' +
+    '<th>Assigned</th><th>Status</th><th></th></tr></thead><tbody>' +
+    d.map(j => {
+      const emps = (j.assigned_employees || []).join(', ') || '\u2014';
+      const badge = j.status === 'open' ? 'badge-yellow' : 'badge-green';
+      return '<tr><td><b>' + j.client_name + '</b></td><td>' + j.site_address +
+        '</td><td>' + (j.start_date || '\u2014') + '</td><td><span id="asgn-' + j.id + '">' +
+        emps + '</span></td><td><span class="badge ' + badge + '">' + j.status +
+        '</span></td><td><button class="btn btn-sm" onclick="openAssign(\'' + j.id +
+        "','" + j.client_name.replace(/'/g,"\\'") + '\')">Assign</button></td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+async function openAssign(jobId, clientName) {
+  if (document.getElementById('assign-modal')) return;
+  const emps = _cachedEmps.length ? _cachedEmps : await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
+  const curText = (document.getElementById('asgn-' + jobId) || {}).textContent || '';
+  const current = curText.split(',').map(s => s.trim()).filter(s => s && s !== '\u2014');
+  const active = emps.filter(e => e.active);
+  const modal = document.createElement('div');
+  modal.id = 'assign-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;';
+  modal.innerHTML = '<div style="background:#fff;border-radius:14px;padding:28px 32px;min-width:280px;max-width:380px;width:100%;">' +
+    '<h3 style="margin:0 0 4px;font-size:17px;">Assign Employees</h3>' +
+    '<p style="margin:0 0 16px;color:#666;font-size:13px;">' + clientName + '</p>' +
+    '<div id="modal-boxes" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;">' +
+    active.map(e =>
+      '<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;">' +
+      '<input type="checkbox" name="emp_cb" value="' + e.name + '"' +
+      (current.includes(e.name) ? ' checked' : '') + '> ' + e.name + '</label>'
+    ).join('') +
+    '</div>' +
+    '<div style="display:flex;gap:12px;margin-top:20px;">' +
+    '<button class="btn btn-green" onclick="doAssign(\'' + jobId + '\')">Save &amp; Notify</button>' +
+    '<button class="btn" onclick="document.getElementById(\'assign-modal\').remove()">Cancel</button>' +
+    '</div></div>';
+  document.body.appendChild(modal);
+}
+
+async function doAssign(jobId) {
+  const selected = checkedEmps(document.getElementById('modal-boxes'));
+  const btn = document.querySelector('#assign-modal .btn-green');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    const r = await fetch('/api/assign-employees', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({job_id: jobId, assigned_employees: selected})});
+    const d = await r.json();
+    if (d.ok) {
+      const label = document.getElementById('asgn-' + jobId);
+      if (label) label.textContent = selected.join(', ') || '\u2014';
+      document.getElementById('assign-modal').remove();
+      if (d.emailed && d.emailed.length) alert('Notified: ' + d.emailed.join(', '));
+    } else { alert('Error: ' + (d.error || 'Failed')); }
+  } catch(e) { alert('Network error'); }
 }
 
 async function loadEmployees() {
@@ -2890,17 +2992,26 @@ def api_save_job():
     assigned = d.get("assigned_employees") or []
     if isinstance(assigned, str):
         assigned = [assigned] if assigned else []
+    job_info = {
+        "client_name":        d.get("client_name"),
+        "site_address":       d.get("site_address"),
+        "work_description":   d.get("work_description"),
+        "start_date":         d.get("start_date") or None,
+        "painters_needed":    int(d.get("painters_needed", 2)),
+        "status":             "open",
+        "assigned_employees": assigned,
+    }
     if supabase_client:
-        supabase_client.table("jobs").insert({
-            "client_name":        d.get("client_name"),
-            "site_address":       d.get("site_address"),
-            "work_description":   d.get("work_description"),
-            "start_date":         d.get("start_date") or None,
-            "painters_needed":    int(d.get("painters_needed", 2)),
-            "status":             "open",
-            "assigned_employees": assigned,
-        }).execute()
-    return jsonify({"message": "Job saved successfully."})
+        supabase_client.table("jobs").insert(job_info).execute()
+    # Email assigned employees in background
+    emailed = []
+    if assigned:
+        def _send():
+            return _notify_assigned_employees(job_info, assigned)
+        t = threading.Thread(target=_send, daemon=True)
+        t.start()
+    msg = f"Job saved! Notifying {', '.join(assigned)}." if assigned else "Job saved (no employees assigned)."
+    return jsonify({"message": msg})
 
 
 @app.route("/api/assign-employees", methods=["POST"])
@@ -2910,9 +3021,14 @@ def api_assign_employees():
     job_id   = d.get("job_id")
     assigned = d.get("assigned_employees") or []
     if not supabase_client or not job_id:
-        return jsonify({"ok": False})
+        return jsonify({"ok": False, "error": "Missing data"})
     supabase_client.table("jobs").update({"assigned_employees": assigned}).eq("id", job_id).execute()
-    return jsonify({"ok": True})
+    # Get job info for the email
+    job_row = (supabase_client.table("jobs").select("*").eq("id", job_id).execute().data or [None])[0]
+    emailed = []
+    if assigned and job_row:
+        emailed = _notify_assigned_employees(job_row, assigned)
+    return jsonify({"ok": True, "emailed": emailed})
 
 
 # ---------------------------------------------------------------------------

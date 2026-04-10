@@ -19,7 +19,7 @@ import functools
 import anthropic as _anthropic
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import (Flask, render_template_string, request, jsonify,
-                   session, redirect, url_for)
+                   session, redirect, url_for, make_response)
 from supabase import create_client
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -2394,7 +2394,11 @@ function toggleLumiaMic() {
 @app.route("/owner")
 @require_role("owner")
 def owner_dashboard():
-    return render_template_string(OWNER_HTML, name=session.get("name","Ahmad"), employees=EMPLOYEES)
+    resp = make_response(render_template_string(OWNER_HTML, name=session.get("name","Ahmad"), employees=EMPLOYEES))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 # ---------------------------------------------------------------------------

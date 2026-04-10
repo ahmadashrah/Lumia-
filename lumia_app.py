@@ -1352,7 +1352,7 @@ def _send_setup_email(name: str, email: str, token: str) -> bool:
     if not resend_key:
         print("[Setup Email] RESEND_API_KEY not set — skipping")
         return False
-    base_url = os.getenv("APP_BASE_URL", "https://lumiatest1-production.up.railway.app")
+    base_url = os.getenv("APP_BASE_URL", "https://ashrah.ai")
     setup_link = f"{base_url}/set-password?token={token}"
     html_body = f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">

@@ -1730,7 +1730,7 @@ tr:hover td { background:#fafbfd; }
 <!-- JOBS -->
 <div class="page" id="tab-jobs">
   <div class="card">
-    <h2>New Job</h2>
+    <h2>New Job <span style="font-size:11px;color:#888;font-weight:400">v2</span></h2>
     <form id="jobForm">
       <div class="form-row">
         <div class="field"><label>Client Name</label>

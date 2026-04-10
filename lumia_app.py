@@ -1993,6 +1993,7 @@ function reviewCheckin(id, name) {
 
 // ── JOBS TAB ────────────────────────────────────────────────────────────
 let _cachedEmps = [];
+let _jobs = [];
 
 async function initJobsTab() {
   await Promise.all([loadJobs(), loadEmpCheckboxes()]);
@@ -2069,48 +2070,70 @@ async function getAIRec() {
 
 async function loadJobs() {
   const el = document.getElementById('jobs-list');
-  const d = await fetch('/api/jobs').then(r => r.json()).catch(() => []);
-  if (!d.length) { el.innerHTML = '<p style="color:#999">No jobs yet.</p>'; return; }
-  el.innerHTML = '<table><thead><tr><th>Client</th><th>Site</th><th>Start</th>' +
-    '<th>Assigned</th><th>Status</th><th></th></tr></thead><tbody>' +
-    d.map(j => {
-      const emps = (j.assigned_employees || []).join(', ') || '\u2014';
-      const badge = j.status === 'open' ? 'badge-yellow' : 'badge-green';
-      return '<tr><td><b>' + j.client_name + '</b></td><td>' + j.site_address +
-        '</td><td>' + (j.start_date || '\u2014') + '</td><td><span id="asgn-' + j.id + '">' +
-        emps + '</span></td><td><span class="badge ' + badge + '">' + j.status +
-        '</span></td><td><button class="btn btn-sm" onclick="openAssign(\'' + j.id +
-        "','" + j.client_name.replace(/'/g,"\\'") + '\')">Assign</button></td></tr>';
-    }).join('') + '</tbody></table>';
+  _jobs = await fetch('/api/jobs').then(r => r.json()).catch(() => []);
+  if (!_jobs.length) { el.innerHTML = '<p style="color:#999">No jobs yet.</p>'; return; }
+  const rows = _jobs.map((j, idx) => {
+    const emps = (j.assigned_employees || []).join(', ') || '—';
+    const badge = j.status === 'open' ? 'badge-yellow' : 'badge-green';
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><b>' + j.client_name + '</b></td>' +
+      '<td>' + j.site_address + '</td>' +
+      '<td>' + (j.start_date || '—') + '</td>' +
+      '<td><span id="asgn-' + idx + '">' + emps + '</span></td>' +
+      '<td><span class="badge ' + badge + '">' + j.status + '</span></td>' +
+      '<td></td>';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm';
+    btn.textContent = 'Assign';
+    btn.onclick = function() { openAssign(idx); };
+    tr.lastElementChild.appendChild(btn);
+    return tr;
+  });
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Client</th><th>Site</th><th>Start</th><th>Assigned</th><th>Status</th><th></th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  rows.forEach(r => tbody.appendChild(r));
+  table.appendChild(tbody);
+  el.innerHTML = '';
+  el.appendChild(table);
 }
 
-async function openAssign(jobId, clientName) {
+async function openAssign(idx) {
   if (document.getElementById('assign-modal')) return;
+  const j = _jobs[idx];
+  if (!j) return;
   const emps = _cachedEmps.length ? _cachedEmps : await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
-  const curText = (document.getElementById('asgn-' + jobId) || {}).textContent || '';
-  const current = curText.split(',').map(s => s.trim()).filter(s => s && s !== '\u2014');
+  const current = j.assigned_employees || [];
   const active = emps.filter(e => e.active);
   const modal = document.createElement('div');
   modal.id = 'assign-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;';
-  modal.innerHTML = '<div style="background:#fff;border-radius:14px;padding:28px 32px;min-width:280px;max-width:380px;width:100%;">' +
-    '<h3 style="margin:0 0 4px;font-size:17px;">Assign Employees</h3>' +
-    '<p style="margin:0 0 16px;color:#666;font-size:13px;">' + clientName + '</p>' +
-    '<div id="modal-boxes" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;">' +
-    active.map(e =>
-      '<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;">' +
-      '<input type="checkbox" name="emp_cb" value="' + e.name + '"' +
-      (current.includes(e.name) ? ' checked' : '') + '> ' + e.name + '</label>'
-    ).join('') +
-    '</div>' +
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:#fff;border-radius:14px;padding:28px 32px;min-width:280px;max-width:380px;width:100%;';
+  inner.innerHTML = '<h3 style="margin:0 0 4px;font-size:17px;">Assign Employees</h3>' +
+    '<p style="margin:0 0 16px;color:#666;font-size:13px;">' + j.client_name + '</p>' +
+    '<div id="modal-boxes" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;"></div>' +
     '<div style="display:flex;gap:12px;margin-top:20px;">' +
-    '<button class="btn btn-green" onclick="doAssign(\'' + jobId + '\')">Save &amp; Notify</button>' +
-    '<button class="btn" onclick="document.getElementById(\'assign-modal\').remove()">Cancel</button>' +
-    '</div></div>';
+    '<button class="btn btn-green" id="modal-save-btn">Save &amp; Notify</button>' +
+    '<button class="btn" id="modal-cancel-btn">Cancel</button></div>';
+  const boxes = inner.querySelector('#modal-boxes');
+  active.forEach(e => {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.name = 'emp_cb'; cb.value = e.name;
+    if (current.includes(e.name)) cb.checked = true;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + e.name));
+    boxes.appendChild(label);
+  });
+  inner.querySelector('#modal-save-btn').onclick = function() { doAssign(j.id, idx); };
+  inner.querySelector('#modal-cancel-btn').onclick = function() { modal.remove(); };
+  modal.appendChild(inner);
   document.body.appendChild(modal);
 }
 
-async function doAssign(jobId) {
+async function doAssign(jobId, idx) {
   const selected = checkedEmps(document.getElementById('modal-boxes'));
   const btn = document.querySelector('#assign-modal .btn-green');
   btn.disabled = true; btn.textContent = 'Saving...';
@@ -2120,8 +2143,9 @@ async function doAssign(jobId) {
       body: JSON.stringify({job_id: jobId, assigned_employees: selected})});
     const d = await r.json();
     if (d.ok) {
-      const label = document.getElementById('asgn-' + jobId);
-      if (label) label.textContent = selected.join(', ') || '\u2014';
+      const label = document.getElementById('asgn-' + idx);
+      if (label) label.textContent = selected.join(', ') || '—';
+      if (_jobs[idx]) _jobs[idx].assigned_employees = selected;
       document.getElementById('assign-modal').remove();
       if (d.emailed && d.emailed.length) alert('Notified: ' + d.emailed.join(', '));
     } else { alert('Error: ' + (d.error || 'Failed')); }

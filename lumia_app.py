@@ -19,7 +19,7 @@ import functools
 import anthropic as _anthropic
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import (Flask, render_template_string, request, jsonify,
-                   session, redirect, url_for, make_response)
+                   session, redirect, url_for, make_response, send_from_directory)
 from supabase import create_client
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -41,6 +41,15 @@ from ashrah_backfill import (
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "lumia-ashrah-secret-2026")
+
+# Explicit static route using absolute path — some deploy environments
+# don't pick up Flask's default static handling reliably.
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+
+@app.route("/static/<path:filename>")
+def _serve_static(filename):
+    return send_from_directory(_STATIC_DIR, filename)
 
 OWNER_PIN = os.getenv("OWNER_PIN", "")
 
@@ -106,7 +115,7 @@ def _lookup_client(site_address: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # CLIENT-FACING LUMIA CHAT  — tokenized access for clients via their report email
 # ---------------------------------------------------------------------------
-APP_BASE_URL = os.getenv("APP_BASE_URL", "https://ashrah.ai").rstrip("/")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://lumia.ashrah.ai").rstrip("/")
 CLIENT_CHAT_MODEL = "claude-sonnet-4-6"
 CLIENT_RATE_LIMIT_PER_DAY = 30
 

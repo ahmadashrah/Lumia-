@@ -88,8 +88,8 @@ CATEGORIES = [
 # ---------------------------------------------------------------------------
 CLIENTS: dict[str, dict] = {
     "23 falcon": {
-        "client_name":  "Khadija Jarkass",
-        "client_email": "Khadijajarkass@icloud.com",
+        "client_name":  "Khadija Jarkess",
+        "client_email": "kayjarkess@gmail.com",
     },
     # "keyword from site address": {"client_name": "...", "client_email": "..."},
 }
@@ -112,7 +112,7 @@ CLIENT_RATE_LIMIT_PER_DAY = 30
 
 # Feature is in limited beta — only these client emails see the button / can chat.
 # Expand by setting CLIENT_CHAT_ALLOWED_EMAILS env var (comma-separated) without a redeploy.
-_DEFAULT_CLIENT_CHAT_ALLOWLIST = {"khadijajarkass@icloud.com"}
+_DEFAULT_CLIENT_CHAT_ALLOWLIST = {"kayjarkess@gmail.com"}
 CLIENT_CHAT_ALLOWLIST = {
     e.strip().lower() for e in
     (os.getenv("CLIENT_CHAT_ALLOWED_EMAILS", "") or "").split(",")
@@ -2901,6 +2901,24 @@ tr:hover td { background:#fafbfd; }
     <h2>Registered Clients</h2>
     <div id="clients-list"><p style="color:#999">Loading...</p></div>
   </div>
+
+  <div class="card" style="background:#f0f7ff;border:1px solid #bfdbfe;">
+    <h2 style="color:#1F3864;">Send Ask Lumia Invite (test)</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:14px;">
+      Send any client a welcome email with their private Ask Lumia link. Works without needing check-ins today.
+      <br>Client must be on the Ask Lumia allowlist (set via <code>CLIENT_CHAT_ALLOWED_EMAILS</code> env var).
+    </p>
+    <div class="form-row">
+      <div class="field"><label>Client Name</label>
+        <input type="text" id="invite-name" value="Khadija Jarkess"></div>
+      <div class="field"><label>Client Email</label>
+        <input type="email" id="invite-email" value="kayjarkess@gmail.com"></div>
+    </div>
+    <div class="field"><label>Site Keyword</label>
+      <input type="text" id="invite-keyword" value="23 falcon"></div>
+    <button type="button" class="btn" onclick="sendInvite()">Send Ask Lumia Invite</button>
+    <div id="invite-result" style="margin-top:12px;font-size:14px;"></div>
+  </div>
 </div>
 
 <script>
@@ -3817,6 +3835,27 @@ async function removeClient(id) {
   loadClients();
 }
 
+async function sendInvite() {
+  const name  = document.getElementById('invite-name').value.trim();
+  const email = document.getElementById('invite-email').value.trim();
+  const kw    = document.getElementById('invite-keyword').value.trim();
+  const out   = document.getElementById('invite-result');
+  if (!email) { out.innerHTML = '<span style="color:#d9534f;">Client email required.</span>'; return; }
+  out.innerHTML = '<span style="color:#666;">Sending…</span>';
+  try {
+    const r = await fetch('/api/send-client-test-invite', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({client_name: name, client_email: email, site_keyword: kw}),
+    });
+    const d = await r.json();
+    out.innerHTML = d.ok
+      ? '<span style="color:#2e7d32;">&#10003; ' + d.message + '</span>'
+      : '<span style="color:#d9534f;">&#10005; ' + d.message + '</span>';
+  } catch (e) {
+    out.innerHTML = '<span style="color:#d9534f;">Error: ' + e + '</span>';
+  }
+}
+
 async function loadAllReviews() {
   const dt    = document.getElementById('review-filter-date').value;
   const emp   = document.getElementById('review-filter-emp').value;
@@ -4473,6 +4512,93 @@ def api_add_client():
         return jsonify({"message": f"Client {d['client_name']} saved."})
     except Exception as exc:
         return jsonify({"message": f"Error: {exc}"})
+
+
+@app.route("/api/send-client-test-invite", methods=["POST"])
+@require_role("owner")
+def api_send_client_test_invite():
+    """Send a client a branded welcome email with the Ask Lumia button.
+    Useful to test / onboard — no check-ins required.
+    Only works for clients whose email is on CLIENT_CHAT_ALLOWLIST."""
+    d = request.get_json(silent=True) or {}
+    client_name  = (d.get("client_name")  or "").strip()
+    client_email = (d.get("client_email") or "").strip()
+    site_keyword = (d.get("site_keyword") or "").strip().lower()
+
+    if not client_email:
+        return jsonify({"ok": False, "message": "Missing client email."})
+    if not _client_chat_enabled_for(client_email):
+        return jsonify({"ok": False,
+            "message": f"{client_email} is not on the Ask Lumia allowlist. "
+                       "Add it via CLIENT_CHAT_ALLOWED_EMAILS env var to enable."})
+
+    row = _ensure_client_row(site_keyword, client_name, client_email)
+    if not row:
+        return jsonify({"ok": False, "message": "Could not create client row (DB not configured?)."})
+
+    url = _client_ask_url(row)
+    if not url:
+        return jsonify({"ok": False, "message": "Could not generate access URL."})
+
+    first = (client_name or row.get("client_name") or "").split()[0] or "there"
+    subject = "Try Ask Lumia — your new project assistant"
+    html = (
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;'
+        'max-width:560px;margin:0 auto;color:#1a1a2e;">'
+        f'<div style="text-align:center;padding:20px 0;border-bottom:3px solid #1F3864;margin-bottom:24px;">'
+        f'<img src="{APP_BASE_URL}/static/logo.png" alt="Ashrah Painting" style="width:160px;">'
+        f'</div>'
+        f'<p style="font-size:16px;">Hi {first},</p>'
+        '<p style="font-size:15px;line-height:1.6;">We\'ve added a new way for you to stay on top of your project. '
+        'Any time you have a question — progress, schedule, what\'s next — you can now ask '
+        '<b>Lumia</b>, our AI assistant, directly. Lumia has access to your daily reports and can give you '
+        'an answer anytime, 24/7.</p>'
+        '<p style="font-size:15px;line-height:1.6;">If Lumia can\'t answer, Ahmad will be in touch within about 5 minutes.</p>'
+        f'<div style="text-align:center;margin:28px 0;">'
+        f'<a href="{url}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;'
+        f'font-weight:600;padding:14px 28px;border-radius:8px;font-size:15px;">'
+        f'Ask Lumia about your project</a>'
+        f'</div>'
+        '<p style="font-size:13px;color:#666;">This link is private to you — please don\'t share it.</p>'
+        '<p style="font-size:14px;margin-top:24px;">Thanks for your trust,<br>'
+        '<b>Ahmad &mdash; Ashrah Painting</b></p>'
+        '</div>'
+    )
+    plain = (
+        f"Hi {first},\n\n"
+        "We've added a new way for you to stay on top of your project. Any time you have a question — "
+        "progress, schedule, what's next — you can now ask Lumia, our AI assistant, directly.\n\n"
+        "If Lumia can't answer, Ahmad will be in touch within about 5 minutes.\n\n"
+        f"Ask Lumia: {url}\n\n"
+        "This link is private to you — please don't share it.\n\n"
+        "Thanks for your trust,\nAhmad — Ashrah Painting\n"
+    )
+
+    try:
+        import httpx as _httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key:
+            return jsonify({"ok": False, "message": "RESEND_API_KEY not set."})
+        recipients = [client_email]
+        if OWNER_EMAIL and OWNER_EMAIL != client_email:
+            recipients.append(OWNER_EMAIL)
+        r = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from":    "Ashrah Painting <noreply@ashrah.ai>",
+                "to":      recipients,
+                "subject": subject,
+                "html":    html,
+                "text":    plain,
+            },
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            return jsonify({"ok": True, "message": f"Ask Lumia invite sent to {client_email}."})
+        return jsonify({"ok": False, "message": f"Email API error {r.status_code}: {r.text}"})
+    except Exception as exc:
+        return jsonify({"ok": False, "message": f"Error: {exc}"})
 
 
 @app.route("/api/remove-client/<cid>", methods=["POST"])

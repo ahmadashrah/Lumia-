@@ -207,9 +207,18 @@ ESCALATION_PHRASES = (
 )
 
 
+_LAST_ENSURE_CLIENT_ERROR: str = ""
+
+
 def _ensure_client_row(site_keyword_hint: str, client_name: str, client_email: str) -> dict | None:
     """Idempotent upsert of the client row by email. Ensures access_token exists. Returns the row."""
-    if not supabase_client or not client_email:
+    global _LAST_ENSURE_CLIENT_ERROR
+    _LAST_ENSURE_CLIENT_ERROR = ""
+    if not supabase_client:
+        _LAST_ENSURE_CLIENT_ERROR = "Supabase client not configured"
+        return None
+    if not client_email:
+        _LAST_ENSURE_CLIENT_ERROR = "Missing client_email"
         return None
     try:
         existing = supabase_client.table("clients").select("*") \
@@ -229,8 +238,12 @@ def _ensure_client_row(site_keyword_hint: str, client_name: str, client_email: s
             "site_keyword": (site_keyword_hint or "").lower().strip(),
             "access_token": token,
         }).execute().data or []
-        return inserted[0] if inserted else None
+        if not inserted:
+            _LAST_ENSURE_CLIENT_ERROR = "Insert returned no rows"
+            return None
+        return inserted[0]
     except Exception as exc:
+        _LAST_ENSURE_CLIENT_ERROR = str(exc)
         print(f"[ClientChat] _ensure_client_row error: {exc}")
         return None
 
@@ -4543,7 +4556,8 @@ def api_send_client_test_invite():
 
     row = _ensure_client_row(site_keyword, client_name, client_email)
     if not row:
-        return jsonify({"ok": False, "message": "Could not create client row (DB not configured?)."})
+        return jsonify({"ok": False, "message":
+            f"Could not create client row: {_LAST_ENSURE_CLIENT_ERROR or 'unknown error'}"})
 
     url = _client_ask_url(row)
     if not url:

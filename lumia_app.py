@@ -2147,17 +2147,75 @@ def _log_client_conversation(client_id: str, role: str, content: str) -> None:
         print(f"[ClientChat] conversation log error: {exc}")
 
 
-def _maybe_log_escalation(client_id: str, question: str, reply: str) -> None:
+def _send_instant_escalation_email(client_row: dict, question: str, reply: str) -> bool:
+    """Send Ahmad an immediate email when Lumia cannot answer a client question."""
+    import httpx as _httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key or not OWNER_EMAIL:
+        return False
+    client_name  = client_row.get("client_name") or "Client"
+    client_email = client_row.get("client_email") or ""
+    site_keyword = client_row.get("site_keyword") or ""
+    subject = f"Lumia needs you: {client_name} asked something"
+    html = (
+        f"<div style='font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:600px;'>"
+        f"<h2 style='color:#1F3864;margin-bottom:4px;'>Client question flagged for you</h2>"
+        f"<p style='color:#666;margin-top:0;'>Lumia told the client you'd follow up.</p>"
+        f"<div style='background:#f4f6fb;border-radius:10px;padding:14px 18px;margin:18px 0;'>"
+        f"<p style='margin:0 0 6px;'><b>Client:</b> {client_name} &lt;{client_email}&gt;</p>"
+        f"<p style='margin:0;'><b>Site:</b> {site_keyword or '(unknown)'}</p>"
+        f"</div>"
+        f"<p style='font-weight:600;color:#1F3864;margin-bottom:4px;'>Their question:</p>"
+        f"<div style='background:#fff;border-left:3px solid #2563eb;padding:10px 14px;margin-bottom:18px;'>"
+        f"{question}</div>"
+        f"<p style='font-weight:600;color:#1F3864;margin-bottom:4px;'>What Lumia told them:</p>"
+        f"<div style='background:#fff;border-left:3px solid #94a3b8;padding:10px 14px;color:#333;'>"
+        f"{reply}</div>"
+        f"<p style='color:#888;font-size:12px;margin-top:20px;'>Reply directly to the client to close this out.</p>"
+        f"</div>"
+    )
+    plain = (
+        f"Lumia flagged a client question for you.\n\n"
+        f"Client: {client_name} <{client_email}>\n"
+        f"Site: {site_keyword or '(unknown)'}\n\n"
+        f"Their question:\n{question}\n\n"
+        f"What Lumia told them:\n{reply}\n"
+    )
+    try:
+        r = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from":    "Lumia — Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [OWNER_EMAIL],
+                "reply_to": client_email or OWNER_EMAIL,
+                "subject": subject,
+                "html":    html,
+                "text":    plain,
+            },
+            timeout=10,
+        )
+        return r.status_code in (200, 201)
+    except Exception as exc:
+        print(f"[ClientChat] instant escalation email error: {exc}")
+        return False
+
+
+def _maybe_log_escalation(client_row: dict, question: str, reply: str) -> None:
+    """If Lumia punted ('Ahmad will follow up'), log it AND email Ahmad instantly."""
     low = reply.lower()
     if not any(p in low for p in ESCALATION_PHRASES):
         return
     if not supabase_client:
         return
+    sent = _send_instant_escalation_email(client_row, question, reply)
     try:
         supabase_client.table("client_escalations").insert({
-            "client_id":          client_id,
+            "client_id":          client_row.get("id"),
             "question":           question,
             "assistant_response": reply,
+            # If the instant email went out, mark notified so the nightly digest skips it.
+            "notified_at":        datetime.utcnow().isoformat() if sent else None,
         }).execute()
     except Exception as exc:
         print(f"[ClientChat] escalation log error: {exc}")
@@ -2342,7 +2400,7 @@ def api_client_lumia_chat():
                                   "Please email Ahmad directly and he'll follow up."})
 
     _log_client_conversation(row["id"], "assistant", reply)
-    _maybe_log_escalation(row["id"], message, reply)
+    _maybe_log_escalation(row, message, reply)
     return jsonify({"reply": reply})
 
 

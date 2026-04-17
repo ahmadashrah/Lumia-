@@ -103,6 +103,177 @@ def _lookup_client(site_address: str) -> dict | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# CLIENT-FACING LUMIA CHAT  — tokenized access for clients via their report email
+# ---------------------------------------------------------------------------
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://ashrah.ai").rstrip("/")
+CLIENT_CHAT_MODEL = "claude-sonnet-4-6"
+CLIENT_RATE_LIMIT_PER_DAY = 30
+
+# Feature is in limited beta — only these client emails see the button / can chat.
+# Expand by setting CLIENT_CHAT_ALLOWED_EMAILS env var (comma-separated) without a redeploy.
+_DEFAULT_CLIENT_CHAT_ALLOWLIST = {"khadijajarkass@icloud.com"}
+CLIENT_CHAT_ALLOWLIST = {
+    e.strip().lower() for e in
+    (os.getenv("CLIENT_CHAT_ALLOWED_EMAILS", "") or "").split(",")
+    if e.strip()
+} or _DEFAULT_CLIENT_CHAT_ALLOWLIST
+
+
+def _client_chat_enabled_for(email: str | None) -> bool:
+    return bool(email) and email.strip().lower() in CLIENT_CHAT_ALLOWLIST
+
+CLIENT_LUMIA_SYSTEM_PROMPT = """You are Lumia, the client communication assistant for Ashrah Painting — a Winnipeg-based painting contractor that runs like a tech company and paints like tradespeople.
+
+You are speaking directly with a client about THEIR project only. You have access to their check-ins, daily reports, and project details below. You do not have access to other clients' projects, internal crew notes, self-scores, or business operations data.
+
+## YOUR ROLE
+
+You are a calm, professional, on-top-of-it point of contact. Clients should finish every conversation with you feeling that their project is in competent, organized hands — because it is.
+
+## TONE
+
+- Professional, confident, unhurried. Never defensive, never over-apologetic, never salesy.
+- Plain language. No construction jargon unless the client uses it first.
+- Short answers by default. Expand only when the client asks for detail.
+- Think "senior project manager giving a status update," not "customer service rep reading a script."
+
+## HOW TO ANSWER
+
+**Default structure: what's done -> what's next -> timing.**
+Lead with progress and forward motion. This is the frame for almost every answer.
+
+**On status questions** ("how's it going?", "where are we at?"):
+Give a clear, specific answer grounded in the actual reports. Name the work completed, the work in progress, and the next milestone with a date if one exists in the reports.
+
+**On delays, issues, or anything that went wrong:**
+Own it briefly and accurately, then pivot to resolution. One sentence of ownership, then the plan.
+- Good: "Prep took an extra day because the wall condition needed more patching than the original scope anticipated. We absorbed that time and we're back on schedule for topcoat Thursday."
+- Not good: "We've identified some items that are being addressed." (vague, evasive — clients see through this)
+- Not good: "Yeah the crew messed up and we're behind." (unnecessarily self-flagellating — not your job to editorialize)
+
+**On questions you don't have the answer to:**
+Do not guess. Do not invent dates, prices, product names, or crew details that aren't in the reports. Say: "Let me have Ahmad follow up with you directly on that — I'll flag it now." Then the system will log it for Ahmad to handle.
+
+**On scope/pricing/contract questions:**
+These go to Ahmad. Say: "Pricing and scope changes go through Ahmad directly — I'll let him know you asked and he'll be in touch."
+
+**On off-topic questions** (anything unrelated to their painting project):
+Politely redirect. "I'm here to help with your Ashrah Painting project — for anything else, you'll want a different resource. Anything I can help with on the job?"
+
+## FRAMING RULES
+
+- Accurate about status, generous about framing. You can choose which true things to emphasize, but you cannot misrepresent what happened.
+- Never surface internal data: self-scores, crew performance notes, internal concerns, scheduling stress, margin, other clients' projects. If it's not appropriate for a client to see, it doesn't exist as far as you're concerned.
+- Never reframe genuine fault as external. If the reports indicate Ashrah caused an issue, acknowledge it cleanly and move to the fix. Don't blame weather, suppliers, or the client unless the reports specifically document that cause.
+- Do not fabricate. Every factual claim — dates, work completed, products used, crew members, next steps — must come from the project data provided. If it's not in the data, you don't know it.
+
+## WHAT YOU NEVER DO
+
+- Never invent facts not present in the project data.
+- Never discuss other clients, other projects, or Ashrah's internal operations.
+- Never make commitments on Ashrah's behalf (new timelines, discounts, scope additions, warranties). Route to Ahmad.
+- Never disparage the crew, subcontractors, suppliers, or the client.
+- Never upsell, cross-sell, or pitch additional services unprompted.
+- Never claim to be human. If asked, you are Lumia, Ashrah Painting's AI assistant.
+
+## CLOSING
+
+End answers cleanly. No forced sign-offs, no "is there anything else?" on every message. Match the client's energy — if they're brief, be brief.
+
+---
+
+Project data for this client follows below. Use only this data. Anything outside it, route to Ahmad.
+"""
+
+ESCALATION_PHRASES = (
+    "ahmad will follow up",
+    "have ahmad follow up",
+    "let me have ahmad",
+    "i'll flag it",
+    "i'll let him know you asked",
+    "pricing and scope changes go through ahmad",
+    "ahmad will be in touch",
+    "he'll be in touch",
+)
+
+
+def _ensure_client_row(site_keyword_hint: str, client_name: str, client_email: str) -> dict | None:
+    """Idempotent upsert of the client row by email. Ensures access_token exists. Returns the row."""
+    if not supabase_client or not client_email:
+        return None
+    try:
+        existing = supabase_client.table("clients").select("*") \
+            .eq("client_email", client_email).limit(1).execute().data or []
+        if existing:
+            row = existing[0]
+            if not row.get("access_token"):
+                token = secrets.token_urlsafe(24)
+                supabase_client.table("clients").update({"access_token": token}) \
+                    .eq("id", row["id"]).execute()
+                row["access_token"] = token
+            return row
+        token = secrets.token_urlsafe(24)
+        inserted = supabase_client.table("clients").insert({
+            "client_name":  client_name,
+            "client_email": client_email,
+            "site_keyword": (site_keyword_hint or "").lower().strip(),
+            "access_token": token,
+        }).execute().data or []
+        return inserted[0] if inserted else None
+    except Exception as exc:
+        print(f"[ClientChat] _ensure_client_row error: {exc}")
+        return None
+
+
+def _client_ask_url(client_row: dict | None) -> str | None:
+    if not client_row or not client_row.get("access_token"):
+        return None
+    return f"{APP_BASE_URL}/client/{client_row['access_token']}/ask"
+
+
+def _inject_ask_lumia_button(html_body: str, plain_body: str, client_row: dict | None) -> tuple[str, str]:
+    """Append an 'Ask Lumia about your project' button to the email bodies."""
+    url = _client_ask_url(client_row)
+    if not url:
+        return html_body, plain_body
+    button_html = (
+        '<div style="margin:28px 0;text-align:center;'
+        'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">'
+        f'<a href="{url}" '
+        'style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;'
+        'font-weight:600;padding:14px 28px;border-radius:8px;font-size:15px;">'
+        'Ask Lumia about your project</a>'
+        '<div style="margin-top:10px;color:#666;font-size:12px;">'
+        'Questions about your project? Chat with Lumia — our AI assistant — anytime.'
+        '</div></div>'
+    )
+    low = (html_body or "").lower()
+    if "</body>" in low:
+        idx = low.rfind("</body>")
+        new_html = html_body[:idx] + button_html + html_body[idx:]
+    else:
+        new_html = (html_body or "") + button_html
+    plain_addendum = f"\n\nAsk Lumia about your project: {url}\n"
+    return new_html, (plain_body or "") + plain_addendum
+
+
+def _augment_report_with_ask_lumia(content: dict, site_keyword: str,
+                                    client_name: str, client_email: str) -> None:
+    """Mutates content dict in place, appending the Ask Lumia button + URL.
+    No-op for clients not on the beta allowlist."""
+    if not _client_chat_enabled_for(client_email):
+        return
+    row = _ensure_client_row(site_keyword, client_name, client_email)
+    if not row:
+        return
+    html, plain = _inject_ask_lumia_button(
+        content.get("html_body", ""), content.get("plain_body", ""), row,
+    )
+    content["html_body"] = html
+    content["plain_body"] = plain
+
+
 def _translate_fields(fields: dict[str, str], source_lang: str) -> dict[str, str]:
     """Use Claude to translate a dict of text fields from source_lang to English."""
     if source_lang == "en" or not any(fields.values()):
@@ -166,7 +337,7 @@ def _send_client_report(entry: EmployeeDailyEntry) -> None:
 
     tracker = WorkforceTracker()
     for name in crew_names:
-        tracker.add_worker(Worker(worker_id=name, name=name, role="Painter", status="active"))
+        tracker.add_worker(Worker(worker_id=name, name=name))
 
     reporter = DailyReportSender(
         client=_anthropic.Anthropic(),
@@ -178,6 +349,12 @@ def _send_client_report(entry: EmployeeDailyEntry) -> None:
     )
     try:
         content = reporter.generate(dr, tracker)
+        keyword_hint = next(
+            (k for k, v in CLIENTS.items() if v.get("client_email") == client_info["client_email"]),
+            entry.site_address.lower()[:40],
+        )
+        _augment_report_with_ask_lumia(content, keyword_hint,
+                                       client_info["client_name"], client_info["client_email"])
         sent    = reporter.send(content, to_email=dr.client_email, cc_emails=[OWNER_EMAIL])
         print(f"[App] Client report {'sent' if sent else 'FAILED'} → {dr.client_email}")
     except Exception as exc:
@@ -210,13 +387,13 @@ HTML = """<!DOCTYPE html>
       box-shadow: 0 4px 24px rgba(0,0,0,0.10);
     }
     .header {
-      background: #1F3864;
-      color: #fff;
+      background: #fff;
       text-align: center;
-      padding: 28px 20px 20px;
+      padding: 24px 20px 16px;
+      border-bottom: 3px solid #1F3864;
     }
-    .header h1 { font-size: 32px; font-weight: 800; letter-spacing: 3px; }
-    .header p  { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+    .header img { width: 150px; display: block; margin: 0 auto 10px; }
+    .header p  { font-size: 13px; color: #1F3864; font-weight: 600; margin-top: 2px; }
 
     /* Language selector */
     .lang-bar {
@@ -491,8 +668,8 @@ HTML = """<!DOCTYPE html>
 <body>
 <div class="card">
   <div class="header">
-    <h1>LUMIA</h1>
-    <p>Ashrah Painting &mdash; Daily Check-In</p>
+    <img src="/static/logo.png" alt="Ashrah Painting">
+    <p>Daily Check-In</p>
   </div>
 
   <!-- EMPLOYEE AUTH BAR -->
@@ -631,6 +808,20 @@ HTML = """<!DOCTYPE html>
     <button class="new-entry-btn" onclick="resetForm()" id="lbl_submitAnother">
       Submit Another
     </button>
+  </div>
+</div>
+
+<!-- MY JOBS -->
+<div style="max-width:520px;margin:16px auto 0;padding:0 16px 40px;">
+  <div style="background:#fff;border-radius:16px;overflow:hidden;
+              box-shadow:0 4px 24px rgba(0,0,0,.10);">
+    <div style="background:#1F3864;color:#fff;padding:16px 20px;
+                font-size:15px;font-weight:800;letter-spacing:1px;">
+      MY ACTIVE JOBS
+    </div>
+    <div id="my-jobs-list" style="padding:16px 20px;">
+      <p style="color:#999;font-size:13px;">Loading your jobs...</p>
+    </div>
   </div>
 </div>
 
@@ -950,6 +1141,50 @@ HTML = """<!DOCTYPE html>
   // -----------------------------------------------------------------------
   // Load active jobs into site dropdown
   // -----------------------------------------------------------------------
+  // Load My Jobs with Mark Done button
+  (async function loadMyJobs() {
+    try {
+      const jobs = await fetch('/api/active-jobs').then(r => r.json());
+      const el = document.getElementById('my-jobs-list');
+      if (!jobs.length) {
+        el.innerHTML = '<p style="color:#999;font-size:13px;">No active jobs assigned to you.</p>';
+        return;
+      }
+      el.innerHTML = jobs.map(j => `
+        <div style="padding:12px 0;border-bottom:1px solid #eee;display:flex;
+                    align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700;font-size:14px;color:#1F3864;">${j.client_name}</div>
+            <div style="font-size:12px;color:#666;">${j.site_address}</div>
+          </div>
+          <button id="done-btn-${j.id}"
+            style="padding:8px 18px;background:#d9534f;color:#fff;border:none;
+                   border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
+            onclick="markMyJobDone('${j.id}', '${j.site_address.replace(/'/g,"\\'")}')">
+            ✅ Mark Done
+          </button>
+        </div>`).join('');
+    } catch(e) {}
+  })();
+
+  async function markMyJobDone(jobId, site) {
+    if (!confirm('Mark "' + site + '" as completed?')) return;
+    const btn = document.getElementById('done-btn-' + jobId);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+    try {
+      const r = await fetch('/api/mark-job-done', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({job_id: jobId})
+      });
+      const d = await r.json();
+      if (d.ok && btn) {
+        btn.textContent = '✓ Marked Done';
+        btn.style.background = '#388e3c';
+        btn.disabled = true;
+      } else if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Done'; }
+    } catch(e) { if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Done'; } }
+  }
+
   (async function loadJobSites() {
     try {
       const r = await fetch('/api/active-jobs');
@@ -1192,7 +1427,7 @@ def _notify_owner(entry: EmployeeDailyEntry) -> None:
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}"},
             json={
-                "from": "Lumia <onboarding@resend.dev>",
+                "from": "Ashrah Painting <noreply@ashrah.ai>",
                 "to":   [OWNER_EMAIL],
                 "subject": subject,
                 "text": body,
@@ -1221,9 +1456,10 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        align-items:center; justify-content:center; padding:20px; }
 .card { background:#fff; border-radius:16px; overflow:hidden;
         box-shadow:0 4px 24px rgba(0,0,0,.10); width:100%; max-width:400px; }
-.header { background:#1F3864; color:#fff; text-align:center; padding:28px 20px; }
-.header h1 { font-size:28px; font-weight:800; letter-spacing:3px; }
-.header p  { font-size:12px; opacity:.8; margin-top:4px; }
+.header { background:#fff; text-align:center; padding:24px 20px 14px;
+          border-bottom:3px solid #1F3864; }
+.header img { width:140px; display:block; margin:0 auto 8px; }
+.header p  { font-size:12px; color:#1F3864; font-weight:600; }
 .body { padding:28px 24px; }
 .field { margin-bottom:18px; }
 .field label { display:block; font-size:11px; font-weight:700; color:#1F3864;
@@ -1238,7 +1474,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .staff-link { font-size:12px; color:#1F3864; text-align:center; margin-top:12px; display:block; }
 </style></head><body>
 <div class="card">
-  <div class="header"><h1>LUMIA</h1><p>Employee Check-In Login</p></div>
+  <div class="header"><img src="/static/logo.png" alt="Ashrah Painting"><p>Employee Login</p></div>
   <div class="body">
     <form method="POST" action="/employee-login">
       <div class="field">
@@ -1302,9 +1538,10 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        align-items:center; justify-content:center; padding:20px; }
 .card { background:#fff; border-radius:16px; overflow:hidden;
         box-shadow:0 4px 24px rgba(0,0,0,.10); width:100%; max-width:400px; }
-.header { background:#1F3864; color:#fff; text-align:center; padding:28px 20px; }
-.header h1 { font-size:28px; font-weight:800; letter-spacing:3px; }
-.header p  { font-size:12px; opacity:.8; margin-top:4px; }
+.header { background:#fff; text-align:center; padding:24px 20px 14px;
+          border-bottom:3px solid #1F3864; }
+.header img { width:140px; display:block; margin:0 auto 8px; }
+.header p  { font-size:12px; color:#1F3864; font-weight:600; }
 .body { padding:28px 24px; }
 .welcome { font-size:15px; color:#333; margin-bottom:20px; text-align:center; }
 .welcome strong { color:#1F3864; }
@@ -1320,7 +1557,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .ok  { color:#2e7d32; font-size:13px; margin-top:12px; text-align:center; }
 </style></head><body>
 <div class="card">
-  <div class="header"><h1>LUMIA</h1><p>Set Your Password</p></div>
+  <div class="header"><img src="/static/logo.png" alt="Ashrah Painting"><p>Set Your Password</p></div>
   <div class="body">
     {% if expired %}
       <p class="err" style="font-size:15px;margin-top:8px">This link has expired or is invalid.<br>Please ask Ahmad to send a new one.</p>
@@ -1376,8 +1613,9 @@ def _send_setup_email(name: str, email: str, token: str) -> bool:
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}"},
             json={
-                "from": "Lumia <lumia@ashrah.ai>",
+                "from": "Ashrah Painting <noreply@ashrah.ai>",
                 "to":   [email],
+                "cc":   [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != email else [],
                 "subject": "Welcome to Lumia — Set Your Password",
                 "html": html_body,
                 "text": text_body,
@@ -1443,8 +1681,9 @@ def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {resend_key}"},
                 json={
-                    "from": "Lumia <lumia@ashrah.ai>",
+                    "from": "Ashrah Painting <noreply@ashrah.ai>",
                     "to":   [email],
+                    "cc":   [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != email else [],
                     "subject": subject,
                     "html": html,
                     "text": text,
@@ -1547,7 +1786,7 @@ def _notify_client_of_assignment(job_info: dict, employee_names: list) -> bool:
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}"},
             json={
-                "from":    "Ashrah Painting <lumia@ashrah.ai>",
+                "from":    "Ashrah Painting <noreply@ashrah.ai>",
                 "to":      [client_email],
                 "cc":      [OWNER_EMAIL],
                 "subject": f"Your Painting Project — Crew Assignment Confirmed",
@@ -1674,25 +1913,437 @@ def api_lumia_chat():
     message = (d.get("message") or "").strip()
     if not message:
         return jsonify({"reply": "I didn't catch that. Please try again."})
-    employee = session.get("employee_name") or session.get("name") or "the team member"
+
+    role         = session.get("role") or "employee"
+    person_name  = session.get("employee_name") or session.get("name") or "the team member"
+    is_staff     = role in ("owner", "manager")
+    today        = date.today().isoformat()
+
+    # ── Build live data context for owners/managers ──────────────────────────
+    data_context = ""
+    if is_staff and supabase_client:
+        parts = []
+        try:
+            checkins = supabase_client.table("checkins").select("*") \
+                .order("entry_date", desc=True).limit(80).execute().data or []
+            if checkins:
+                rows = [
+                    f"  [{c['entry_date']}] {c['worker_name']} @ {c['site_address']} | "
+                    f"avg={c.get('avg_score','?')}/10 | "
+                    f"work: {(c.get('work_description') or '')[:120]}"
+                    for c in checkins
+                ]
+                parts.append("RECENT CHECK-INS:\n" + "\n".join(rows))
+        except Exception:
+            pass
+
+        try:
+            jobs = supabase_client.table("jobs").select("*") \
+                .order("created_at", desc=True).limit(30).execute().data or []
+            if jobs:
+                rows = [
+                    f"  [{j.get('status','?').upper()}] {j.get('client_name','?')} @ {j.get('site_address','?')} | "
+                    f"start={j.get('start_date','TBD')} painters={j.get('painters_needed','?')} | "
+                    f"{(j.get('work_description') or '')[:100]}"
+                    for j in jobs
+                ]
+                parts.append("JOBS:\n" + "\n".join(rows))
+        except Exception:
+            pass
+
+        try:
+            reviews = supabase_client.table("reviews").select("*") \
+                .order("created_at", desc=True).limit(50).execute().data or []
+            if reviews:
+                c_ids = [r["checkin_id"] for r in reviews]
+                c_map_data = supabase_client.table("checkins") \
+                    .select("id,worker_name,entry_date,site_address") \
+                    .in_("id", c_ids).execute().data or []
+                c_map = {c["id"]: c for c in c_map_data}
+                rows = [
+                    f"  {c_map.get(rv['checkin_id'],{}).get('entry_date','?')} | "
+                    f"{c_map.get(rv['checkin_id'],{}).get('worker_name','?')} | "
+                    f"accuracy={rv.get('accuracy_score','?')}/10 trust={rv.get('trust_level','?')} | "
+                    f"{(rv.get('notes') or '')[:80]}"
+                    for rv in reviews
+                ]
+                parts.append("MANAGER REVIEWS:\n" + "\n".join(rows))
+        except Exception:
+            pass
+
+        try:
+            db_clients = supabase_client.table("clients").select("*").execute().data or []
+            all_client_rows = [
+                f"  {c.get('client_name','?')} | {c.get('client_email','?')} | keyword: {c.get('site_keyword','?')}"
+                for c in db_clients
+            ]
+            for kw, info in CLIENTS.items():
+                all_client_rows.append(f"  {info['client_name']} | {info['client_email']} | keyword: {kw}")
+            if all_client_rows:
+                parts.append("CLIENTS:\n" + "\n".join(all_client_rows))
+        except Exception:
+            pass
+
+        # Explicitly map jobs to their check-ins by site address keyword
+        try:
+            if jobs and checkins:
+                mapping_rows = []
+                for j in jobs:
+                    site = (j.get("site_address") or "").lower()
+                    matched = [
+                        c for c in checkins
+                        if site and (site[:12] in (c.get("site_address") or "").lower()
+                                     or (c.get("site_address") or "").lower()[:12] in site)
+                    ]
+                    if matched:
+                        dates = sorted({c["entry_date"] for c in matched}, reverse=True)[:5]
+                        mapping_rows.append(
+                            f"  Job '{j.get('client_name')} @ {j.get('site_address')}' "
+                            f"has {len(matched)} check-in(s) on dates: {', '.join(dates)}"
+                        )
+                if mapping_rows:
+                    parts.append("JOB → CHECK-IN MAPPING:\n" + "\n".join(mapping_rows))
+        except Exception:
+            pass
+
+        # Report schedule
+        sched_hour, sched_min = 18, 0
+        try:
+            row = supabase_client.table("settings").select("value") \
+                .eq("key", "report_schedule_time").execute().data
+            if row:
+                sched_hour, sched_min = map(int, row[0]["value"].split(":"))
+        except Exception:
+            pass
+        parts.append(f"AUTO REPORT SCHEDULE: daily reports sent at {sched_hour:02d}:{sched_min:02d} Winnipeg time (6:00 PM = 18:00).")
+
+        data_context = "\n\n".join(parts)
+
+    system_prompt = (
+        "You are Lumia, the AI operations assistant for Ashrah Painting in Winnipeg, Canada. "
+        f"You are speaking with {person_name}"
+        f"{', the owner' if role == 'owner' else ', a manager' if role == 'manager' else ', a painter on the team'}. "
+        f"Today's date: {today}.\n\n"
+    )
+    if data_context:
+        system_prompt += (
+            "You have full access to the company's live operational data below. "
+            "Use it to give specific, accurate answers about jobs, check-ins, client reports, and employee performance. "
+            "If asked whether a report exists for a job, look at the JOB → CHECK-IN MAPPING section. "
+            "Keep replies concise — 2-4 sentences unless detail is requested. Be direct and specific.\n\n"
+            f"--- LIVE COMPANY DATA ---\n{data_context}\n--- END DATA ---"
+        )
+    else:
+        system_prompt += (
+            "Help with questions about daily check-ins, job sites, reports, employee management, "
+            "or any work-related question. Keep replies concise — 1-3 sentences. Be warm and supportive."
+        )
+
     try:
-        client = _anthropic.Anthropic()
-        response = client.messages.create(
+        ai_client = _anthropic.Anthropic()
+        response = ai_client.messages.create(
             model=MODEL,
-            max_tokens=400,
-            system=(
-                "You are Lumia, the friendly operations assistant for Ashrah Painting in Winnipeg, Canada. "
-                f"You are speaking with {employee}"
-                f"{', the owner' if session.get('role') == 'owner' else ', a manager' if session.get('role') == 'manager' else ', a painter on the team'}. "
-                "Help with questions about daily check-ins, job sites, reports, employee management, "
-                "painting terminology, or any work-related question. "
-                "Keep replies concise and practical — 1-3 sentences max. Be warm and supportive."
-            ),
+            max_tokens=600,
+            system=system_prompt,
             messages=[{"role": "user", "content": message}],
         )
         return jsonify({"reply": response.content[0].text})
     except Exception as exc:
         return jsonify({"reply": f"Sorry, I'm having trouble connecting. ({exc})"})
+
+
+# ---------------------------------------------------------------------------
+# CLIENT-FACING LUMIA — tokenized chat scoped to one client's project
+# ---------------------------------------------------------------------------
+CLIENT_SAFE_CHECKIN_FIELDS = "entry_date,worker_name,site_address,work_description,tomorrows_plan"
+
+
+def _lookup_client_by_token(token: str) -> dict | None:
+    if not token or not supabase_client:
+        return None
+    try:
+        rows = supabase_client.table("clients").select("*") \
+            .eq("access_token", token).limit(1).execute().data or []
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def _load_client_project_context(client_row: dict) -> str:
+    """Build structured context scoped strictly to this client. Strips internal fields."""
+    if not supabase_client:
+        return ""
+    keyword = (client_row.get("site_keyword") or "").lower().strip()
+    parts = [
+        "## CLIENT",
+        f"Name: {client_row.get('client_name','')}",
+        f"Project keyword: {keyword}",
+        "",
+    ]
+
+    try:
+        cutoff = (date.today() - timedelta(days=14)).isoformat()
+        checkins = supabase_client.table("checkins") \
+            .select(CLIENT_SAFE_CHECKIN_FIELDS) \
+            .gte("entry_date", cutoff) \
+            .order("entry_date", desc=True) \
+            .limit(80).execute().data or []
+        scoped = [c for c in checkins
+                  if keyword and keyword in (c.get("site_address") or "").lower()]
+        if scoped:
+            parts.append("## CHECK-INS (last 14 days, client-safe subset)")
+            for c in scoped:
+                worker = (c.get("worker_name") or "").split()[0] or "Crew"
+                parts.append(f"- [{c.get('entry_date')}] {worker} @ {c.get('site_address')}")
+                if c.get("work_description"):
+                    parts.append(f"  Work: {c['work_description']}")
+                if c.get("tomorrows_plan"):
+                    parts.append(f"  Next: {c['tomorrows_plan']}")
+            parts.append("")
+    except Exception as exc:
+        print(f"[ClientChat] checkin load error: {exc}")
+
+    try:
+        cutoff_ts = (datetime.utcnow() - timedelta(days=14)).isoformat()
+        sent = supabase_client.table("sent_reports") \
+            .select("subject,plain_body,created_at,site_address") \
+            .eq("client_email", client_row.get("client_email")) \
+            .gte("created_at", cutoff_ts) \
+            .order("created_at", desc=True).limit(14).execute().data or []
+        if sent:
+            parts.append("## RECENT DAILY REPORTS (as previously sent to client)")
+            for r in sent:
+                parts.append(f"--- {r.get('subject','(daily report)')} ---")
+                parts.append((r.get("plain_body") or "").strip())
+                parts.append("")
+    except Exception as exc:
+        print(f"[ClientChat] sent_reports load error: {exc}")
+
+    return "\n".join(parts)
+
+
+def _client_messages_today(client_id: str) -> int:
+    if not supabase_client:
+        return 0
+    try:
+        since = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        res = supabase_client.table("client_conversations") \
+            .select("id", count="exact") \
+            .eq("client_id", client_id).eq("role", "user") \
+            .gte("created_at", since).execute()
+        return int(getattr(res, "count", None) or len(res.data or []))
+    except Exception:
+        return 0
+
+
+def _log_client_conversation(client_id: str, role: str, content: str) -> None:
+    if not supabase_client:
+        return
+    try:
+        supabase_client.table("client_conversations").insert({
+            "client_id": client_id, "role": role, "content": content,
+        }).execute()
+    except Exception as exc:
+        print(f"[ClientChat] conversation log error: {exc}")
+
+
+def _maybe_log_escalation(client_id: str, question: str, reply: str) -> None:
+    low = reply.lower()
+    if not any(p in low for p in ESCALATION_PHRASES):
+        return
+    if not supabase_client:
+        return
+    try:
+        supabase_client.table("client_escalations").insert({
+            "client_id":          client_id,
+            "question":           question,
+            "assistant_response": reply,
+        }).execute()
+    except Exception as exc:
+        print(f"[ClientChat] escalation log error: {exc}")
+
+
+CLIENT_CHAT_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ask Lumia — Ashrah Painting</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f7fb; color: #1a1a2e;
+      display: flex; flex-direction: column;
+    }
+    header {
+      background: #fff; border-bottom: 1px solid #e5e7eb;
+      padding: 14px 20px; display: flex; align-items: center; gap: 14px;
+    }
+    header img { height: 48px; }
+    header .titles {}
+    header h1 { font-size: 17px; font-weight: 700; line-height: 1.2; }
+    header .sub { color: #6b7280; font-size: 12px; margin-top: 2px; }
+    #chat {
+      flex: 1; overflow-y: auto; padding: 20px;
+      max-width: 760px; width: 100%; margin: 0 auto;
+    }
+    .msg {
+      margin: 12px 0; padding: 12px 16px; border-radius: 14px;
+      max-width: 85%; line-height: 1.55; white-space: pre-wrap;
+    }
+    .msg.user  { background: #2563eb; color: #fff; margin-left: auto;
+                 border-bottom-right-radius: 4px; }
+    .msg.lumia { background: #fff; color: #1a1a2e; border: 1px solid #e5e7eb;
+                 margin-right: auto; border-bottom-left-radius: 4px; }
+    footer { background: #fff; border-top: 1px solid #e5e7eb; padding: 14px 20px; }
+    .composer { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; }
+    .composer textarea {
+      flex: 1; padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 10px;
+      font-size: 15px; resize: none; min-height: 44px; font-family: inherit;
+    }
+    .composer button {
+      background: #2563eb; color: #fff; border: 0; padding: 0 20px;
+      border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    .composer button:disabled { opacity: .5; cursor: not-allowed; }
+    .foot-note {
+      text-align: center; color: #9ca3af; font-size: 11px;
+      max-width: 760px; margin: 8px auto 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="/static/logo.png" alt="Ashrah Painting">
+    <div class="titles">
+      <h1>Ask Lumia</h1>
+      <div class="sub">{{ client_name }} &middot; Ashrah Painting</div>
+    </div>
+  </header>
+  <div id="chat">
+    <div class="msg lumia">Hi {{ first_name }} — I can answer questions about your project{{ site_suffix }}. What would you like to know?</div>
+  </div>
+  <footer>
+    <form class="composer" id="f">
+      <textarea id="m" placeholder="Ask about progress, schedule, next steps…" rows="1" autofocus></textarea>
+      <button id="b" type="submit">Send</button>
+    </form>
+    <div class="foot-note">Lumia is an AI assistant. For scope or pricing, Ahmad follows up directly.</div>
+  </footer>
+<script>
+const chat = document.getElementById('chat');
+const form = document.getElementById('f');
+const input = document.getElementById('m');
+const btn = document.getElementById('b');
+const token = "{{ token }}";
+
+function append(role, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  d.textContent = text;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+});
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = input.value.trim();
+  if (!msg) return;
+  append('user', msg);
+  input.value = ''; input.style.height = '44px';
+  btn.disabled = true;
+  const thinking = append('lumia', '…');
+  try {
+    const r = await fetch('/api/client-lumia-chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: token, message: msg})
+    });
+    const data = await r.json();
+    thinking.textContent = data.reply || '(no response)';
+  } catch (err) {
+    thinking.textContent = 'Something went wrong. Please try again.';
+  } finally {
+    btn.disabled = false;
+    input.focus();
+  }
+});
+</script>
+</body>
+</html>"""
+
+
+@app.route("/client/<token>/ask", methods=["GET"])
+def client_ask_page(token):
+    row = _lookup_client_by_token(token)
+    if not row:
+        return "<h2 style='font-family:sans-serif;padding:40px;'>Link not valid.</h2>", 404
+    if not _client_chat_enabled_for(row.get("client_email")):
+        return ("<h2 style='font-family:sans-serif;padding:40px;'>"
+                "Ask Lumia isn't enabled for your project yet.</h2>"), 403
+    first = (row.get("client_name") or "").split()[0] or "there"
+    kw = (row.get("site_keyword") or "").strip()
+    site_suffix = f" at {kw}" if kw else ""
+    resp = make_response(render_template_string(
+        CLIENT_CHAT_HTML,
+        client_name=row.get("client_name") or "",
+        first_name=first,
+        site_suffix=site_suffix,
+        token=token,
+    ))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/client-lumia-chat", methods=["POST"])
+def api_client_lumia_chat():
+    d = request.get_json(silent=True) or {}
+    token   = (d.get("token") or "").strip()
+    message = (d.get("message") or "").strip()
+    if not token or not message:
+        return jsonify({"reply": "Missing message."}), 400
+
+    row = _lookup_client_by_token(token)
+    if not row:
+        return jsonify({"reply": "This link is no longer valid. Please contact Ahmad."}), 403
+    if not _client_chat_enabled_for(row.get("client_email")):
+        return jsonify({"reply": "Ask Lumia isn't enabled for your project yet."}), 403
+
+    if _client_messages_today(row["id"]) >= CLIENT_RATE_LIMIT_PER_DAY:
+        return jsonify({"reply":
+            f"You've reached today's message limit. Please email Ahmad at {OWNER_EMAIL} "
+            "and he'll be in touch."})
+
+    context = _load_client_project_context(row)
+    system_prompt = CLIENT_LUMIA_SYSTEM_PROMPT + "\n" + context
+
+    _log_client_conversation(row["id"], "user", message)
+
+    try:
+        ai_client = _anthropic.Anthropic()
+        resp = ai_client.messages.create(
+            model=CLIENT_CHAT_MODEL,
+            max_tokens=600,
+            system=system_prompt,
+            messages=[{"role": "user", "content": message}],
+        )
+        reply = resp.content[0].text.strip()
+    except Exception as exc:
+        print(f"[ClientChat] model error: {exc}")
+        return jsonify({"reply": "Sorry — I'm having trouble right now. "
+                                  "Please email Ahmad directly and he'll follow up."})
+
+    _log_client_conversation(row["id"], "assistant", reply)
+    _maybe_log_escalation(row["id"], message, reply)
+    return jsonify({"reply": reply})
 
 
 # ---------------------------------------------------------------------------
@@ -1709,9 +2360,10 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        align-items:center; justify-content:center; padding:20px; }
 .card { background:#fff; border-radius:16px; overflow:hidden;
         box-shadow:0 4px 24px rgba(0,0,0,.10); width:100%; max-width:400px; }
-.header { background:#1F3864; color:#fff; text-align:center; padding:28px 20px; }
-.header h1 { font-size:28px; font-weight:800; letter-spacing:3px; }
-.header p  { font-size:12px; opacity:.8; margin-top:4px; }
+.header { background:#fff; text-align:center; padding:24px 20px 14px;
+          border-bottom:3px solid #1F3864; }
+.header img { width:140px; display:block; margin:0 auto 8px; }
+.header p  { font-size:12px; color:#1F3864; font-weight:600; }
 .body { padding:28px 24px; }
 .field { margin-bottom:18px; }
 .field label { display:block; font-size:11px; font-weight:700; color:#1F3864;
@@ -1727,7 +2379,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .hint { font-size:12px; color:#999; text-align:center; margin-top:16px; }
 </style></head><body>
 <div class="card">
-  <div class="header"><h1>LUMIA</h1><p>Staff Login</p></div>
+  <div class="header"><img src="/static/logo.png" alt="Ashrah Painting"><p>Staff Login</p></div>
   <div class="body">
     <form method="POST" action="/login">
       <input type="hidden" name="next" value="{{ next }}">
@@ -1844,7 +2496,10 @@ tr:hover td { background:#fafbfd; }
 </style></head><body>
 
 <div class="topbar">
-  <h1>LUMIA &mdash; Owner</h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <img src="/static/logo.png" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
+    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">Owner Dashboard</span>
+  </div>
   <div style="display:flex;gap:20px;align-items:center">
     <span style="font-size:13px;opacity:.8">Welcome, {{ name }}</span>
     <a href="/logout">Logout</a>
@@ -1860,6 +2515,7 @@ tr:hover td { background:#fafbfd; }
   <div class="tab" onclick="showTab('managers')">Managers</div>
   <div class="tab" onclick="showTab('clients')">Clients</div>
   <div class="tab" onclick="showTab('reports')">Reports</div>
+  <div class="tab" onclick="showTab('sitevisits')">📍 Site Visits</div>
 </div>
 
 <!-- OVERVIEW -->
@@ -1922,44 +2578,88 @@ tr:hover td { background:#fafbfd; }
 <div class="page" id="tab-jobs">
   <div class="card">
     <h2>Create Job</h2>
-    <form id="jobForm" onsubmit="return false">
-      <div class="form-row">
-        <div class="field"><label>Client Name</label>
-          <input type="text" name="client_name" placeholder="e.g. John Smith" required></div>
-        <div class="field"><label>Site Address</label>
-          <input type="text" name="site_address" placeholder="e.g. 123 Main St, Winnipeg" required></div>
+
+    <!-- Step 1: Pick client -->
+    <div id="job-step-1">
+      <div class="field">
+        <label>Step 1 — Select Client</label>
+        <select id="job-client-select"
+                style="width:100%;padding:12px 14px;border:1.5px solid #dce2ef;border-radius:10px;font-size:15px;background:#fafbfd;outline:none;">
+          <option value="">Loading clients...</option>
+        </select>
       </div>
-      <div class="form-row">
+      <div id="job-client-preview"
+           style="display:none;background:#f4f6fb;border-radius:10px;padding:14px 16px;margin-top:4px;font-size:13px;color:#444;border-left:4px solid #1F3864;">
+      </div>
+      <div style="margin-top:14px;">
+        <button type="button" class="btn" id="job-next-btn" onclick="jobStep2()" disabled>
+          Next — Set Job Details →
+        </button>
+        <span style="font-size:12px;color:#888;margin-left:12px;">Client not listed?
+          <a href="#" onclick="showTab('clients');return false;" style="color:#1F3864;">Add them in Clients tab first</a>
+        </span>
+      </div>
+    </div>
+
+    <!-- Step 2: Job details (hidden until client picked) -->
+    <div id="job-step-2" style="display:none;margin-top:20px;border-top:1px solid #eee;padding-top:20px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+        <div style="background:#d4edda;color:#2e7d32;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;"
+             id="job-client-badge"></div>
+        <button type="button" onclick="jobBackToStep1()"
+                style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;text-decoration:underline;">
+          ← Change client
+        </button>
+      </div>
+      <form id="jobForm" onsubmit="return false">
+        <input type="hidden" name="client_name">
+        <input type="hidden" name="client_email">
+        <input type="hidden" name="client_id">
+        <div class="field">
+          <label>Site Address <span style="font-weight:400;color:#888;font-size:11px;">— enter any address, even a new one for this client</span></label>
+          <input type="text" name="site_address" id="job-site-address"
+                 placeholder="e.g. 1777 Pembina Hwy, Winnipeg" required
+                 oninput="checkNewAddress(this.value)">
+          <div id="save-address-row" style="display:none;margin-top:8px;background:#f0f7ff;
+               border-radius:8px;padding:10px 14px;font-size:13px;color:#1F3864;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+              <input type="checkbox" id="register-address-cb" style="width:16px;height:16px;">
+              Register this address for <span id="save-address-client-name"></span> so daily reports go out automatically
+            </label>
+          </div>
+        </div>
         <div class="field"><label>Start Date</label>
           <input type="date" name="start_date"></div>
-        <div class="field"><label>Painters Needed</label>
-          <select name="painters_needed">
-            <option value="1">1</option><option value="2" selected>2</option>
-            <option value="3">3</option><option value="4">4</option>
-          </select></div>
-      </div>
-      <div class="field"><label>Work Description</label>
-        <textarea name="work_description" rows="3" placeholder="Describe the job scope, type of work, special requirements..."></textarea>
-      </div>
-      <div class="field">
-        <label>Assign Employees <span style="font-weight:400;color:#888;font-size:12px;">(they will be emailed)</span></label>
-        <div id="job-emp-list" style="display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;min-height:44px;">
-          <span style="color:#999;font-size:13px;">Loading employees...</span>
+        <div class="form-row">
+          <div class="field"><label>Painters Needed</label>
+            <select name="painters_needed">
+              <option value="1">1</option><option value="2" selected>2</option>
+              <option value="3">3</option><option value="4">4</option>
+            </select></div>
         </div>
+        <div class="field"><label>Work Description</label>
+          <textarea name="work_description" rows="3" placeholder="Describe the job scope, type of work, special requirements..."></textarea>
+        </div>
+        <div class="field">
+          <label>Assign Employees <span style="font-weight:400;color:#888;font-size:12px;">(they will be emailed)</span></label>
+          <div id="job-emp-list" style="display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;min-height:44px;">
+            <span style="color:#999;font-size:13px;">Loading employees...</span>
+          </div>
+        </div>
+        <div id="job-msg" style="display:none;font-size:13px;padding:8px 14px;border-radius:8px;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-green" id="saveJobBtn" onclick="saveJob()">
+            Save Job &amp; Notify
+          </button>
+          <button type="button" class="btn" id="aiBtn" onclick="getAIRec()">
+            AI Crew Suggestion
+          </button>
+        </div>
+      </form>
+      <div id="ai-box" style="display:none;margin-top:16px;padding:16px;background:#f4f6fb;border-radius:10px;border:1px solid #dce2ef;">
+        <h4 style="margin:0 0 8px;font-size:14px;color:#1F3864;">AI Recommendation</h4>
+        <pre id="ai-text" style="white-space:pre-wrap;font-size:13px;color:#333;margin:0;"></pre>
       </div>
-      <div id="job-msg" style="display:none;font-size:13px;padding:8px 14px;border-radius:8px;margin-bottom:10px;"></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button type="button" class="btn btn-green" id="saveJobBtn" onclick="saveJob()">
-          Save Job &amp; Notify
-        </button>
-        <button type="button" class="btn" id="aiBtn" onclick="getAIRec()">
-          AI Crew Suggestion
-        </button>
-      </div>
-    </form>
-    <div id="ai-box" style="display:none;margin-top:16px;padding:16px;background:#f4f6fb;border-radius:10px;border:1px solid #dce2ef;">
-      <h4 style="margin:0 0 8px;font-size:14px;color:#1F3864;">AI Recommendation</h4>
-      <pre id="ai-text" style="white-space:pre-wrap;font-size:13px;color:#333;margin:0;"></pre>
     </div>
   </div>
 
@@ -2001,6 +2701,24 @@ tr:hover td { background:#fafbfd; }
 <div class="page" id="tab-reports">
 
   <div class="card">
+    <h2>Compose Client Email</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">Write a custom email to any client — Lumia drafts it using your job data. You preview before it sends. You are always CC'd.</p>
+    <div class="form-row">
+      <div class="field"><label>Client Name</label>
+        <input type="text" id="compose-name" placeholder="e.g. Lloyd"></div>
+      <div class="field"><label>Client Email</label>
+        <input type="email" id="compose-email" placeholder="lloyd@email.com"></div>
+    </div>
+    <div class="field"><label>Notes for Lumia <span style="font-weight:400;color:#888;">(optional — job details, crew, anything extra)</span></label>
+      <textarea id="compose-context" rows="2" placeholder="e.g. Assigned Abdelhadi and Ammar, starting Monday at 55 Waterford Commons..."></textarea>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+      <button class="btn" id="compose-preview-btn" onclick="previewCompose()">👁 Preview Email</button>
+      <span id="compose-status" style="font-size:13px;color:#888;"></span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Send All Client Reports Now</h2>
     <p style="font-size:13px;color:#666;margin-bottom:16px;">
       Sends a consolidated daily report to every client who has check-ins today.
@@ -2010,11 +2728,44 @@ tr:hover td { background:#fafbfd; }
   </div>
 
   <div class="card">
-    <h2>Send Report to Specific Client</h2>
+    <h2>Preview &amp; Send Report</h2>
     <p style="font-size:13px;color:#666;margin-bottom:16px;">
-      Pick a client and send their report immediately regardless of check-ins.
+      Preview the report before sending it to the client.
     </p>
     <div id="client-report-list"><p style="color:#999;font-size:13px;">Loading clients...</p></div>
+  </div>
+
+  <!-- Report preview modal -->
+  <div id="report-preview-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);
+       z-index:9999;overflow-y:auto;padding:24px;">
+    <div style="background:#fff;border-radius:14px;max-width:740px;margin:0 auto;
+                box-shadow:0 8px 40px rgba(0,0,0,.18);overflow:hidden;">
+      <div style="background:#1F3864;color:#fff;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:16px;font-weight:800;letter-spacing:1px;">REPORT PREVIEW</div>
+          <div id="preview-modal-meta" style="font-size:12px;opacity:.8;margin-top:3px;"></div>
+        </div>
+        <button onclick="closePreview()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1;">&#x2715;</button>
+      </div>
+      <div style="padding:0;max-height:68vh;overflow-y:auto;">
+        <div id="preview-subject" style="padding:14px 24px 10px;font-size:14px;font-weight:700;
+             color:#1F3864;border-bottom:1px solid #e0e4ed;"></div>
+        <div id="preview-body" style="padding:20px 24px;font-size:13px;line-height:1.7;color:#222;"></div>
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid #e0e4ed;display:flex;gap:12px;align-items:center;">
+        <button id="preview-send-btn" class="btn btn-green" onclick="sendFromPreview()">
+          &#128229; Send to Client Now
+        </button>
+        <button class="btn" style="background:#888;" onclick="closePreview()">Cancel</button>
+        <span id="preview-send-msg" style="font-size:13px;color:#2e7d32;"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Sent Reports History</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">Every report sent to a client — click to view the full email.</p>
+    <div id="sent-reports-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
   </div>
 
   <div class="card">
@@ -2030,6 +2781,19 @@ tr:hover td { background:#fafbfd; }
     <div id="schedule-msg" style="margin-top:12px;font-size:13px;"></div>
   </div>
 
+</div>
+
+<!-- SITE VISITS -->
+<div class="page" id="tab-sitevisits">
+  <div class="card">
+    <h2>Active Jobs by Employee</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;">When you visit a site, tap <strong>✓ At Work</strong> to confirm the employee is on-site. Employees can also mark their job done from their app.</p>
+    <div id="sitevisits-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
+  <div class="card">
+    <h2>Site Visit Log</h2>
+    <div id="sitevisits-log"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
 </div>
 
 <!-- MANAGERS -->
@@ -2097,6 +2861,7 @@ function showTab(name) {
   if (name === 'managers')   loadManagers();
   if (name === 'clients')    loadClients();
   if (name === 'reports')    initReportsTab();
+  if (name === 'sitevisits') initSiteVisits();
 }
 
 function scoreColor(v) {
@@ -2109,19 +2874,31 @@ function trustBadge(t) {
 }
 
 async function loadOverview() {
-  const r = await fetch('/api/checkins?limit=10'); const d = await r.json();
-  const rows = d.map(c => `<tr>
-    <td>${c.entry_date}</td><td><b>${c.worker_name}</b></td><td>${c.site_address}</td>
-    <td><span style="font-weight:700;color:${scoreColor(c.avg_score)}">${c.avg_score}/10</span></td>
-    <td>${(c.work_description||'').substring(0,60)}...</td></tr>`).join('');
-  document.getElementById('overview-checkins').innerHTML =
-    '<table><tr><th>Date</th><th>Employee</th><th>Site</th><th>Avg</th><th>Summary</th></tr>' + rows + '</table>';
-  const today = d.filter(c => c.entry_date === new Date().toISOString().split('T')[0]);
-  document.getElementById('stat-checkins').textContent = today.length;
-  const avg = today.length ? (today.reduce((a,c) => a + (c.avg_score||0), 0) / today.length).toFixed(1) : '—';
-  document.getElementById('stat-avg').textContent = avg;
-  const jr = await fetch('/api/jobs'); const jd = await jr.json();
-  document.getElementById('stat-jobs').textContent = jd.filter(j => j.status === 'open').length;
+  try {
+    const r = await fetch('/api/checkins?limit=10');
+    const d = r.ok ? await r.json() : [];
+    const rows = d.map(c => `<tr>
+      <td>${c.entry_date}</td><td><b>${c.worker_name}</b></td><td>${c.site_address}</td>
+      <td><span style="font-weight:700;color:${scoreColor(c.avg_score)}">${c.avg_score}/10</span></td>
+      <td>${(c.work_description||'').substring(0,60)}...</td></tr>`).join('');
+    document.getElementById('overview-checkins').innerHTML = rows
+      ? '<table><tr><th>Date</th><th>Employee</th><th>Site</th><th>Avg</th><th>Summary</th></tr>' + rows + '</table>'
+      : '<p style="color:#999">No check-ins yet.</p>';
+    const today = d.filter(c => c.entry_date === new Date().toISOString().split('T')[0]);
+    document.getElementById('stat-checkins').textContent = today.length || '0';
+    const avg = today.length ? (today.reduce((a,c) => a + (c.avg_score||0), 0) / today.length).toFixed(1) : '—';
+    document.getElementById('stat-avg').textContent = avg;
+  } catch(e) {
+    document.getElementById('overview-checkins').innerHTML = '<p style="color:#d9534f">Error loading check-ins.</p>';
+    document.getElementById('stat-checkins').textContent = '0';
+  }
+  try {
+    const jr = await fetch('/api/jobs');
+    const jd = jr.ok ? await jr.json() : [];
+    document.getElementById('stat-jobs').textContent = jd.filter(j => j.status === 'open').length;
+  } catch(e) {
+    document.getElementById('stat-jobs').textContent = '0';
+  }
 }
 
 async function loadCheckins() {
@@ -2152,8 +2929,85 @@ function reviewCheckin(id, name) {
 let _cachedEmps = [];
 let _jobs = [];
 
+let _selectedClient = null;
+
 async function initJobsTab() {
-  await Promise.all([loadJobs(), loadEmpCheckboxes(), loadAssignmentLog()]);
+  await Promise.all([loadJobs(), loadEmpCheckboxes(), loadAssignmentLog(), loadJobClientPicker()]);
+}
+
+async function loadJobClientPicker() {
+  const sel = document.getElementById('job-client-select');
+  if (!sel) return;
+  try {
+    const clients = await fetch('/api/clients').then(r => r.json());
+    if (!clients.length) {
+      sel.innerHTML = '<option value="">No clients yet — add one in the Clients tab first</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">— Select a client —</option>' +
+      clients.map(c =>
+        `<option value="${c.id}" data-name="${c.client_name}" data-email="${c.client_email}" data-keyword="${c.site_keyword}">
+          ${c.client_name} (${c.site_keyword})
+        </option>`
+      ).join('');
+    sel.onchange = function() {
+      const opt = sel.options[sel.selectedIndex];
+      const nextBtn = document.getElementById('job-next-btn');
+      const preview = document.getElementById('job-client-preview');
+      if (!opt.value) {
+        nextBtn.disabled = true;
+        preview.style.display = 'none';
+        _selectedClient = null;
+        return;
+      }
+      _selectedClient = {
+        id:      opt.value,
+        name:    opt.dataset.name,
+        email:   opt.dataset.email,
+        keyword: opt.dataset.keyword,
+      };
+      preview.style.display = 'block';
+      preview.innerHTML = `<b>${_selectedClient.name}</b> &nbsp;|&nbsp; ${_selectedClient.email} &nbsp;|&nbsp; Site keyword: <code>${_selectedClient.keyword}</code>`;
+      nextBtn.disabled = false;
+    };
+  } catch(e) {
+    sel.innerHTML = '<option value="">Error loading clients</option>';
+  }
+}
+
+function jobStep2() {
+  if (!_selectedClient) return;
+  document.getElementById('job-step-1').style.display = 'none';
+  document.getElementById('job-step-2').style.display = 'block';
+  document.getElementById('job-client-badge').textContent = '👤 ' + _selectedClient.name;
+  // Fill hidden fields
+  const form = document.getElementById('jobForm');
+  form.querySelector('[name=client_name]').value  = _selectedClient.name;
+  form.querySelector('[name=client_email]').value = _selectedClient.email;
+  form.querySelector('[name=client_id]').value    = _selectedClient.id;
+  // Pre-fill site address with keyword as hint
+  const siteInput = form.querySelector('[name=site_address]');
+  if (!siteInput.value) siteInput.placeholder = 'e.g. ' + _selectedClient.keyword;
+}
+
+function jobBackToStep1() {
+  document.getElementById('job-step-2').style.display = 'none';
+  document.getElementById('job-step-1').style.display = 'block';
+}
+
+function checkNewAddress(val) {
+  if (!_selectedClient || !val.trim()) {
+    document.getElementById('save-address-row').style.display = 'none';
+    return;
+  }
+  // Show the register checkbox if the address isn't the same as the registered keyword
+  const typed = val.trim().toLowerCase();
+  const keyword = (_selectedClient.keyword || '').toLowerCase();
+  const isNew = !typed.includes(keyword) && !keyword.includes(typed);
+  const row = document.getElementById('save-address-row');
+  row.style.display = isNew ? 'block' : 'none';
+  const nameSpan = document.getElementById('save-address-client-name');
+  if (nameSpan) nameSpan.textContent = _selectedClient.name;
 }
 
 async function loadAssignmentLog() {
@@ -2195,9 +3049,11 @@ async function loadEmpCheckboxes() {
       return;
     }
     box.innerHTML = active.map(e =>
-      '<label style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;' +
-      'border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;font-size:14px;user-select:none;">' +
-      '<input type="checkbox" name="emp_cb" value="' + e.name + '"> ' + e.name + '</label>'
+      '<label style="display:flex;align-items:center;gap:8px;padding:8px 14px;' +
+      'border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;font-size:14px;' +
+      'user-select:none;white-space:nowrap;background:#fff;">' +
+      '<input type="checkbox" name="emp_cb" value="' + e.name + '" style="width:16px;height:16px;flex-shrink:0;cursor:pointer;"> ' +
+      '<span>' + e.name + '</span></label>'
     ).join('');
   } catch(err) {
     box.innerHTML = '<span style="color:#c00;font-size:13px;">Could not load employees</span>';
@@ -2229,10 +3085,29 @@ async function saveJob() {
     const r = await fetch('/api/save-job', {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(fd)});
     const d = await r.json();
-    showJobMsg(d.message || 'Job saved!', true);
+
+    // If checkbox checked, also register the new address as a client site
+    const registerCb = document.getElementById('register-address-cb');
+    if (registerCb && registerCb.checked && _selectedClient) {
+      const siteAddress = fd.site_address.trim().toLowerCase();
+      await fetch('/api/add-client', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          client_name:  _selectedClient.name,
+          client_email: _selectedClient.email,
+          site_keyword: siteAddress,
+        })
+      });
+      showJobMsg((d.message || 'Job saved!') + ' — New site registered for auto-reports ✓', true);
+    } else {
+      showJobMsg(d.message || 'Job saved!', true);
+    }
+
     form.reset();
     document.querySelectorAll('#job-emp-list input').forEach(c => c.checked = false);
     document.getElementById('ai-box').style.display = 'none';
+    document.getElementById('save-address-row').style.display = 'none';
+    jobBackToStep1();
     loadJobs();
   } catch(e) { showJobMsg('Network error', false); }
   btn.disabled = false; btn.innerHTML = 'Save Job &amp; Notify';
@@ -2266,21 +3141,106 @@ async function loadJobs() {
       '<td>' + (j.start_date || '—') + '</td>' +
       '<td><span id="asgn-' + idx + '">' + emps + '</span></td>' +
       '<td><span class="badge ' + badge + '">' + j.status + '</span></td>' +
-      '<td></td>';
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-sm';
-    btn.textContent = 'Assign';
-    btn.onclick = function() { openAssign(idx); };
-    tr.lastElementChild.appendChild(btn);
+      '<td style="display:flex;gap:6px;flex-wrap:wrap;"></td>';
+    const actions = tr.lastElementChild;
+    const openBtn = document.createElement('button');
+    openBtn.className = 'btn btn-sm';
+    openBtn.textContent = 'Open';
+    openBtn.onclick = function() { openJob(idx); };
+    const assignBtn = document.createElement('button');
+    assignBtn.className = 'btn btn-sm';
+    assignBtn.textContent = 'Assign';
+    assignBtn.onclick = function() { openAssign(idx); };
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm';
+    delBtn.style.cssText = 'background:#fce4ec;color:#c62828;border-color:#f48fb1;';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = function() { deleteJob(j.id, idx); };
+    actions.appendChild(openBtn);
+    actions.appendChild(assignBtn);
+    actions.appendChild(delBtn);
     return tr;
   });
   const table = document.createElement('table');
-  table.innerHTML = '<thead><tr><th>Client</th><th>Site</th><th>Start</th><th>Assigned</th><th>Status</th><th></th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>Client</th><th>Site</th><th>Start</th><th>Assigned</th><th>Status</th><th>Actions</th></tr></thead>';
   const tbody = document.createElement('tbody');
   rows.forEach(r => tbody.appendChild(r));
   table.appendChild(tbody);
   el.innerHTML = '';
   el.appendChild(table);
+}
+
+async function deleteJob(jobId, idx) {
+  if (!confirm('Delete this job? This cannot be undone.')) return;
+  const r = await fetch('/api/delete-job/' + jobId, {method:'POST'});
+  const d = await r.json();
+  if (d.ok) { _jobs.splice(idx, 1); loadJobs(); }
+  else alert('Failed to delete job.');
+}
+
+async function openJob(idx) {
+  if (document.getElementById('job-detail-modal')) return;
+  const j = _jobs[idx];
+  if (!j) return;
+  const modal = document.createElement('div');
+  modal.id = 'job-detail-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:24px;overflow-y:auto;';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#fff;border-radius:16px;padding:32px;width:100%;max-width:780px;position:relative;';
+  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">' +
+    '<div><h2 style="margin:0 0 4px;font-size:22px;color:#1F3864;">' + j.client_name + '</h2>' +
+    '<p style="margin:0;color:#666;font-size:14px;">📍 ' + j.site_address + '</p></div>' +
+    '<button id="jd-close-btn" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;padding:0;">✕</button></div>' +
+
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px;">' +
+    '<div style="background:#f4f6fb;border-radius:10px;padding:14px;text-align:center;">' +
+    '<div id="jd-checkins" style="font-size:28px;font-weight:700;color:#1F3864;">—</div><div style="font-size:12px;color:#888;margin-top:4px;">Total Check-Ins</div></div>' +
+    '<div style="background:#f4f6fb;border-radius:10px;padding:14px;text-align:center;">' +
+    '<div id="jd-days" style="font-size:28px;font-weight:700;color:#1F3864;">—</div><div style="font-size:12px;color:#888;margin-top:4px;">Days Worked</div></div>' +
+    '<div style="background:#f4f6fb;border-radius:10px;padding:14px;text-align:center;">' +
+    '<div id="jd-avg" style="font-size:28px;font-weight:700;color:#1F3864;">—</div><div style="font-size:12px;color:#888;margin-top:4px;">Avg Score</div></div></div>' +
+
+    '<div style="margin-bottom:20px;">' +
+    '<h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">ASSIGNED CREW</h4>' +
+    '<p style="margin:0;font-size:14px;">' + ((j.assigned_employees||[]).join(', ') || '—') + '</p></div>' +
+
+    (j.work_description ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">SCOPE OF WORK</h4>' +
+    '<pre style="white-space:pre-wrap;font-size:13px;color:#333;background:#f9f9f9;border-radius:8px;padding:14px;margin:0;max-height:160px;overflow-y:auto;">' + j.work_description + '</pre></div>' : '') +
+
+    '<h4 style="margin:0 0 12px;color:#1F3864;font-size:14px;">DAILY CHECK-INS</h4>' +
+    '<div id="jd-checkins-list" style="font-size:13px;color:#999;">Loading...</div>';
+
+  modal.appendChild(panel);
+  document.body.appendChild(modal);
+  panel.querySelector('#jd-close-btn').onclick = function() { modal.remove(); };
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+
+  try {
+    const res = await fetch('/api/job-report/' + j.id);
+    const data = await res.json();
+    const s = data.stats || {};
+    document.getElementById('jd-checkins').textContent = s.total_checkins ?? '0';
+    document.getElementById('jd-days').textContent = s.days_worked ?? '0';
+    document.getElementById('jd-avg').textContent = s.avg_score != null ? s.avg_score + '/10' : '—';
+    const checkins = data.checkins || [];
+    const listEl = document.getElementById('jd-checkins-list');
+    if (!checkins.length) { listEl.textContent = 'No check-ins yet for this job.'; return; }
+    const rows = checkins.map(c => {
+      const photos = (c.photo_urls||'').split(',').filter(u=>u.trim());
+      const photoHtml = photos.length ? photos.map(u => '<a href="'+u.trim()+'" target="_blank"><img src="'+u.trim()+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px;"></a>').join('') : '';
+      return '<div style="border:1px solid #e8ecf4;border-radius:10px;padding:14px;margin-bottom:10px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '<div><b>' + c.worker_name + '</b> <span style="color:#888;font-size:12px;">— ' + c.entry_date + '</span></div>' +
+        '<span style="font-weight:700;font-size:16px;color:' + (c.avg_score>=8?'#2e7d32':c.avg_score>=5?'#f57c00':'#c62828') + ';">' + (c.avg_score||'—') + '/10</span></div>' +
+        (c.work_description ? '<p style="margin:0 0 6px;font-size:13px;color:#444;">' + c.work_description + '</p>' : '') +
+        (c.tomorrows_plan ? '<p style="margin:0 0 6px;font-size:12px;color:#888;">Tomorrow: ' + c.tomorrows_plan + '</p>' : '') +
+        (photoHtml ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + photoHtml + '</div>' : '') +
+        '</div>';
+    }).join('');
+    listEl.innerHTML = rows;
+  } catch(e) {
+    document.getElementById('jd-checkins-list').textContent = 'Error loading report.';
+  }
 }
 
 async function openAssign(idx) {
@@ -2304,12 +3264,15 @@ async function openAssign(idx) {
   const boxes = inner.querySelector('#modal-boxes');
   active.forEach(e => {
     const label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;';
+    label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;cursor:pointer;white-space:nowrap;background:#fff;';
     const cb = document.createElement('input');
     cb.type = 'checkbox'; cb.name = 'emp_cb'; cb.value = e.name;
+    cb.style.cssText = 'width:16px;height:16px;flex-shrink:0;cursor:pointer;';
     if (current.includes(e.name)) cb.checked = true;
     label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + e.name));
+    const span = document.createElement('span');
+    span.textContent = e.name;
+    label.appendChild(span);
     boxes.appendChild(label);
   });
   inner.querySelector('#modal-save-btn').onclick = function() { doAssign(j.id, idx); };
@@ -2333,7 +3296,7 @@ async function doAssign(jobId, idx) {
       if (_jobs[idx]) _jobs[idx].assigned_employees = selected;
       document.getElementById('assign-modal').remove();
       loadAssignmentLog();
-      if (d.emailed && d.emailed.length) alert('Crew notified: ' + d.emailed.join(', ') + (d.client_notified ? '\nClient email sent.' : '\nClient not found — no client email sent.'));
+      if (d.emailed && d.emailed.length) alert('Crew notified: ' + d.emailed.join(', ') + (d.client_notified ? ' | Client email sent.' : ' | Client not found.'));
     } else { alert('Error: ' + (d.error || 'Failed')); }
   } catch(e) { alert('Network error'); }
 }
@@ -2382,9 +3345,223 @@ async function resendInvite(id, name) {
 }
 
 // ── REPORTS TAB ─────────────────────────────────────────────────────────────
+// ── SITE VISITS ──────────────────────────────────────────────────────────────
+async function initSiteVisits() {
+  loadSiteVisitJobs();
+  loadSiteVisitLog();
+}
+
+async function loadSiteVisitJobs() {
+  const el = document.getElementById('sitevisits-list');
+  try {
+    const jobs = await fetch('/api/jobs').then(r => r.json());
+    const open = jobs.filter(j => j.status === 'open');
+    if (!open.length) { el.innerHTML = '<p style="color:#999;font-size:13px;">No open jobs.</p>'; return; }
+
+    // Group by employee
+    const byEmp = {};
+    open.forEach(j => {
+      (j.assigned_employees || ['Unassigned']).forEach(emp => {
+        // dedupe
+        const key = emp.trim();
+        if (!byEmp[key]) byEmp[key] = [];
+        if (!byEmp[key].find(x => x.id === j.id)) byEmp[key].push(j);
+      });
+    });
+
+    el.innerHTML = Object.entries(byEmp).map(([emp, empJobs]) => `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;color:#1F3864;text-transform:uppercase;
+                    letter-spacing:.8px;margin-bottom:10px;padding-bottom:6px;
+                    border-bottom:2px solid #e0e4ed;">👷 ${emp}</div>
+        ${empJobs.map(j => `
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      padding:10px 14px;background:#f9fafb;border-radius:10px;
+                      margin-bottom:8px;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:600;font-size:14px;">${j.client_name}</div>
+              <div style="font-size:12px;color:#666;">${j.site_address} &bull; Start: ${j.start_date || 'TBD'}</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <span id="sv-msg-${j.id}-${emp.replace(/\s/g,'_')}" style="font-size:12px;color:#2e7d32;"></span>
+              <button class="btn btn-sm btn-green"
+                onclick="confirmAtWork('${j.id}','${j.site_address.replace(/'/g,"\\'")}','${emp.replace(/'/g,"\\'")}', this)">
+                ✓ At Work
+              </button>
+              <button class="btn btn-sm" style="background:#d9534f;"
+                onclick="markJobDone('${j.id}', this)">
+                ✅ Mark Done
+              </button>
+            </div>
+          </div>`).join('')}
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading jobs.</p>';
+  }
+}
+
+async function confirmAtWork(jobId, site, empName, btn) {
+  btn.disabled = true; btn.textContent = '⏳...';
+  try {
+    const r = await fetch('/api/site-visit', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({job_id: jobId, site_address: site, employee_name: empName})
+    });
+    const j = await r.json();
+    btn.textContent = '✓ Confirmed';
+    btn.style.background = '#388e3c';
+    const key = jobId + '-' + empName.replace(/\s/g,'_');
+    const msg = document.getElementById('sv-msg-' + key);
+    if (msg) { msg.textContent = 'Logged ' + new Date().toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'}); }
+    loadSiteVisitLog();
+  } catch(e) { btn.disabled = false; btn.textContent = '✓ At Work'; }
+}
+
+async function markJobDone(jobId, btn) {
+  if (!confirm('Mark this job as completed?')) return;
+  btn.disabled = true; btn.textContent = '⏳...';
+  try {
+    const r = await fetch('/api/mark-job-done', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({job_id: jobId})
+    });
+    const j = await r.json();
+    if (j.ok) { btn.textContent = '✅ Done'; btn.style.background = '#388e3c'; loadSiteVisitJobs(); }
+    else { btn.disabled = false; btn.textContent = '✅ Mark Done'; }
+  } catch(e) { btn.disabled = false; btn.textContent = '✅ Mark Done'; }
+}
+
+async function loadSiteVisitLog() {
+  const el = document.getElementById('sitevisits-log');
+  try {
+    const rows = await fetch('/api/site-visits').then(r => r.json());
+    if (!rows.length) { el.innerHTML = '<p style="color:#999;font-size:13px;">No site visits logged yet.</p>'; return; }
+    el.innerHTML = '<table><tr><th>When</th><th>Employee</th><th>Site</th><th>Confirmed By</th></tr>' +
+      rows.map(v => {
+        const dt = v.visited_at ? new Date(v.visited_at).toLocaleString('en-CA',
+          {timeZone:'America/Winnipeg',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+        return `<tr><td>${dt}</td><td><b>${v.employee_name}</b></td><td>${v.site_address}</td><td>${v.confirmed_by || '—'}</td></tr>`;
+      }).join('') + '</table>';
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading log.</p>';
+  }
+}
+
 async function initReportsTab() {
   loadReportSchedule();
   loadClientReportList();
+  loadSentReports();
+}
+
+async function previewCompose() {
+  const name    = document.getElementById('compose-name').value.trim();
+  const email   = document.getElementById('compose-email').value.trim();
+  const context = document.getElementById('compose-context').value.trim();
+  const status  = document.getElementById('compose-status');
+  const btn     = document.getElementById('compose-preview-btn');
+  if (!email) { status.textContent = 'Enter a client email first.'; status.style.color='#c62828'; return; }
+  btn.disabled = true; btn.textContent = '⏳ Drafting...';
+  status.textContent = 'Lumia is writing the email…'; status.style.color = '#888';
+  try {
+    const r = await fetch('/api/compose-email', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({to_name: name, to_email: email, context, send_now: false}),
+      signal: AbortSignal.timeout(60000)
+    });
+    const j = await r.json();
+    if (j.ok) {
+      _previewClient = {to_name: name, to_email: email, context, _compose: true};
+      openPreview(name || email, email, j.subject, j.plain_body);
+      status.textContent = '';
+    } else {
+      status.textContent = j.message || 'Error.'; status.style.color = '#c62828';
+    }
+  } catch(e) { status.textContent = 'Request timed out.'; status.style.color = '#c62828'; }
+  btn.disabled = false; btn.textContent = '👁 Preview Email';
+}
+
+async function loadSentReports() {
+  const el = document.getElementById('sent-reports-list');
+  try {
+    const rows = await fetch('/api/sent-reports').then(r => r.json());
+    window._sentReports = rows;
+    if (!rows.length) {
+      el.innerHTML = '<p style="color:#999;font-size:13px;">No reports sent yet.</p>';
+      return;
+    }
+
+    // Group by client_name + site_address
+    const groups = {};
+    rows.forEach((r, i) => {
+      const key = (r.client_name || '—') + '||' + (r.site_address || '—');
+      if (!groups[key]) groups[key] = { client_name: r.client_name, site_address: r.site_address, reports: [] };
+      groups[key].reports.push({...r, _idx: i});
+    });
+
+    el.innerHTML = Object.values(groups).map(g => {
+      const count = g.reports.length;
+      const latest = g.reports[0];
+      const latestDt = latest.sent_at
+        ? new Date(latest.sent_at).toLocaleString('en-CA', {timeZone:'America/Winnipeg', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
+        : '—';
+
+      const reportRows = g.reports.map(r => {
+        const dt = r.sent_at
+          ? new Date(r.sent_at).toLocaleString('en-CA', {timeZone:'America/Winnipeg', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
+          : '—';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;
+                            padding:9px 14px;background:#fafbfd;border-radius:8px;
+                            margin-bottom:6px;gap:10px;flex-wrap:wrap;">
+          <div>
+            <span style="font-size:13px;font-weight:600;color:#333;">${dt}</span><br>
+            <span style="font-size:12px;color:#888;">${r.subject || '—'}</span>
+          </div>
+          <button class="btn btn-sm" onclick="viewSentReport(${r._idx})"
+                  style="background:#1F3864;flex-shrink:0;">View</button>
+        </div>`;
+      }).join('');
+
+      const groupId = 'rg-' + Math.random().toString(36).slice(2,8);
+      return `
+        <div style="margin-bottom:16px;border:1.5px solid #e0e4ed;border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      padding:13px 16px;background:#f4f6fb;cursor:pointer;gap:12px;flex-wrap:wrap;"
+               onclick="toggleReportGroup('${groupId}')">
+            <div>
+              <span style="font-weight:700;font-size:15px;color:#1F3864;">${g.client_name}</span>
+              <span style="font-size:12px;color:#666;margin-left:10px;">${g.site_address}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:12px;color:#888;">${count} report${count>1?'s':''} &bull; Last: ${latestDt}</span>
+              <span id="arr-${groupId}" style="font-size:16px;color:#1F3864;">▼</span>
+            </div>
+          </div>
+          <div id="${groupId}" style="padding:12px 14px 6px;">
+            ${reportRows}
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading history.</p>';
+  }
+}
+
+function toggleReportGroup(id) {
+  const el  = document.getElementById(id);
+  const arr = document.getElementById('arr-' + id);
+  const open = el.style.display !== 'none';
+  el.style.display  = open ? 'none' : 'block';
+  arr.textContent   = open ? '▶' : '▼';
+}
+
+function viewSentReport(i) {
+  const r = (window._sentReports || [])[i];
+  if (!r) return;
+  const dt = r.sent_at ? new Date(r.sent_at).toLocaleString('en-CA', {timeZone:'America/Winnipeg'}) : '';
+  openPreview(r.client_name + (dt ? '  •  ' + dt : ''), r.client_email, r.subject, r.plain_body);
+  // Hide the send button — this is a view of an already-sent report
+  document.getElementById('preview-send-btn').style.display = 'none';
+  _previewClient = null;
 }
 
 async function sendAllReports() {
@@ -2400,6 +3577,8 @@ async function sendAllReports() {
   btn.disabled = false; btn.innerHTML = '&#128229; Send All Reports Now';
 }
 
+let _previewClient = null;
+
 async function loadClientReportList() {
   const el = document.getElementById('client-report-list');
   try {
@@ -2411,31 +3590,39 @@ async function loadClientReportList() {
     el.innerHTML = '';
     clients.forEach(c => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eee;gap:12px;flex-wrap:wrap;';
-      row.innerHTML = '<div><b>' + c.client_name + '</b><br><span style="font-size:12px;color:#888;">' + c.client_email + '</span></div>';
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-sm btn-green';
-      btn.textContent = 'Send Report Now';
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #eee;gap:12px;flex-wrap:wrap;';
+      row.innerHTML = '<div><b>' + c.client_name + '</b><br><span style="font-size:12px;color:#888;">' + c.client_email + ' &bull; ' + c.site_keyword + '</span></div>';
+      const previewBtn = document.createElement('button');
+      previewBtn.className = 'btn btn-sm';
+      previewBtn.style.background = '#1F3864';
+      previewBtn.textContent = '👁 Preview Report';
       const statusEl = document.createElement('span');
-      statusEl.style.cssText = 'font-size:12px;color:#2e7d32;';
-      btn.onclick = async function() {
-        btn.disabled = true; btn.textContent = 'Sending...';
-        statusEl.textContent = '';
+      statusEl.style.cssText = 'font-size:12px;color:#888;';
+      previewBtn.onclick = async function() {
+        previewBtn.disabled = true; previewBtn.textContent = '⏳ Generating...';
+        statusEl.textContent = 'AI is writing the report…';
         try {
-          const r = await fetch('/api/send-client-report', {
+          const r = await fetch('/api/preview-report', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client_id: c.id, client_name: c.client_name, client_email: c.client_email, site_keyword: c.site_keyword })
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({client_name: c.client_name, client_email: c.client_email, site_keyword: c.site_keyword}),
+            signal: AbortSignal.timeout(280000)
           });
           const j = await r.json();
-          statusEl.textContent = j.message;
-          statusEl.style.color = j.ok ? '#2e7d32' : '#c62828';
-        } catch(e) { statusEl.textContent = 'Error'; statusEl.style.color = '#c62828'; }
-        btn.disabled = false; btn.textContent = 'Send Report Now';
+          if (j.ok) {
+            _previewClient = {client_name: c.client_name, client_email: c.client_email, site_keyword: c.site_keyword};
+            openPreview(c.client_name, c.client_email, j.subject, j.plain_body);
+            statusEl.textContent = '';
+          } else {
+            statusEl.textContent = j.message || 'Error generating preview.';
+            statusEl.style.color = '#c62828';
+          }
+        } catch(e) { statusEl.textContent = 'Request timed out — try again.'; statusEl.style.color = '#c62828'; }
+        previewBtn.disabled = false; previewBtn.textContent = '👁 Preview Report';
       };
       const right = document.createElement('div');
-      right.style.cssText = 'display:flex;align-items:center;gap:10px;';
-      right.appendChild(btn);
+      right.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+      right.appendChild(previewBtn);
       right.appendChild(statusEl);
       row.appendChild(right);
       el.appendChild(row);
@@ -2443,6 +3630,49 @@ async function loadClientReportList() {
   } catch(e) {
     el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading clients.</p>';
   }
+}
+
+function openPreview(clientName, clientEmail, subject, body) {
+  document.getElementById('preview-modal-meta').textContent = clientEmail ? 'To: ' + clientName + ' <' + clientEmail + '>' : clientName;
+  document.getElementById('preview-subject').textContent = 'Subject: ' + subject;
+  document.getElementById('preview-body').textContent = body;
+  document.getElementById('preview-send-msg').textContent = '';
+  const sendBtn = document.getElementById('preview-send-btn');
+  sendBtn.style.display = '';
+  sendBtn.disabled = false;
+  sendBtn.textContent = '📨 Send to Client Now';
+  document.getElementById('report-preview-modal').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+function closePreview() {
+  document.getElementById('report-preview-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+async function sendFromPreview() {
+  if (!_previewClient) return;
+  const btn = document.getElementById('preview-send-btn');
+  const msg = document.getElementById('preview-send-msg');
+  btn.disabled = true; btn.textContent = '⏳ Sending...';
+  msg.textContent = '';
+  try {
+    const isCompose = _previewClient._compose;
+    const url  = isCompose ? '/api/compose-email' : '/api/send-client-report';
+    const body = isCompose
+      ? {..._previewClient, send_now: true}
+      : _previewClient;
+    const r = await fetch(url, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(280000)
+    });
+    const j = await r.json();
+    msg.textContent = j.message;
+    msg.style.color = j.ok ? '#2e7d32' : '#c62828';
+    if (j.ok) { btn.textContent = '✓ Sent'; loadSentReports(); }
+    else { btn.disabled = false; btn.textContent = '📨 Send to Client Now'; }
+  } catch(e) { msg.textContent = 'Request timed out.'; msg.style.color = '#c62828'; btn.disabled = false; btn.textContent = '📨 Send to Client Now'; }
 }
 
 async function loadReportSchedule() {
@@ -2746,7 +3976,10 @@ textarea:focus { border-color:#1F3864; }
 </style></head><body>
 
 <div class="topbar">
-  <h1>LUMIA — Review</h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <img src="/static/logo.png" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
+    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">Manager Review</span>
+  </div>
   <div style="display:flex;gap:16px;align-items:center">
     <span style="font-size:13px;opacity:.8">{{ name }}</span>
     {% if role == 'owner' %}<a href="/owner">Dashboard</a>{% endif %}
@@ -3193,6 +4426,77 @@ def api_remove_client(cid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/site-visit", methods=["POST"])
+@require_role("owner")
+def api_site_visit():
+    """Owner confirms an employee is physically on site."""
+    if not supabase_client:
+        return jsonify({"ok": False})
+    d = request.get_json()
+    supabase_client.table("site_visits").insert({
+        "job_id":        d.get("job_id", ""),
+        "site_address":  d.get("site_address", ""),
+        "employee_name": d.get("employee_name", ""),
+        "confirmed_by":  session.get("name", "Owner"),
+    }).execute()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/site-visits")
+@require_role("owner")
+def api_site_visits():
+    if not supabase_client:
+        return jsonify([])
+    try:
+        return jsonify(
+            supabase_client.table("site_visits").select("*")
+            .order("visited_at", desc=True).limit(100).execute().data or []
+        )
+    except Exception:
+        return jsonify([])
+
+
+@app.route("/api/mark-job-done", methods=["POST"])
+def api_mark_job_done():
+    """Employee or owner marks a job as completed."""
+    if not session.get("employee_name") and not session.get("role"):
+        return jsonify({"ok": False}), 401
+    if not supabase_client:
+        return jsonify({"ok": False})
+    d = request.get_json()
+    job_id = d.get("job_id")
+    if not job_id:
+        return jsonify({"ok": False, "message": "No job ID"})
+    supabase_client.table("jobs").update({"status": "completed"}).eq("id", job_id).execute()
+    # Notify owner
+    done_by = session.get("employee_name") or session.get("name") or "Someone"
+    threading.Thread(target=_notify_owner_job_done, args=(job_id, done_by), daemon=True).start()
+    return jsonify({"ok": True})
+
+
+def _notify_owner_job_done(job_id: str, done_by: str) -> None:
+    import httpx as _httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key or not OWNER_EMAIL:
+        return
+    try:
+        job_row = (supabase_client.table("jobs").select("client_name,site_address")
+                   .eq("id", job_id).execute().data or [{}])[0]
+        subject = f"Job Marked Done — {job_row.get('site_address', job_id)}"
+        body    = (f"{done_by} marked the job at {job_row.get('site_address','?')} "
+                   f"({job_row.get('client_name','?')}) as completed.\n\n"
+                   f"Review it in your Lumia dashboard.")
+        _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={"from": "Ashrah Painting <noreply@ashrah.ai>",
+                  "to": [OWNER_EMAIL], "subject": subject, "text": body},
+            timeout=15,
+        )
+    except Exception as exc:
+        print(f"[JobDone] Notify error: {exc}")
+
+
 @app.route("/api/active-jobs")
 @require_employee
 def api_active_jobs():
@@ -3216,7 +4520,30 @@ def api_active_jobs():
 def api_jobs():
     if not supabase_client:
         return jsonify([])
-    return jsonify(supabase_client.table("jobs").select("*").order("created_at", desc=True).limit(20).execute().data or [])
+    return jsonify(supabase_client.table("jobs").select("*").order("created_at", desc=True).limit(100).execute().data or [])
+
+
+@app.route("/api/delete-job/<job_id>", methods=["POST"])
+@require_role("owner")
+def api_delete_job(job_id):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No DB"})
+    supabase_client.table("jobs").delete().eq("id", job_id).execute()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/job-report/<job_id>")
+@require_role("owner")
+def api_job_report(job_id):
+    if not supabase_client:
+        return jsonify({"job": {}, "checkins": []})
+    job = supabase_client.table("jobs").select("*").eq("id", job_id).limit(1).execute().data
+    job = job[0] if job else {}
+    checkins = supabase_client.table("checkins").select("*").eq("job_id", job_id).order("entry_date", desc=True).execute().data or []
+    total = len(checkins)
+    avg = round(sum(c.get("avg_score", 0) or 0 for c in checkins) / total, 1) if total else None
+    days = len(set(c["entry_date"] for c in checkins))
+    return jsonify({"job": job, "checkins": checkins, "stats": {"total_checkins": total, "avg_score": avg, "days_worked": days}})
 
 
 @app.route("/api/match-crew", methods=["POST"])
@@ -3290,6 +4617,9 @@ def api_save_job():
     assigned = d.get("assigned_employees") or []
     if isinstance(assigned, str):
         assigned = [assigned] if assigned else []
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    assigned = [n for n in assigned if not (n in seen or seen.add(n))]
     job_info = {
         "client_name":        d.get("client_name"),
         "site_address":       d.get("site_address"),
@@ -3320,6 +4650,8 @@ def api_assign_employees():
     d = request.get_json()
     job_id   = d.get("job_id")
     assigned = d.get("assigned_employees") or []
+    seen: set[str] = set()
+    assigned = [n for n in assigned if not (n in seen or seen.add(n))]
     if not supabase_client or not job_id:
         return jsonify({"ok": False, "error": "Missing data"})
     supabase_client.table("jobs").update({"assigned_employees": assigned}).eq("id", job_id).execute()
@@ -3355,12 +4687,18 @@ def api_assignment_log():
 @require_role("owner")
 def api_employees():
     if not supabase_client:
-        # Fall back to hardcoded list so job assignment still works
         return jsonify([{"id": n, "name": n, "email": "", "active": True} for n in EMPLOYEES])
     db_emps = supabase_client.table("employees").select("id,name,email,active,created_at").execute().data or []
     if db_emps:
-        return jsonify(db_emps)
-    # DB table is empty — fall back to hardcoded list
+        # Deduplicate by name — keep the most recent entry per name
+        seen: set[str] = set()
+        unique = []
+        for e in db_emps:
+            key = (e.get("name") or "").strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(e)
+        return jsonify(unique)
     return jsonify([{"id": n, "name": n, "email": "", "active": True} for n in EMPLOYEES])
 
 
@@ -3459,6 +4797,61 @@ def api_send_daily_reports():
     return jsonify({"message": "Reports are being sent to all clients with check-ins today."})
 
 
+def _build_report_content(client_name: str, client_email: str, site_keyword: str):
+    """Generate report content for a client without sending. Returns dict with ok/subject/plain_body/html_body/message."""
+    today = date.today().isoformat()
+    if not supabase_client:
+        return {"ok": False, "message": "Database not connected."}
+    checkins = supabase_client.table("checkins").select("*").eq("entry_date", today).execute().data or []
+    entries = [c for c in checkins if site_keyword.lower() in (c.get("site_address") or "").lower()]
+    if not entries:
+        return {"ok": False, "message": f"No check-ins found today for site keyword '{site_keyword}'."}
+    crew = [e["worker_name"] for e in entries]
+    work_completed = "\n\n".join(
+        f"{e['worker_name']}: {e.get('work_description','')}" for e in entries if e.get("work_description")
+    )
+    plans = [e.get("tomorrows_plan","") for e in entries if e.get("tomorrows_plan")]
+    tracker = WorkforceTracker()
+    for name in crew:
+        tracker.add_worker(Worker(worker_id=name, name=name))
+    dr = DailyReport(
+        report_date=today, job_id="",
+        site_address=entries[0].get("site_address",""),
+        client_name=client_name, client_email=client_email,
+        crew_present=crew, work_completed=work_completed,
+        work_planned=" | ".join(plans), issues="", overall_status="On Schedule",
+    )
+    reporter = DailyReportSender(
+        client=_anthropic.Anthropic(),
+        smtp_host=ZOHO_SMTP_HOST, smtp_port=ZOHO_SMTP_PORT,
+        user=ZOHO_EMAIL, password=ZOHO_PASSWORD, from_email=ZOHO_EMAIL,
+    )
+    content = reporter.generate(dr, tracker)
+    _augment_report_with_ask_lumia(content, site_keyword, client_name, client_email)
+    return {
+        "ok": True,
+        "subject":    content.get("subject", f"Daily Site Report — {dr.site_address} — {today}"),
+        "html_body":  content.get("html_body", ""),
+        "plain_body": content.get("plain_body", ""),
+    }
+
+
+@app.route("/api/preview-report", methods=["POST"])
+@require_role("owner")
+def api_preview_report():
+    """Generate a report and return the content for preview — does NOT send email."""
+    d = request.get_json()
+    try:
+        result = _build_report_content(
+            client_name=d.get("client_name",""),
+            client_email=d.get("client_email",""),
+            site_keyword=d.get("site_keyword",""),
+        )
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"ok": False, "message": f"Error: {exc}"})
+
+
 @app.route("/api/send-client-report", methods=["POST"])
 @require_role("owner")
 def api_send_client_report():
@@ -3490,10 +4883,10 @@ def api_send_client_report():
 
     tracker = WorkforceTracker()
     for name in crew:
-        tracker.add_worker(Worker(worker_id=name, name=name, role="Painter", status="active"))
+        tracker.add_worker(Worker(worker_id=name, name=name))
 
     dr = DailyReport(
-        report_date=date.fromisoformat(today),
+        report_date=today,
         job_id="",
         site_address=entries[0].get("site_address",""),
         client_name=client_name,
@@ -3515,12 +4908,169 @@ def api_send_client_report():
             from_email=ZOHO_EMAIL,
         )
         content = reporter.generate(dr, tracker)
-        sent = reporter.send(content, to_email=client_email, cc_emails=[OWNER_EMAIL])
-        if sent:
+        _augment_report_with_ask_lumia(content, site_keyword, client_name, client_email)
+        subject   = content.get("subject", f"Daily Site Report — {entries[0].get('site_address','')} — {today}")
+        html_body = content.get("html_body", "")
+        plain_body = content.get("plain_body", "")
+        # Send via Resend (SMTP is blocked on Railway)
+        import httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key:
+            return jsonify({"ok": False, "message": "RESEND_API_KEY not set."})
+        recipients = [client_email]
+        if OWNER_EMAIL and OWNER_EMAIL not in recipients:
+            recipients.append(OWNER_EMAIL)
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={"from": "Ashrah Painting <noreply@ashrah.ai>", "to": recipients,
+                  "subject": subject, "html": html_body, "text": plain_body},
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            # Log the sent report so owner can review it later
+            try:
+                if supabase_client:
+                    supabase_client.table("sent_reports").insert({
+                        "client_name":  client_name,
+                        "client_email": client_email,
+                        "site_address": dr.site_address,
+                        "subject":      subject,
+                        "plain_body":   plain_body,
+                        "html_body":    html_body,
+                    }).execute()
+            except Exception:
+                pass
             return jsonify({"ok": True, "message": f"Report sent to {client_email}."})
-        return jsonify({"ok": False, "message": "Report generated but email failed to send."})
+        return jsonify({"ok": False, "message": f"Email API error {resp.status_code}: {resp.text}"})
     except Exception as exc:
         return jsonify({"ok": False, "message": f"Error: {exc}"})
+
+
+@app.route("/api/compose-email", methods=["POST"])
+@require_role("owner")
+def api_compose_email():
+    """Generate a custom client intro/assignment email and optionally send it."""
+    import httpx as _httpx
+    d = request.get_json()
+    to_name    = (d.get("to_name") or "").strip()
+    to_email   = (d.get("to_email") or "").strip()
+    context    = (d.get("context") or "").strip()   # freeform notes: job details, crew, etc.
+    send_now   = d.get("send_now", False)
+
+    if not to_email:
+        return jsonify({"ok": False, "message": "Recipient email is required."})
+
+    # Pull job data from Supabase to enrich the email
+    job_context = ""
+    if supabase_client:
+        try:
+            jobs = supabase_client.table("jobs").select("*") \
+                .order("created_at", desc=True).limit(30).execute().data or []
+            # Find jobs that match the recipient name or any keyword from context
+            search = (to_name + " " + context).lower()
+            matched = [
+                j for j in jobs
+                if to_name.lower() in (j.get("client_name") or "").lower()
+                or any(w in (j.get("site_address") or "").lower() for w in search.split() if len(w) > 3)
+            ]
+            if matched:
+                j = matched[0]
+                crew = (j.get("assigned_employees") or [])
+                job_context = (
+                    f"Job: {j.get('client_name')} at {j.get('site_address')}\n"
+                    f"Start Date: {j.get('start_date') or 'TBD'}\n"
+                    f"Assigned Crew: {', '.join(crew) if crew else 'TBD'}\n"
+                    f"Work: {(j.get('work_description') or '')[:300]}"
+                )
+        except Exception:
+            pass
+
+    ai_prompt = f"""Write a professional, warm email from Ashrah Painting to a client named {to_name}.
+
+Purpose: Introduce Lumia (Ashrah Painting's AI-powered operations system) and inform the client about their job assignment.
+
+About Lumia: It is the operations intelligence behind Ashrah Painting — it tracks daily crew check-ins, site progress, and sends automated daily reports. It helps us deliver a higher standard of transparency and professionalism on every project.
+
+{f"Job details:{chr(10)}{job_context}" if job_context else ""}
+{f"Additional context:{chr(10)}{context}" if context else ""}
+
+Email requirements:
+- Subject line on the first line, starting with "Subject: "
+- Then a blank line
+- Then the full email body
+- Sign off as: Ahmad Ashrah, CEO — Ashrah Painting
+- Include a line at the bottom: "Please do not reply to this email. For inquiries, contact ahmad@ashrahpainting.ca"
+- Tone: professional, confident, warm — like a premium contractor
+- Keep it concise — under 200 words in the body"""
+
+    try:
+        ai_client = _anthropic.Anthropic()
+        resp = ai_client.messages.create(
+            model=MODEL, max_tokens=800,
+            messages=[{"role": "user", "content": ai_prompt}]
+        )
+        raw = resp.content[0].text.strip()
+        # Parse subject vs body
+        lines = raw.split("\n")
+        subject = ""
+        body_lines = []
+        for i, line in enumerate(lines):
+            if line.lower().startswith("subject:"):
+                subject = line[8:].strip()
+            else:
+                body_lines.extend(lines[i:])
+                break
+        plain_body = "\n".join(body_lines).strip()
+        html_body  = "<p>" + plain_body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
+        subject    = subject or f"Welcome — Ashrah Painting × Lumia"
+    except Exception as exc:
+        return jsonify({"ok": False, "message": f"AI error: {exc}"})
+
+    if not send_now:
+        return jsonify({"ok": True, "subject": subject, "plain_body": plain_body,
+                        "html_body": html_body, "to_name": to_name, "to_email": to_email})
+
+    # Send immediately
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        return jsonify({"ok": False, "message": "RESEND_API_KEY not set."})
+    try:
+        cc = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != to_email else []
+        r = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={"from": "Ashrah Painting <noreply@ashrah.ai>",
+                  "to": [to_email], "cc": cc,
+                  "subject": subject, "html": html_body, "text": plain_body},
+            timeout=20,
+        )
+        sent = r.status_code in (200, 201)
+        if sent and supabase_client:
+            try:
+                supabase_client.table("sent_reports").insert({
+                    "client_name": to_name, "client_email": to_email,
+                    "site_address": "intro email",
+                    "subject": subject, "plain_body": plain_body, "html_body": html_body,
+                }).execute()
+            except Exception:
+                pass
+        return jsonify({"ok": sent, "message": f"Email {'sent' if sent else 'failed'} → {to_email}" + (" (CC: you)" if cc else "")})
+    except Exception as exc:
+        return jsonify({"ok": False, "message": f"Send error: {exc}"})
+
+
+@app.route("/api/sent-reports")
+@require_role("owner")
+def api_sent_reports():
+    if not supabase_client:
+        return jsonify([])
+    try:
+        rows = supabase_client.table("sent_reports").select("*") \
+            .order("sent_at", desc=True).limit(30).execute().data or []
+        return jsonify(rows)
+    except Exception as exc:
+        return jsonify([])
 
 
 @app.route("/api/report-schedule", methods=["GET"])
@@ -3610,7 +5160,7 @@ def _run_daily_reports() -> None:
         for keyword, info in all_clients.items():
             if keyword in site_lower:
                 key = info["client_email"]
-                client_checkins.setdefault(key, {"info": info, "entries": []})
+                client_checkins.setdefault(key, {"info": info, "keyword": keyword, "entries": []})
                 client_checkins[key]["entries"].append(ci)
                 break
 
@@ -3630,16 +5180,17 @@ def _run_daily_reports() -> None:
 
     for email_key, bucket in client_checkins.items():
         info    = bucket["info"]
+        keyword = bucket.get("keyword", "")
         entries = bucket["entries"]
         crew    = [e["worker_name"] for e in entries]
         for name in crew:
-            tracker.add_worker(Worker(worker_id=name, name=name, role="Painter", status="active"))
+            tracker.add_worker(Worker(worker_id=name, name=name))
         work_completed = "\n\n".join(
             f"{e['worker_name']}: {e.get('work_description','')}" for e in entries if e.get("work_description")
         )
         plans = [e.get("tomorrows_plan","") for e in entries if e.get("tomorrows_plan")]
         dr = DailyReport(
-            report_date=date.fromisoformat(today),
+            report_date=today,
             job_id="",
             site_address=(entries[0].get("site_address") or ""),
             client_name=info["client_name"],
@@ -3651,11 +5202,117 @@ def _run_daily_reports() -> None:
             overall_status="On Schedule",
         )
         try:
+            import httpx as _httpx
+            resend_key = os.getenv("RESEND_API_KEY", "")
             content = reporter.generate(dr, tracker)
-            sent    = reporter.send(content, to_email=dr.client_email, cc_emails=[OWNER_EMAIL])
+            _augment_report_with_ask_lumia(content, keyword, dr.client_name, dr.client_email)
+            subject   = content.get("subject", f"Daily Site Report — {dr.site_address} — {today}")
+            html_body = content.get("html_body", "")
+            plain_body = content.get("plain_body", "")
+            recipients = [dr.client_email]
+            if OWNER_EMAIL and OWNER_EMAIL not in recipients:
+                recipients.append(OWNER_EMAIL)
+            if resend_key:
+                resp = _httpx.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                    json={"from": "Ashrah Painting <noreply@ashrah.ai>", "to": recipients,
+                          "subject": subject, "html": html_body, "text": plain_body},
+                    timeout=15,
+                )
+                sent = resp.status_code in (200, 201)
+                if sent:
+                    try:
+                        supabase_client.table("sent_reports").insert({
+                            "client_name":  dr.client_name,
+                            "client_email": dr.client_email,
+                            "site_address": dr.site_address,
+                            "subject":      subject,
+                            "plain_body":   plain_body,
+                            "html_body":    html_body,
+                        }).execute()
+                    except Exception:
+                        pass
+            else:
+                sent = False
             print(f"[Scheduler] Report {'sent' if sent else 'FAILED'} → {dr.client_email}")
         except Exception as exc:
             print(f"[Scheduler] Report error for {dr.client_email}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# NIGHTLY CLIENT-ESCALATION DIGEST — emails Ahmad unresolved client questions
+# ---------------------------------------------------------------------------
+def _run_client_escalation_digest() -> None:
+    if not supabase_client or not OWNER_EMAIL:
+        return
+    try:
+        rows = supabase_client.table("client_escalations") \
+            .select("id,client_id,question,assistant_response,created_at") \
+            .is_("resolved_at", "null") \
+            .is_("notified_at", "null") \
+            .order("created_at").execute().data or []
+    except Exception as exc:
+        print(f"[Digest] fetch error: {exc}")
+        return
+    if not rows:
+        return
+
+    client_ids = list({r["client_id"] for r in rows if r.get("client_id")})
+    name_by_id: dict[str, str] = {}
+    try:
+        crows = supabase_client.table("clients").select("id,client_name,client_email") \
+            .in_("id", client_ids).execute().data or []
+        name_by_id = {c["id"]: f"{c.get('client_name','')} ({c.get('client_email','')})" for c in crows}
+    except Exception:
+        pass
+
+    blocks = []
+    for r in rows:
+        who = name_by_id.get(r.get("client_id"), "Client")
+        blocks.append(
+            f"<p><b>{who}</b> &mdash; <span style='color:#666'>{r.get('created_at','')}</span><br>"
+            f"<b>Q:</b> {r.get('question','')}<br>"
+            f"<b>Lumia reply:</b> {r.get('assistant_response','')}</p>"
+        )
+    html = "<h2>Lumia — pending client follow-ups</h2>" + "\n".join(blocks)
+    plain = "\n\n".join(
+        f"{name_by_id.get(r.get('client_id'),'Client')} ({r.get('created_at','')})\n"
+        f"Q: {r.get('question','')}\nLumia reply: {r.get('assistant_response','')}"
+        for r in rows
+    )
+
+    try:
+        import httpx as _httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key:
+            print("[Digest] No RESEND_API_KEY — skipping email")
+            return
+        resp = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from":    "Lumia — Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [OWNER_EMAIL],
+                "subject": f"Lumia: {len(rows)} client question(s) waiting on you",
+                "html":    html,
+                "text":    plain,
+            },
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            now = datetime.utcnow().isoformat()
+            for r in rows:
+                try:
+                    supabase_client.table("client_escalations") \
+                        .update({"notified_at": now}).eq("id", r["id"]).execute()
+                except Exception:
+                    pass
+            print(f"[Digest] Sent {len(rows)} escalation(s) to {OWNER_EMAIL}")
+        else:
+            print(f"[Digest] Email failed: {resp.status_code} {resp.text}")
+    except Exception as exc:
+        print(f"[Digest] send error: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -3665,10 +5322,154 @@ try:
     _scheduler = BackgroundScheduler(timezone="America/Winnipeg")
     _scheduler.add_job(_run_daily_reports, "cron", hour=18, minute=0,
                        id="daily_reports", replace_existing=True)
+    _scheduler.add_job(_run_client_escalation_digest, "cron", hour=20, minute=0,
+                       id="client_escalation_digest", replace_existing=True)
     _scheduler.start()
-    print("[Scheduler] Daily report scheduler started — runs at 18:00 Winnipeg time")
+    print("[Scheduler] Daily reports at 18:00, client escalation digest at 20:00 Winnipeg time")
 except Exception as _sched_exc:
     print(f"[Scheduler] Could not start scheduler: {_sched_exc}")
+
+
+# ---------------------------------------------------------------------------
+# INBOUND EMAIL WEBHOOK — lumia@ashrah.ai replies automatically
+# ---------------------------------------------------------------------------
+@app.route("/webhook/inbound-email", methods=["POST"])
+def webhook_inbound_email():
+    """Resend forwards inbound emails here. Lumia reads, thinks, and replies."""
+    import httpx as _httpx
+
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+
+    sender      = data.get("from", "")
+    sender_name = data.get("from_name", sender.split("<")[0].strip())
+    subject     = data.get("subject", "")
+    body_text   = data.get("text", "") or data.get("plain", "") or ""
+    body_html   = data.get("html", "")
+
+    # Strip HTML if only html available
+    if not body_text and body_html:
+        import re
+        body_text = re.sub(r'<[^>]+>', ' ', body_html).strip()
+
+    # Extract sender email
+    import re as _re
+    email_match = _re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender)
+    reply_to = email_match.group(0) if email_match else sender
+
+    if not reply_to:
+        return jsonify({"ok": False, "message": "No sender address"}), 200
+
+    # Don't reply to ourselves or bounce loops
+    if "noreply" in reply_to.lower() or "no-reply" in reply_to.lower():
+        return jsonify({"ok": True, "message": "Ignored no-reply sender"}), 200
+
+    print(f"[Inbound] Email from {reply_to} | Subject: {subject}")
+
+    # ── Build context from Supabase ──────────────────────────────────────────
+    context_parts = []
+    if supabase_client:
+        try:
+            checkins = supabase_client.table("checkins").select("*") \
+                .order("entry_date", desc=True).limit(60).execute().data or []
+            if checkins:
+                rows = [
+                    f"  [{c['entry_date']}] {c['worker_name']} @ {c['site_address']} | "
+                    f"avg={c.get('avg_score','?')}/10 | {(c.get('work_description') or '')[:100]}"
+                    for c in checkins
+                ]
+                context_parts.append("RECENT CHECK-INS:\n" + "\n".join(rows))
+        except Exception:
+            pass
+        try:
+            jobs = supabase_client.table("jobs").select("*") \
+                .order("created_at", desc=True).limit(20).execute().data or []
+            if jobs:
+                rows = [
+                    f"  [{j.get('status','?').upper()}] {j.get('client_name','?')} @ {j.get('site_address','?')} | "
+                    f"crew: {', '.join(j.get('assigned_employees') or [])} | start: {j.get('start_date','TBD')}"
+                    for j in jobs
+                ]
+                context_parts.append("JOBS:\n" + "\n".join(rows))
+        except Exception:
+            pass
+        try:
+            clients = supabase_client.table("clients").select("*").execute().data or []
+            if clients:
+                rows = [f"  {c.get('client_name')} | {c.get('client_email')} | keyword: {c.get('site_keyword')}" for c in clients]
+                context_parts.append("CLIENTS:\n" + "\n".join(rows))
+        except Exception:
+            pass
+
+    data_context = "\n\n".join(context_parts) if context_parts else "(no data available)"
+    today = date.today().isoformat()
+
+    system_prompt = f"""You are Lumia, the AI operations assistant for Ashrah Painting in Winnipeg, Canada — owned by Ahmad Ashrah (CEO).
+
+You are responding to an email sent directly to lumia@ashrah.ai.
+
+You have access to live company data: jobs, crew assignments, daily check-ins, and client info. Use it to give specific, helpful answers.
+
+Today's date: {today}
+
+--- LIVE COMPANY DATA ---
+{data_context}
+--- END DATA ---
+
+Reply rules:
+- Be professional, warm, and concise
+- Sign off every email as: Lumia | Ashrah Painting Operations | info@ashrahpainting.ca
+- End with: "This is an automated response from Lumia, Ashrah Painting's AI operations system."
+- Never make up information — if you don't know something, say to contact ahmad@ashrahpainting.ca
+- Plain text only, no markdown"""
+
+    try:
+        ai_client = _anthropic.Anthropic()
+        resp = ai_client.messages.create(
+            model=MODEL,
+            max_tokens=600,
+            system=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": f"Email from {sender_name} ({reply_to}):\nSubject: {subject}\n\n{body_text}"
+            }]
+        )
+        reply_body = resp.content[0].text.strip()
+    except Exception as exc:
+        print(f"[Inbound] AI error: {exc}")
+        return jsonify({"ok": False}), 200
+
+    # Send the reply
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        print("[Inbound] No RESEND_API_KEY — cannot reply")
+        return jsonify({"ok": False}), 200
+
+    reply_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+    reply_html = "<p>" + reply_body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
+
+    try:
+        cc = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != reply_to else []
+        r = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from":    "Lumia — Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [reply_to],
+                "cc":      cc,
+                "subject": reply_subject,
+                "html":    reply_html,
+                "text":    reply_body,
+            },
+            timeout=20,
+        )
+        print(f"[Inbound] Reply {'sent' if r.status_code in (200,201) else 'FAILED'} → {reply_to}")
+    except Exception as exc:
+        print(f"[Inbound] Reply error: {exc}")
+
+    return jsonify({"ok": True}), 200
 
 
 if __name__ == "__main__":

@@ -4065,17 +4065,28 @@ async function loadClients() {
     '<table><tr><th>Name</th><th>Recipients</th><th>Keyword</th><th></th></tr>' + rows + '</table>';
 }
 
+function removeRecipientRow(btn) {
+  btn.closest('.cf-recipient-row').remove();
+  document.getElementById('cf-add-row-btn').style.display = '';
+}
+
 function addRecipientRow() {
   const rows = document.querySelectorAll('.cf-recipient-row');
   if (rows.length >= 5) { document.getElementById('cf-add-row-btn').style.display = 'none'; return; }
   const div = document.createElement('div');
   div.className = 'cf-recipient-row';
-  div.style = 'display:grid;grid-template-columns:1fr 1fr 32px;gap:8px;margin-bottom:8px;';
-  div.innerHTML =
-    '<input type="text" placeholder="First Last" class="cf-rname" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
-    '<input type="email" placeholder="email@company.com" class="cf-remail" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
-    '<button type="button" onclick="this.closest(\'.cf-recipient-row\').remove();document.getElementById(\'cf-add-row-btn\').style.display=\'\'" ' +
-    'style="background:#f8d7da;border:none;color:#721c24;border-radius:6px;cursor:pointer;font-size:16px;padding:0 6px;">×</button>';
+  div.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 32px;gap:8px;margin-bottom:8px;';
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text'; nameInput.placeholder = 'First Last'; nameInput.className = 'cf-rname';
+  nameInput.style.cssText = 'padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;';
+  const emailInput = document.createElement('input');
+  emailInput.type = 'email'; emailInput.placeholder = 'email@company.com'; emailInput.className = 'cf-remail';
+  emailInput.style.cssText = 'padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;';
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button'; removeBtn.textContent = '\u00d7';
+  removeBtn.style.cssText = 'background:#f8d7da;border:none;color:#721c24;border-radius:6px;cursor:pointer;font-size:16px;padding:0 6px;';
+  removeBtn.onclick = function() { removeRecipientRow(this); };
+  div.appendChild(nameInput); div.appendChild(emailInput); div.appendChild(removeBtn);
   document.getElementById('cf-recipients').appendChild(div);
   if (document.querySelectorAll('.cf-recipient-row').length >= 5) {
     document.getElementById('cf-add-row-btn').style.display = 'none';

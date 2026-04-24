@@ -23,6 +23,8 @@ from flask import (Flask, render_template_string, request, jsonify,
 from supabase import create_client
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import lumia_estimates
+
 from ashrah_backfill import (
     DailyReport,
     DailyReportSender,
@@ -53,6 +55,12 @@ def _serve_static(filename):
 
 OWNER_PIN = os.getenv("OWNER_PIN", "")
 
+# Machine-to-machine API key (for the estimating agent and any future integrations).
+# Set LUMIA_API_KEY in Railway env vars.  Requests pass it as:
+#   Header:  X-Lumia-Key: <key>
+#   OR query: ?api_key=<key>
+LUMIA_API_KEY = os.getenv("LUMIA_API_KEY", "")
+
 # Supabase client
 _sb_url = os.getenv("SUPABASE_URL", "")
 _sb_key = os.getenv("SUPABASE_KEY", "")
@@ -75,6 +83,27 @@ def require_employee(f):
     def wrapper(*args, **kwargs):
         if not session.get("employee_name"):
             return redirect(url_for("employee_login_page", next=request.path))
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_api_key(f):
+    """M2M auth decorator.  Accepts key via X-Lumia-Key header OR ?api_key= query param.
+    Also passes if the caller has an active owner/manager session (browser use)."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if session.get("role") in ("owner", "manager"):
+            return f(*args, **kwargs)
+        provided = (
+            request.headers.get("X-Lumia-Key")
+            or request.args.get("api_key")
+            or (request.get_json(silent=True) or {}).get("api_key")
+        )
+        if not LUMIA_API_KEY:
+            # Key not configured — reject to prevent accidental open access
+            return jsonify({"ok": False, "error": "LUMIA_API_KEY not configured on server."}), 403
+        if not provided or provided != LUMIA_API_KEY:
+            return jsonify({"ok": False, "error": "Invalid or missing API key."}), 401
         return f(*args, **kwargs)
     return wrapper
 
@@ -1952,10 +1981,30 @@ def api_lumia_chat():
                 rows = [
                     f"  [{c['entry_date']}] {c['worker_name']} @ {c['site_address']} | "
                     f"avg={c.get('avg_score','?')}/10 | "
-                    f"work: {(c.get('work_description') or '')[:120]}"
+                    f"work: {(c.get('work_description') or '')[:150]} | "
+                    f"tomorrow: {(c.get('tomorrows_plan') or '')[:80]}"
                     for c in checkins
                 ]
-                parts.append("RECENT CHECK-INS:\n" + "\n".join(rows))
+                parts.append("RECENT CHECK-INS (verbatim from crew):\n" + "\n".join(rows))
+
+                # Build per-employee language profiles so Lumia understands how each person writes
+                emp_profiles: dict[str, list[str]] = {}
+                for c in checkins:
+                    name = (c.get("worker_name") or "").strip()
+                    desc = (c.get("work_description") or "").strip()
+                    plan = (c.get("tomorrows_plan") or "").strip()
+                    if name and (desc or plan):
+                        emp_profiles.setdefault(name, [])
+                        if desc:
+                            emp_profiles[name].append(f'"{desc}"')
+                        if plan and plan != desc:
+                            emp_profiles[name].append(f'(plan: "{plan}")')
+                if emp_profiles:
+                    profile_rows = []
+                    for emp, entries in emp_profiles.items():
+                        sample = " | ".join(entries[:4])  # last 4 entries max
+                        profile_rows.append(f"  {emp}: {sample}")
+                    parts.append("EMPLOYEE LANGUAGE & WORK PATTERNS (how each person describes their work):\n" + "\n".join(profile_rows))
         except Exception:
             pass
 
@@ -2049,16 +2098,23 @@ def api_lumia_chat():
     )
     if data_context:
         system_prompt += (
-            "You have full access to the company's live operational data below. "
-            "Use it to give specific, accurate answers about jobs, check-ins, client reports, and employee performance. "
-            "If asked whether a report exists for a job, look at the JOB → CHECK-IN MAPPING section. "
-            "Keep replies concise — 2-4 sentences unless detail is requested. Be direct and specific.\n\n"
+            "You have full access to live company data below — check-ins, jobs, clients, manager reviews, "
+            "and how each employee writes and describes their work.\n\n"
+            "HOW TO USE THIS DATA:\n"
+            "- Read the EMPLOYEE LANGUAGE & WORK PATTERNS section to understand how each person describes what they do. "
+            "Use those same terms and phrases when talking about their work — don't paraphrase into generic language.\n"
+            "- If someone says Abdelhadi 'knocked out the trim on the main floor', that's the language to use — not 'completed trim painting on level 1'.\n"
+            "- Use check-in descriptions to infer progress, blockers, and what's coming next. "
+            "If an employee mentioned needing materials, flag it. If they said something was done, confirm it.\n"
+            "- Look at JOB → CHECK-IN MAPPING to answer whether a job has received check-ins.\n"
+            "- Keep replies concise — 2-4 sentences unless detail is requested. Be direct and specific. "
+            "No filler. No AI-sounding phrases.\n\n"
             f"--- LIVE COMPANY DATA ---\n{data_context}\n--- END DATA ---"
         )
     else:
         system_prompt += (
-            "Help with questions about daily check-ins, job sites, reports, employee management, "
-            "or any work-related question. Keep replies concise — 1-3 sentences. Be warm and supportive."
+            "Help with questions about daily check-ins, job sites, reports, and crew. "
+            "Keep replies concise — 1-3 sentences. Be direct."
         )
 
     try:
@@ -2575,6 +2631,14 @@ tr:hover td { background:#fafbfd; }
 @keyframes spin { to { transform:rotate(360deg); } }
 </style></head><body>
 
+<!-- Session-expired banner — hidden until apiFetch detects a non-JSON response -->
+<div id="session-expired-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;
+  background:#d9534f;color:#fff;padding:14px 24px;align-items:center;justify-content:space-between;
+  font-size:14px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,.2);">
+  <span>⚠️ Your session expired — please log back in to continue.</span>
+  <a href="/logout" style="color:#fff;font-weight:700;text-decoration:underline;margin-left:24px;">Log In Again</a>
+</div>
+
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:12px;">
     <img src="/static/logo.png" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
@@ -2596,6 +2660,7 @@ tr:hover td { background:#fafbfd; }
   <div class="tab" onclick="showTab('clients')">Clients</div>
   <div class="tab" onclick="showTab('reports')">Reports</div>
   <div class="tab" onclick="showTab('sitevisits')">📍 Site Visits</div>
+  <div class="tab" onclick="showTab('estimates')">📐 Estimates</div>
 </div>
 
 <!-- OVERVIEW -->
@@ -2910,12 +2975,16 @@ tr:hover td { background:#fafbfd; }
       <div class="form-row">
         <div class="field"><label>Client Name</label>
           <input type="text" name="client_name" required></div>
-        <div class="field"><label>Client Email</label>
+        <div class="field"><label>Primary Email</label>
           <input type="email" name="client_email" required></div>
       </div>
-      <div class="field"><label>Site Address Keyword</label>
-        <input type="text" name="site_keyword"
-               placeholder="e.g. '23 falcon' — must appear in the site address"></div>
+      <div class="form-row">
+        <div class="field"><label>Second Email <span style="color:#999;font-size:12px;">(optional — reports go to both)</span></label>
+          <input type="email" name="client_email_2" placeholder="second.person@company.com"></div>
+        <div class="field"><label>Site Address Keyword</label>
+          <input type="text" name="site_keyword"
+                 placeholder="e.g. '303-1689 pembina' — must appear in the site address"></div>
+      </div>
       <button type="button" class="btn" onclick="addClient()">Save Client</button>
     </form>
   </div>
@@ -2943,6 +3012,88 @@ tr:hover td { background:#fafbfd; }
   </div>
 </div>
 
+<!-- ESTIMATES -->
+<div class="page" id="tab-estimates">
+  <div class="card">
+    <h2 style="margin-bottom:4px;">📐 Estimates</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:18px;">Upload architectural PDF drawings. Lumia extracts measurements and generates a full painting estimate and work order.</p>
+
+    <!-- Upload form -->
+    <div id="est-upload-panel" style="background:#f8f9fc;border:2px dashed #d0d7e8;border-radius:12px;padding:28px;text-align:center;margin-bottom:20px;">
+      <div style="font-size:38px;margin-bottom:10px;">📄</div>
+      <div style="font-size:15px;font-weight:600;color:#1F3864;margin-bottom:6px;">Drop PDF drawings here or click to browse</div>
+      <div style="font-size:12px;color:#888;margin-bottom:18px;">Architectural floor plans, elevation sheets — any PDF with measurements</div>
+      <div class="form-row" style="justify-content:center;gap:14px;margin-bottom:16px;">
+        <div class="field" style="max-width:240px;">
+          <label>Client Name (optional)</label>
+          <input type="text" id="est-client-name" placeholder="e.g. Perry Wellington" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;width:100%;">
+        </div>
+        <div class="field" style="max-width:280px;">
+          <label>Site Address (optional)</label>
+          <input type="text" id="est-site-address" placeholder="e.g. 123 Main St, Winnipeg" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;width:100%;">
+        </div>
+      </div>
+      <input type="file" id="est-file-input" accept="application/pdf" style="display:none;" onchange="handleEstimateFile(this)">
+      <button class="btn" onclick="document.getElementById('est-file-input').click()">Choose PDF File</button>
+    </div>
+
+    <!-- Progress panel (hidden until job starts) -->
+    <div id="est-progress-panel" style="display:none;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:12px;padding:16px;background:#eef2fb;border-radius:10px;">
+        <div id="est-spinner" style="width:20px;height:20px;border:3px solid #d0d7e8;border-top-color:#1F3864;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0;"></div>
+        <div>
+          <div style="font-weight:600;font-size:14px;color:#1F3864;" id="est-progress-title">Processing…</div>
+          <div style="font-size:12px;color:#666;margin-top:2px;" id="est-progress-msg">Starting up…</div>
+        </div>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    </div>
+
+    <!-- Results panel (hidden until done) -->
+    <div id="est-results-panel" style="display:none;">
+
+      <!-- Measurement summary -->
+      <div class="card" style="margin-bottom:16px;border-left:4px solid #1F3864;">
+        <h3 style="margin:0 0 10px;font-size:15px;color:#1F3864;">📊 Extracted Measurements</h3>
+        <div id="est-measurements-summary" style="font-size:13px;color:#444;"></div>
+      </div>
+
+      <!-- Paint calc rooms table -->
+      <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin:0 0 12px;font-size:15px;color:#1F3864;">🖌 Painting Estimate</h3>
+        <div id="est-scope" style="font-size:13px;color:#444;margin-bottom:12px;font-style:italic;"></div>
+        <div id="est-rooms-table"></div>
+        <div id="est-materials" style="margin-top:14px;"></div>
+        <div id="est-labor" style="margin-top:14px;"></div>
+        <div id="est-assumptions" style="margin-top:10px;font-size:12px;color:#888;"></div>
+      </div>
+
+      <!-- Work order -->
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:15px;color:#1F3864;">📋 Work Order</h3>
+          <button class="btn btn-sm" onclick="copyWorkOrder()">Copy</button>
+        </div>
+        <div id="est-work-order" style="font-size:13px;color:#333;line-height:1.7;white-space:pre-wrap;background:#f8f9fc;padding:16px;border-radius:8px;"></div>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button class="btn" onclick="createJobFromEstimate()" id="est-create-job-btn">➕ Create Job from This Estimate</button>
+        <button class="btn btn-sm" style="background:#f1f5ff;color:#1F3864;border:1.5px solid #d0d7e8;" onclick="resetEstimatesTab()">Upload Another PDF</button>
+      </div>
+      <div id="est-create-job-result" style="margin-top:12px;font-size:13px;"></div>
+    </div>
+
+    <!-- Error panel -->
+    <div id="est-error-panel" style="display:none;padding:14px;background:#fff0f0;border-radius:8px;color:#c0392b;font-size:13px;margin-bottom:12px;">
+      <strong>Error:</strong> <span id="est-error-msg"></span>
+      <br><button class="btn btn-sm" style="margin-top:10px;" onclick="resetEstimatesTab()">Try Again</button>
+    </div>
+
+  </div>
+</div>
+
 <script>
 let lastRecommendation = null;
 
@@ -2960,6 +3111,7 @@ function showTab(name) {
   if (name === 'clients')    loadClients();
   if (name === 'reports')    initReportsTab();
   if (name === 'sitevisits') initSiteVisits();
+  if (name === 'estimates')  initEstimatesTab();
 }
 
 function scoreColor(v) {
@@ -2971,9 +3123,31 @@ function trustBadge(t) {
   return '<span class="badge badge-red">Concern</span>';
 }
 
+// Global fetch helper — 10s timeout + session-expiry detection
+async function apiFetch(url, opts) {
+  const ctrl = new AbortController();
+  const tid   = setTimeout(() => ctrl.abort(), 10000);
+  let r;
+  try {
+    r = await fetch(url, { signal: ctrl.signal, ...(opts||{}) });
+  } catch(e) {
+    clearTimeout(tid);
+    if (e.name === 'AbortError') throw new Error('timeout');
+    throw e;
+  }
+  clearTimeout(tid);
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const banner = document.getElementById('session-expired-banner');
+    if (banner) banner.style.display = 'flex';
+    throw new Error('session_expired');
+  }
+  return r;
+}
+
 async function loadOverview() {
   try {
-    const r = await fetch('/api/checkins?limit=10');
+    const r = await apiFetch('/api/checkins?limit=10');
     const d = r.ok ? await r.json() : [];
     const rows = d.map(c => `<tr>
       <td>${c.entry_date}</td><td><b>${c.worker_name}</b></td><td>${c.site_address}</td>
@@ -2987,15 +3161,22 @@ async function loadOverview() {
     const avg = today.length ? (today.reduce((a,c) => a + (c.avg_score||0), 0) / today.length).toFixed(1) : '—';
     document.getElementById('stat-avg').textContent = avg;
   } catch(e) {
-    document.getElementById('overview-checkins').innerHTML = '<p style="color:#d9534f">Error loading check-ins.</p>';
-    document.getElementById('stat-checkins').textContent = '0';
+    const msg = e.message === 'session_expired' ? 'Session expired — log out and back in.'
+              : e.message === 'timeout'         ? 'Request timed out — check your connection.'
+              : 'Could not load data (' + e.message + ')';
+    document.getElementById('overview-checkins').innerHTML =
+      '<div style="color:#d9534f;padding:12px;background:#fff8f8;border-radius:8px;display:flex;align-items:center;gap:16px;">' +
+      '<span>⚠ ' + msg + '</span>' +
+      '<button class="btn btn-sm" onclick="loadOverview()" style="flex-shrink:0;">Retry</button>' +
+      '</div>';
+    document.getElementById('stat-checkins').textContent = '—';
   }
   try {
-    const jr = await fetch('/api/jobs');
+    const jr = await apiFetch('/api/jobs');
     const jd = jr.ok ? await jr.json() : [];
     document.getElementById('stat-jobs').textContent = jd.filter(j => j.status === 'open').length;
   } catch(e) {
-    document.getElementById('stat-jobs').textContent = '0';
+    if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
   }
 }
 
@@ -3356,8 +3537,11 @@ async function openAssign(idx) {
   inner.innerHTML = '<h3 style="margin:0 0 4px;font-size:17px;">Assign Employees</h3>' +
     '<p style="margin:0 0 16px;color:#666;font-size:13px;">' + j.client_name + '</p>' +
     '<div id="modal-boxes" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;"></div>' +
-    '<div style="display:flex;gap:12px;margin-top:20px;">' +
-    '<button class="btn btn-green" id="modal-save-btn">Save &amp; Notify</button>' +
+    '<label style="display:flex;align-items:center;gap:8px;margin-top:16px;font-size:13px;color:#555;cursor:pointer;">' +
+    '<input type="checkbox" id="modal-notify-client" checked style="width:15px;height:15px;cursor:pointer;">' +
+    'Notify client by email</label>' +
+    '<div style="display:flex;gap:12px;margin-top:14px;">' +
+    '<button class="btn btn-green" id="modal-save-btn">Save</button>' +
     '<button class="btn" id="modal-cancel-btn">Cancel</button></div>';
   const boxes = inner.querySelector('#modal-boxes');
   active.forEach(e => {
@@ -3381,12 +3565,13 @@ async function openAssign(idx) {
 
 async function doAssign(jobId, idx) {
   const selected = checkedEmps(document.getElementById('modal-boxes'));
+  const notifyClient = document.getElementById('modal-notify-client')?.checked ?? true;
   const btn = document.querySelector('#assign-modal .btn-green');
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
     const r = await fetch('/api/assign-employees', {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({job_id: jobId, assigned_employees: selected})});
+      body: JSON.stringify({job_id: jobId, assigned_employees: selected, notify_client: notifyClient})});
     const d = await r.json();
     if (d.ok) {
       const label = document.getElementById('asgn-' + idx);
@@ -3394,7 +3579,15 @@ async function doAssign(jobId, idx) {
       if (_jobs[idx]) _jobs[idx].assigned_employees = selected;
       document.getElementById('assign-modal').remove();
       loadAssignmentLog();
-      if (d.emailed && d.emailed.length) alert('Crew notified: ' + d.emailed.join(', ') + (d.client_notified ? ' | Client email sent.' : ' | Client not found.'));
+      if (d.silent) {
+        // silent — no popup needed, just a quick toast
+        const t = document.createElement('div');
+        t.textContent = 'Crew updated silently (client not notified).';
+        t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 22px;border-radius:20px;font-size:13px;z-index:9999;';
+        document.body.appendChild(t); setTimeout(()=>t.remove(), 3000);
+      } else if (d.emailed && d.emailed.length) {
+        alert('Crew notified: ' + d.emailed.join(', ') + (d.client_notified ? ' | Client email sent.' : ' | Client not found.'));
+      }
     } else { alert('Error: ' + (d.error || 'Failed')); }
   } catch(e) { alert('Network error'); }
 }
@@ -3411,6 +3604,7 @@ async function loadEmployees() {
       <td style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-sm" onclick="resendInvite('${e.id}','${e.name}')">Resend Invite</button>
         ${e.active ? `<button class="btn btn-sm btn-red" onclick="removeEmployee('${e.id}')">Deactivate</button>` : ''}
+        <button class="btn btn-sm" style="background:#fff;border:1.5px solid #e53935;color:#e53935;" onclick="deleteEmployee('${e.id}','${e.name}')">Delete</button>
       </td>
     </tr>`).join('') + '</tbody></table>';
 }
@@ -3431,6 +3625,15 @@ async function removeEmployee(id) {
   if (!confirm('Deactivate this employee? They will no longer be able to log in.')) return;
   await fetch('/api/remove-employee/'+id, { method:'POST' });
   loadEmployees();
+}
+
+async function deleteEmployee(id, name) {
+  if (!confirm('Permanently DELETE ' + name + '? This cannot be undone.')) return;
+  if (!confirm('Final confirm: permanently delete ' + name + ' and all their records?')) return;
+  const r = await fetch('/api/delete-employee/'+id, { method:'POST' });
+  const d = await r.json();
+  if (d.ok) { loadEmployees(); }
+  else { alert('Delete failed: ' + (d.error || 'Unknown error')); }
 }
 
 async function resendInvite(id, name) {
@@ -3834,12 +4037,13 @@ async function loadClients() {
   const r = await fetch('/api/clients'); const d = await r.json();
   if (!d.length) { document.getElementById('clients-list').innerHTML = '<p style="color:#999">No clients registered yet.</p>'; return; }
   const rows = d.map(c => `<tr>
-    <td><b>${c.client_name}</b></td><td>${c.client_email}</td>
+    <td><b>${c.client_name}</b></td>
+    <td>${c.client_email}${c.client_email_2 ? '<br><span style="color:#666;font-size:12px;">+ ' + c.client_email_2 + '</span>' : ''}</td>
     <td><code>${c.site_keyword}</code></td>
     <td><button class="btn btn-sm btn-red" onclick="removeClient('${c.id}')">Remove</button></td>
   </tr>`).join('');
   document.getElementById('clients-list').innerHTML =
-    '<table><tr><th>Name</th><th>Email</th><th>Keyword</th><th></th></tr>' + rows + '</table>';
+    '<table><tr><th>Name</th><th>Email(s)</th><th>Keyword</th><th></th></tr>' + rows + '</table>';
 }
 
 async function addClient() {
@@ -4373,6 +4577,187 @@ function toggleLumiaMic() {
   rec.onerror = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
   rec.start();
 }
+
+// ─── ESTIMATES TAB ──────────────────────────────────────────────────────────
+
+let _estJobId = null;
+let _estPollTimer = null;
+
+function initEstimatesTab() {
+  // Nothing to load on init — user drives via upload
+}
+
+function resetEstimatesTab() {
+  _estJobId = null;
+  if (_estPollTimer) { clearInterval(_estPollTimer); _estPollTimer = null; }
+  document.getElementById('est-upload-panel').style.display = '';
+  document.getElementById('est-progress-panel').style.display = 'none';
+  document.getElementById('est-results-panel').style.display = 'none';
+  document.getElementById('est-error-panel').style.display = 'none';
+  document.getElementById('est-file-input').value = '';
+  document.getElementById('est-create-job-result').textContent = '';
+}
+
+async function handleEstimateFile(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  if (file.type !== 'application/pdf') {
+    alert('Please choose a PDF file.');
+    return;
+  }
+  const clientName  = document.getElementById('est-client-name').value.trim();
+  const siteAddress = document.getElementById('est-site-address').value.trim();
+  const fd = new FormData();
+  fd.append('pdf', file);
+  fd.append('client_name', clientName);
+  fd.append('site_address', siteAddress);
+  document.getElementById('est-upload-panel').style.display = 'none';
+  document.getElementById('est-progress-panel').style.display = '';
+  document.getElementById('est-progress-title').textContent = 'Uploading ' + file.name + '...';
+  document.getElementById('est-progress-msg').textContent = 'Sending to Lumia...';
+  try {
+    const r = await fetch('/api/estimates/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Upload failed');
+    _estJobId = d.job_id;
+    document.getElementById('est-progress-title').textContent = 'Extracting measurements...';
+    document.getElementById('est-progress-msg').textContent = 'Queued...';
+    _estPollTimer = setInterval(_pollEstimateStatus, 2500);
+  } catch(e) {
+    _showEstimateError(e.message);
+  }
+}
+
+async function _pollEstimateStatus() {
+  if (!_estJobId) return;
+  try {
+    const r = await fetch('/api/estimates/status/' + _estJobId);
+    const d = await r.json();
+    document.getElementById('est-progress-msg').textContent = d.progress || '...';
+    if (d.status === 'processing' || d.status === 'queued') {
+      document.getElementById('est-progress-title').textContent = 'Processing PDF...';
+      return;
+    }
+    clearInterval(_estPollTimer); _estPollTimer = null;
+    if (d.status === 'done') {
+      _renderEstimateResults(d);
+    } else {
+      _showEstimateError(d.error || 'Unknown error during extraction.');
+    }
+  } catch(e) { /* network blip — keep polling */ }
+}
+
+function _showEstimateError(msg) {
+  if (_estPollTimer) { clearInterval(_estPollTimer); _estPollTimer = null; }
+  document.getElementById('est-progress-panel').style.display = 'none';
+  document.getElementById('est-error-panel').style.display = '';
+  document.getElementById('est-error-msg').textContent = msg;
+}
+
+async function _renderEstimateResults(job) {
+  const r = await fetch('/api/estimates/' + _estJobId);
+  const d = await r.json();
+  document.getElementById('est-progress-panel').style.display = 'none';
+  document.getElementById('est-results-panel').style.display = '';
+  const raw = d.raw_json || {};
+  const dt = raw.document_totals || {};
+  document.getElementById('est-measurements-summary').innerHTML =
+    '<b>' + (dt.pages_processed||0) + '</b> pages &nbsp;|&nbsp; ' +
+    '<b>' + (dt.total_measurements||0) + '</b> measurements extracted &nbsp;|&nbsp; ' +
+    '<span style="color:#888;">File: ' + (dt.file_name||'') + '</span>';
+  const pc = d.paint_calc || {};
+  document.getElementById('est-scope').textContent = pc.scope_summary || '';
+  const rooms = pc.rooms || [];
+  if (rooms.length > 0) {
+    let tbl = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+      '<thead><tr style="background:#f1f5ff;">' +
+      '<th style="padding:8px 10px;text-align:left;border-bottom:1.5px solid #d0d7e8;">Room / Area</th>' +
+      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Walls (sqft)</th>' +
+      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Ceiling (sqft)</th>' +
+      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Trim (lin ft)</th>' +
+      '<th style="padding:8px 10px;text-align:left;border-bottom:1.5px solid #d0d7e8;">Notes</th>' +
+      '</tr></thead><tbody>';
+    rooms.forEach(function(rm, i) {
+      const bg = i % 2 === 0 ? '#fff' : '#f8f9fc';
+      tbl += '<tr style="background:' + bg + ';">' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;">' + (rm.name||'') + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.wall_area_sqft||0) + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.ceiling_area_sqft||0) + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.trim_linear_ft||0) + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#666;">' + (rm.notes||'') + '</td>' +
+        '</tr>';
+    });
+    const t = pc.totals || {};
+    tbl += '<tr style="background:#eef2fb;font-weight:600;">' +
+      '<td style="padding:8px 10px;">Total</td>' +
+      '<td style="padding:8px 10px;text-align:right;">' + (t.wall_area_sqft||0) + '</td>' +
+      '<td style="padding:8px 10px;text-align:right;">' + (t.ceiling_area_sqft||0) + '</td>' +
+      '<td style="padding:8px 10px;text-align:right;">' + (t.trim_linear_ft||0) + '</td>' +
+      '<td style="padding:8px 10px;color:#555;font-size:12px;font-weight:400;">' + (t.total_paintable_sqft||0) + ' sqft total</td>' +
+      '</tr></tbody></table>';
+    document.getElementById('est-rooms-table').innerHTML = tbl;
+  } else {
+    document.getElementById('est-rooms-table').innerHTML = '<p style="color:#888;font-size:13px;">No room breakdown available.</p>';
+  }
+  const mat = pc.materials || {};
+  document.getElementById('est-materials').innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
+    _statPill('Wall Paint', (mat.wall_paint_gallons||0) + ' gal') +
+    _statPill('Ceiling Paint', (mat.ceiling_paint_gallons||0) + ' gal') +
+    _statPill('Primer', (mat.primer_gallons||0) + ' gal') + '</div>' +
+    (mat.notes ? '<p style="font-size:12px;color:#888;margin-top:6px;">' + mat.notes + '</p>' : '');
+  const lab = pc.labor || {};
+  document.getElementById('est-labor').innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;">' +
+    _statPill('Est. Days', lab.estimated_days||0) +
+    _statPill('Painters', lab.painters_recommended||0) +
+    _statPill('Hours', lab.hours_estimate||0) + '</div>' +
+    (lab.notes ? '<p style="font-size:12px;color:#888;margin-top:6px;">' + lab.notes + '</p>' : '');
+  const asmpt = pc.assumptions || [];
+  if (asmpt.length) {
+    document.getElementById('est-assumptions').innerHTML = 'Assumptions: ' + asmpt.join(' &bull; ');
+  }
+  document.getElementById('est-work-order').textContent = d.work_order || 'Not available.';
+}
+
+function _statPill(label, val) {
+  return '<div style="background:#eef2fb;border-radius:8px;padding:10px 16px;min-width:100px;">' +
+    '<div style="font-size:18px;font-weight:700;color:#1F3864;">' + val + '</div>' +
+    '<div style="font-size:11px;color:#666;margin-top:2px;">' + label + '</div></div>';
+}
+
+function copyWorkOrder() {
+  const txt = document.getElementById('est-work-order').textContent;
+  navigator.clipboard.writeText(txt).then(function() { alert('Work order copied.'); });
+}
+
+async function createJobFromEstimate() {
+  if (!_estJobId) return;
+  const btn = document.getElementById('est-create-job-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  try {
+    const r = await fetch('/api/estimates/' + _estJobId + '/create-job', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('est-create-job-result').innerHTML =
+        '<span style="color:#2e7d32;">Job created. Switch to the Jobs tab to assign crew.</span>';
+      btn.textContent = 'Job Created';
+    } else {
+      document.getElementById('est-create-job-result').innerHTML =
+        '<span style="color:#c0392b;">Failed: ' + (d.error||'Unknown error') + '</span>';
+      btn.disabled = false;
+      btn.textContent = 'Create Job from This Estimate';
+    }
+  } catch(e) {
+    document.getElementById('est-create-job-result').innerHTML =
+      '<span style="color:#c0392b;">Error: ' + e.message + '</span>';
+    btn.disabled = false;
+    btn.textContent = 'Create Job from This Estimate';
+  }
+}
+
+// ─── END ESTIMATES TAB ──────────────────────────────────────────────────────
 </script>
 </body></html>"""
 
@@ -4525,11 +4910,13 @@ def api_add_client():
     if not supabase_client:
         return jsonify({"message": "No database"})
     d = request.get_json()
+    email2 = (d.get("client_email_2") or "").strip().lower() or None
     try:
         supabase_client.table("clients").insert({
-            "client_name":  d["client_name"],
-            "client_email": d["client_email"],
-            "site_keyword": d["site_keyword"].lower().strip(),
+            "client_name":    d["client_name"],
+            "client_email":   d["client_email"],
+            "client_email_2": email2,
+            "site_keyword":   d["site_keyword"].lower().strip(),
         }).execute()
         return jsonify({"message": f"Client {d['client_name']} saved."})
     except Exception as exc:
@@ -4855,8 +5242,9 @@ def api_save_job():
 @require_role("owner")
 def api_assign_employees():
     d = request.get_json()
-    job_id   = d.get("job_id")
-    assigned = d.get("assigned_employees") or []
+    job_id       = d.get("job_id")
+    assigned     = d.get("assigned_employees") or []
+    notify_client = d.get("notify_client", True)   # pass False for silent assignment
     seen: set[str] = set()
     assigned = [n for n in assigned if not (n in seen or seen.add(n))]
     if not supabase_client or not job_id:
@@ -4867,9 +5255,10 @@ def api_assign_employees():
     client_notified = False
     if assigned and job_row:
         emailed = _notify_assigned_employees(job_row, assigned)
-        client_notified = _notify_client_of_assignment(job_row, assigned)
+        if notify_client:
+            client_notified = _notify_client_of_assignment(job_row, assigned)
         _log_assignment(job_row, assigned, client_notified)
-    return jsonify({"ok": True, "emailed": emailed, "client_notified": client_notified})
+    return jsonify({"ok": True, "emailed": emailed, "client_notified": client_notified, "silent": not notify_client})
 
 
 @app.route("/api/assignment-log")
@@ -4943,6 +5332,16 @@ def api_remove_employee(emp_id):
     if not supabase_client:
         return jsonify({"ok": False})
     supabase_client.table("employees").update({"active": False}).eq("id", emp_id).execute()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/delete-employee/<emp_id>", methods=["POST"])
+@require_role("owner")
+def api_delete_employee(emp_id):
+    """Permanently delete an employee record from the database."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No DB"})
+    supabase_client.table("employees").delete().eq("id", emp_id).execute()
     return jsonify({"ok": True})
 
 
@@ -5067,6 +5466,16 @@ def api_send_client_report():
     client_email   = (d.get("client_email") or "").strip()
     client_name    = (d.get("client_name") or "").strip()
     site_keyword   = (d.get("site_keyword") or "").strip().lower()
+    # Look up second email from clients table if not passed directly
+    client_email_2 = (d.get("client_email_2") or "").strip()
+    if not client_email_2 and supabase_client and site_keyword:
+        try:
+            rows = supabase_client.table("clients").select("client_email_2") \
+                .ilike("site_keyword", f"%{site_keyword}%").limit(1).execute().data or []
+            if rows:
+                client_email_2 = (rows[0].get("client_email_2") or "").strip()
+        except Exception:
+            pass
     if not client_email or not site_keyword:
         return jsonify({"ok": False, "message": "Missing client email or site keyword."})
 
@@ -5125,12 +5534,14 @@ def api_send_client_report():
         if not resend_key:
             return jsonify({"ok": False, "message": "RESEND_API_KEY not set."})
         recipients = [client_email]
-        if OWNER_EMAIL and OWNER_EMAIL not in recipients:
-            recipients.append(OWNER_EMAIL)
+        if client_email_2 and client_email_2 not in recipients:
+            recipients.append(client_email_2)
+        cc_list = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL not in recipients else []
         resp = httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={"from": "Ashrah Painting <noreply@ashrah.ai>", "to": recipients,
+                  "cc": cc_list,
                   "subject": subject, "html": html_body, "text": plain_body},
             timeout=15,
         )
@@ -5193,23 +5604,35 @@ def api_compose_email():
         except Exception:
             pass
 
-    ai_prompt = f"""Write a professional, warm email from Ashrah Painting to a client named {to_name}.
-
-Purpose: Introduce Lumia (Ashrah Painting's AI-powered operations system) and inform the client about their job assignment.
-
-About Lumia: It is the operations intelligence behind Ashrah Painting — it tracks daily crew check-ins, site progress, and sends automated daily reports. It helps us deliver a higher standard of transparency and professionalism on every project.
+    ai_prompt = f"""Write an email from Ashrah Painting to {to_name}.
 
 {f"Job details:{chr(10)}{job_context}" if job_context else ""}
-{f"Additional context:{chr(10)}{context}" if context else ""}
+{f"Additional context / purpose:{chr(10)}{context}" if context else ""}
 
-Email requirements:
-- Subject line on the first line, starting with "Subject: "
-- Then a blank line
-- Then the full email body
-- Sign off as: Ahmad Ashrah, CEO — Ashrah Painting
-- Include a line at the bottom: "Please do not reply to this email. For inquiries, contact ahmad@ashrahpainting.ca"
-- Tone: professional, confident, warm — like a premium contractor
-- Keep it concise — under 200 words in the body"""
+WRITING RULES — follow these exactly:
+
+Tone: direct, confident, professional. Like a senior contractor talking to a client — not a call centre agent.
+
+BANNED — never use these phrases:
+- "I hope this email finds you well"
+- "Please don't hesitate to reach out"
+- "Going forward" / "moving forward"
+- "It's my pleasure" / "It was a pleasure"
+- "I wanted to reach out" / "I wanted to touch base"
+- "At your earliest convenience"
+- "Please find attached"
+- "Thank you for your continued support"
+- "We appreciate your patience"
+- Any filler that sounds like a template
+
+FORMAT:
+- Subject line on the first line: "Subject: ..."
+- Blank line
+- Email body (under 180 words — be concise, every sentence earns its place)
+- Sign off: Ahmad Ashrah, CEO — Ashrah Painting
+- Last line only: "For questions: ahmad@ashrahpainting.ca"
+
+Write like a real person. Short sentences. Say what needs to be said, nothing more."""
 
     try:
         ai_client = _anthropic.Anthropic()
@@ -5358,7 +5781,11 @@ def _run_daily_reports() -> None:
     for c in db_clients:
         kw = (c.get("site_keyword") or "").lower().strip()
         if kw:
-            all_clients[kw] = {"client_name": c["client_name"], "client_email": c["client_email"]}
+            all_clients[kw] = {
+                "client_name":    c["client_name"],
+                "client_email":   c["client_email"],
+                "client_email_2": (c.get("client_email_2") or "").strip() or None,
+            }
 
     # Group check-ins by matching client keyword
     client_checkins: dict[str, list] = {}
@@ -5417,13 +5844,16 @@ def _run_daily_reports() -> None:
             html_body = content.get("html_body", "")
             plain_body = content.get("plain_body", "")
             recipients = [dr.client_email]
-            if OWNER_EMAIL and OWNER_EMAIL not in recipients:
-                recipients.append(OWNER_EMAIL)
+            email2 = info.get("client_email_2")
+            if email2 and email2 not in recipients:
+                recipients.append(email2)
+            cc_list = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL not in recipients else []
             if resend_key:
                 resp = _httpx.post(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                     json={"from": "Ashrah Painting <noreply@ashrah.ai>", "to": recipients,
+                          "cc": cc_list,
                           "subject": subject, "html": html_body, "text": plain_body},
                     timeout=15,
                 )
@@ -5613,11 +6043,9 @@ def webhook_inbound_email():
     data_context = "\n\n".join(context_parts) if context_parts else "(no data available)"
     today = date.today().isoformat()
 
-    system_prompt = f"""You are Lumia, the AI operations assistant for Ashrah Painting in Winnipeg, Canada — owned by Ahmad Ashrah (CEO).
+    system_prompt = f"""You are Lumia, the operations assistant for Ashrah Painting in Winnipeg, Canada — owned by Ahmad Ashrah (CEO).
 
-You are responding to an email sent directly to lumia@ashrah.ai.
-
-You have access to live company data: jobs, crew assignments, daily check-ins, and client info. Use it to give specific, helpful answers.
+You are replying to an email sent to lumia@ashrah.ai. You have access to live company data below — use it to give specific, accurate answers.
 
 Today's date: {today}
 
@@ -5625,12 +6053,14 @@ Today's date: {today}
 {data_context}
 --- END DATA ---
 
-Reply rules:
-- Be professional, warm, and concise
-- Sign off every email as: Lumia | Ashrah Painting Operations | info@ashrahpainting.ca
-- End with: "This is an automated response from Lumia, Ashrah Painting's AI operations system."
-- Never make up information — if you don't know something, say to contact ahmad@ashrahpainting.ca
-- Plain text only, no markdown"""
+WRITING RULES:
+- Write like a professional person, not a template. Direct and clear.
+- BANNED phrases — never use: "I hope this email finds you well", "Please don't hesitate to reach out", "Going forward", "It was a pleasure", "I wanted to touch base", "At your earliest convenience", "Thank you for your continued support", or any filler language.
+- Short answers. Say what needs to be said, nothing extra.
+- Never invent facts. If you don't know, say: "Contact Ahmad directly at ahmad@ashrahpainting.ca."
+- Sign off as: Lumia | Ashrah Painting | info@ashrahpainting.ca
+- Add one final line: "Automated response — Lumia, Ashrah Painting operations system."
+- Plain text only, no markdown."""
 
     try:
         ai_client = _anthropic.Anthropic()
@@ -5677,6 +6107,100 @@ Reply rules:
         print(f"[Inbound] Reply error: {exc}")
 
     return jsonify({"ok": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# ESTIMATES API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/estimates/upload", methods=["POST"])
+@require_role("owner")
+def api_estimates_upload():
+    """Receive a PDF, create a job, kick off background extraction."""
+    if "pdf" not in request.files:
+        return jsonify({"ok": False, "error": "No PDF file uploaded."})
+    f = request.files["pdf"]
+    if not f.filename or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "File must be a PDF."})
+    client_name  = (request.form.get("client_name") or "").strip()
+    site_address = (request.form.get("site_address") or "").strip()
+    pdf_bytes    = f.read()
+    if len(pdf_bytes) == 0:
+        return jsonify({"ok": False, "error": "Uploaded file is empty."})
+    job_id = lumia_estimates.create_job(f.filename, client_name, site_address)
+    lumia_estimates.start_extraction(job_id, pdf_bytes, f.filename,
+                                     client_name, site_address)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/estimates/status/<job_id>")
+@require_role("owner")
+def api_estimates_status(job_id):
+    """Poll endpoint — returns status + progress message."""
+    job = lumia_estimates.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found."}), 404
+    return jsonify({
+        "ok":       True,
+        "status":   job.get("status"),
+        "progress": job.get("progress"),
+        "error":    job.get("error"),
+    })
+
+
+@app.route("/api/estimates/<job_id>")
+@require_role("owner")
+def api_estimates_result(job_id):
+    """Return full job result (raw_json, paint_calc, work_order)."""
+    job = lumia_estimates.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found."}), 404
+    return jsonify({
+        "ok":         True,
+        "status":     job.get("status"),
+        "raw_json":   job.get("raw_json"),
+        "paint_calc": job.get("paint_calc"),
+        "work_order": job.get("work_order"),
+        "error":      job.get("error"),
+    })
+
+
+@app.route("/api/estimates/<job_id>/create-job", methods=["POST"])
+@require_role("owner")
+def api_estimates_create_job(job_id):
+    """Create a Lumia job record from a completed estimate."""
+    job = lumia_estimates.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Estimate job not found."})
+    if job.get("status") != "done":
+        return jsonify({"ok": False, "error": "Estimate not complete yet."})
+    pc           = job.get("paint_calc") or {}
+    client_name  = job.get("client_name") or "Unknown"
+    site_address = job.get("site_address") or "Unknown"
+    scope        = pc.get("scope_summary") or f"Painting at {site_address}"
+    lab          = pc.get("labor") or {}
+    days         = lab.get("estimated_days", 1)
+    painters     = lab.get("painters_recommended", 1)
+    notes_parts  = [f"Generated from estimate — {job.get('file_name','')}"]
+    if pc.get("assumptions"):
+        notes_parts.append("Assumptions: " + "; ".join(pc["assumptions"]))
+    notes = " | ".join(notes_parts)
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database connection."})
+    try:
+        result = supabase_client.table("jobs").insert({
+            "client_name":        client_name,
+            "site_address":       site_address,
+            "work_description":   scope,
+            "status":             "open",
+            "assigned_employees": [],
+            "start_date":         datetime.utcnow().date().isoformat(),
+            "painters_needed":    painters,
+        }).execute()
+        new_job = (result.data or [{}])[0]
+        return jsonify({"ok": True, "job_id": new_job.get("id")})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 if __name__ == "__main__":

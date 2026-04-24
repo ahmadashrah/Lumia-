@@ -2585,9 +2585,9 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           display:flex; align-items:center; justify-content:space-between; }
 .topbar h1 { font-size:22px; font-weight:800; letter-spacing:2px; }
 .topbar a  { color:#aac4ff; font-size:13px; text-decoration:none; }
-.tabs { display:flex; background:#162d50; padding:0 24px; gap:4px; flex-wrap:wrap; }
-.tab { padding:12px 20px; color:#aac4ff; font-size:13px; font-weight:600;
-       cursor:pointer; border-bottom:3px solid transparent; }
+.tabs { display:flex; background:#162d50; padding:0 16px; gap:2px; flex-wrap:wrap; overflow:visible; }
+.tab { padding:10px 14px; color:#aac4ff; font-size:12px; font-weight:600;
+       cursor:pointer; border-bottom:3px solid transparent; white-space:nowrap; }
 .tab.active { color:#fff; border-bottom-color:#fff; }
 .page { display:none; padding:24px; max-width:1100px; margin:0 auto; }
 .page.active { display:block; }

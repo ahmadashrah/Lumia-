@@ -2975,17 +2975,27 @@ tr:hover td { background:#fafbfd; }
     <h2>Add Client (for automatic reports)</h2>
     <form id="clientForm">
       <div class="form-row">
-        <div class="field"><label>Client Name</label>
-          <input type="text" name="client_name" required></div>
-        <div class="field"><label>Primary Email</label>
-          <input type="email" name="client_email" required></div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Second Email <span style="color:#999;font-size:12px;">(optional — reports go to both)</span></label>
-          <input type="email" name="client_email_2" placeholder="second.person@company.com"></div>
+        <div class="field"><label>Client / Company Name</label>
+          <input type="text" id="cf-client-name" placeholder="e.g. Perry Wellington Ltd" required></div>
         <div class="field"><label>Site Address Keyword</label>
-          <input type="text" name="site_keyword"
-                 placeholder="e.g. '303-1689 pembina' — must appear in the site address"></div>
+          <input type="text" id="cf-site-keyword"
+                 placeholder="e.g. '303-1689 pembina' — must appear in the site address" required></div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:11px;font-weight:700;color:#1F3864;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;">
+          Report Recipients <span style="color:#999;font-size:11px;font-weight:400;text-transform:none;">(up to 5 — reports go to all)</span>
+        </label>
+        <div id="cf-recipients">
+          <div class="cf-recipient-row" style="display:grid;grid-template-columns:1fr 1fr 32px;gap:8px;margin-bottom:8px;">
+            <input type="text" placeholder="First Last" class="cf-rname" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">
+            <input type="email" placeholder="email@company.com" class="cf-remail" required style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">
+            <span></span>
+          </div>
+        </div>
+        <button type="button" onclick="addRecipientRow()" id="cf-add-row-btn"
+          style="background:none;border:1.5px dashed #d0d7e8;color:#1F3864;padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin-top:2px;">
+          + Add Another Recipient
+        </button>
       </div>
       <button type="button" class="btn" onclick="addClient()">Save Client</button>
     </form>
@@ -4036,25 +4046,68 @@ async function removeManager(id) {
 }
 
 async function loadClients() {
-  const r = await fetch('/api/clients'); const d = await r.json();
+  const r = await apiFetch('/api/clients'); const d = await r.json();
   if (!d.length) { document.getElementById('clients-list').innerHTML = '<p style="color:#999">No clients registered yet.</p>'; return; }
-  const rows = d.map(c => `<tr>
-    <td><b>${c.client_name}</b></td>
-    <td>${c.client_email}${c.client_email_2 ? '<br><span style="color:#666;font-size:12px;">+ ' + c.client_email_2 + '</span>' : ''}</td>
-    <td><code>${c.site_keyword}</code></td>
-    <td><button class="btn btn-sm btn-red" onclick="removeClient('${c.id}')">Remove</button></td>
-  </tr>`).join('');
+  const rows = d.map(c => {
+    const recs = c.recipients && c.recipients.length ? c.recipients : [{name:'', email: c.client_email}];
+    const recHtml = recs.map((rc, i) =>
+      '<div style="font-size:13px;' + (i>0?'margin-top:3px;color:#555;':'') + '">' +
+      (rc.name ? '<b>' + rc.name + '</b> — ' : '') + rc.email + '</div>'
+    ).join('');
+    return '<tr>' +
+      '<td><b>' + c.client_name + '</b></td>' +
+      '<td>' + recHtml + '</td>' +
+      '<td><code>' + c.site_keyword + '</code></td>' +
+      '<td><button class="btn btn-sm btn-red" onclick="removeClient(\'' + c.id + '\')">Remove</button></td>' +
+      '</tr>';
+  }).join('');
   document.getElementById('clients-list').innerHTML =
-    '<table><tr><th>Name</th><th>Email(s)</th><th>Keyword</th><th></th></tr>' + rows + '</table>';
+    '<table><tr><th>Name</th><th>Recipients</th><th>Keyword</th><th></th></tr>' + rows + '</table>';
+}
+
+function addRecipientRow() {
+  const rows = document.querySelectorAll('.cf-recipient-row');
+  if (rows.length >= 5) { document.getElementById('cf-add-row-btn').style.display = 'none'; return; }
+  const div = document.createElement('div');
+  div.className = 'cf-recipient-row';
+  div.style = 'display:grid;grid-template-columns:1fr 1fr 32px;gap:8px;margin-bottom:8px;';
+  div.innerHTML =
+    '<input type="text" placeholder="First Last" class="cf-rname" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
+    '<input type="email" placeholder="email@company.com" class="cf-remail" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
+    '<button type="button" onclick="this.closest(\'.cf-recipient-row\').remove();document.getElementById(\'cf-add-row-btn\').style.display=\'\'" ' +
+    'style="background:#f8d7da;border:none;color:#721c24;border-radius:6px;cursor:pointer;font-size:16px;padding:0 6px;">×</button>';
+  document.getElementById('cf-recipients').appendChild(div);
+  if (document.querySelectorAll('.cf-recipient-row').length >= 5) {
+    document.getElementById('cf-add-row-btn').style.display = 'none';
+  }
 }
 
 async function addClient() {
-  const form = document.getElementById('clientForm');
-  const data = Object.fromEntries(new FormData(form));
-  const r = await fetch('/api/add-client', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  const name    = document.getElementById('cf-client-name').value.trim();
+  const keyword = document.getElementById('cf-site-keyword').value.trim();
+  if (!name || !keyword) { alert('Client name and site keyword are required.'); return; }
+  const recipients = [];
+  document.querySelectorAll('.cf-recipient-row').forEach(function(row) {
+    const email = row.querySelector('.cf-remail').value.trim().toLowerCase();
+    const rname = row.querySelector('.cf-rname').value.trim();
+    if (email) recipients.push({ name: rname, email: email });
+  });
+  if (!recipients.length) { alert('At least one recipient email is required.'); return; }
+  const r = await fetch('/api/add-client', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ client_name: name, site_keyword: keyword, recipients: recipients }) });
   const d = await r.json();
-  alert(d.message); form.reset(); loadClients();
+  alert(d.message);
+  // Reset form
+  document.getElementById('cf-client-name').value = '';
+  document.getElementById('cf-site-keyword').value = '';
+  const recContainer = document.getElementById('cf-recipients');
+  recContainer.innerHTML = '<div class="cf-recipient-row" style="display:grid;grid-template-columns:1fr 1fr 32px;gap:8px;margin-bottom:8px;">' +
+    '<input type="text" placeholder="First Last" class="cf-rname" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
+    '<input type="email" placeholder="email@company.com" class="cf-remail" required style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
+    '<span></span></div>';
+  document.getElementById('cf-add-row-btn').style.display = '';
+  loadClients();
 }
 
 async function removeClient(id) {
@@ -4912,15 +4965,21 @@ def api_add_client():
     if not supabase_client:
         return jsonify({"message": "No database"})
     d = request.get_json()
-    email2 = (d.get("client_email_2") or "").strip().lower() or None
+    recipients = d.get("recipients") or []
+    # Validate — at least one email required
+    valid_recs = [r for r in recipients if (r.get("email") or "").strip()]
+    if not valid_recs:
+        return jsonify({"message": "At least one recipient email is required."})
+    # Primary email = first recipient (for backward compat columns)
+    primary_email = valid_recs[0]["email"].strip().lower()
     try:
         supabase_client.table("clients").insert({
-            "client_name":    d["client_name"],
-            "client_email":   d["client_email"],
-            "client_email_2": email2,
-            "site_keyword":   d["site_keyword"].lower().strip(),
+            "client_name":  d["client_name"],
+            "client_email": primary_email,
+            "site_keyword": d["site_keyword"].lower().strip(),
+            "recipients":   json.dumps([{"name": r.get("name","").strip(), "email": r["email"].strip().lower()} for r in valid_recs]),
         }).execute()
-        return jsonify({"message": f"Client {d['client_name']} saved."})
+        return jsonify({"message": f"Client {d['client_name']} saved with {len(valid_recs)} recipient(s)."})
     except Exception as exc:
         return jsonify({"message": f"Error: {exc}"})
 
@@ -5468,14 +5527,21 @@ def api_send_client_report():
     client_email   = (d.get("client_email") or "").strip()
     client_name    = (d.get("client_name") or "").strip()
     site_keyword   = (d.get("site_keyword") or "").strip().lower()
-    # Look up second email from clients table if not passed directly
-    client_email_2 = (d.get("client_email_2") or "").strip()
-    if not client_email_2 and supabase_client and site_keyword:
+    # Look up all recipients from clients table
+    extra_recipients = []
+    if supabase_client and site_keyword:
         try:
-            rows = supabase_client.table("clients").select("client_email_2") \
+            rows = supabase_client.table("clients").select("recipients,client_email_2") \
                 .ilike("site_keyword", f"%{site_keyword}%").limit(1).execute().data or []
             if rows:
-                client_email_2 = (rows[0].get("client_email_2") or "").strip()
+                recs = rows[0].get("recipients") or []
+                if isinstance(recs, str):
+                    try: recs = json.loads(recs)
+                    except Exception: recs = []
+                if recs:
+                    extra_recipients = [r["email"] for r in recs if r.get("email") and r["email"] != client_email]
+                elif rows[0].get("client_email_2"):
+                    extra_recipients = [rows[0]["client_email_2"]]
         except Exception:
             pass
     if not client_email or not site_keyword:
@@ -5535,9 +5601,7 @@ def api_send_client_report():
         resend_key = os.getenv("RESEND_API_KEY", "")
         if not resend_key:
             return jsonify({"ok": False, "message": "RESEND_API_KEY not set."})
-        recipients = [client_email]
-        if client_email_2 and client_email_2 not in recipients:
-            recipients.append(client_email_2)
+        recipients = [client_email] + [e for e in extra_recipients if e not in [client_email]]
         cc_list = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL not in recipients else []
         resp = httpx.post(
             "https://api.resend.com/emails",
@@ -5783,10 +5847,19 @@ def _run_daily_reports() -> None:
     for c in db_clients:
         kw = (c.get("site_keyword") or "").lower().strip()
         if kw:
+            # Parse recipients — supports new multi-recipient column + old email_2 fallback
+            recs = c.get("recipients") or []
+            if isinstance(recs, str):
+                try: recs = json.loads(recs)
+                except Exception: recs = []
+            if not recs:
+                recs = [{"name": "", "email": c["client_email"]}]
+                if c.get("client_email_2"):
+                    recs.append({"name": "", "email": c["client_email_2"]})
             all_clients[kw] = {
-                "client_name":    c["client_name"],
-                "client_email":   c["client_email"],
-                "client_email_2": (c.get("client_email_2") or "").strip() or None,
+                "client_name":  c["client_name"],
+                "client_email": c["client_email"],
+                "recipients":   recs,
             }
 
     # Group check-ins by matching client keyword
@@ -5845,10 +5918,8 @@ def _run_daily_reports() -> None:
             subject   = content.get("subject", f"Daily Site Report — {dr.site_address} — {today}")
             html_body = content.get("html_body", "")
             plain_body = content.get("plain_body", "")
-            recipients = [dr.client_email]
-            email2 = info.get("client_email_2")
-            if email2 and email2 not in recipients:
-                recipients.append(email2)
+            recs_list = info.get("recipients") or [{"name":"","email": dr.client_email}]
+            recipients = list({r["email"] for r in recs_list if r.get("email")})
             cc_list = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL not in recipients else []
             if resend_key:
                 resp = _httpx.post(

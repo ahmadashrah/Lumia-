@@ -6378,10 +6378,87 @@ def api_notify_client_job(job_id):
         return jsonify({"ok": False, "error": "Job not found."})
     job = rows[0]
     assigned = job.get("assigned_employees") or []
-    sent = _notify_client_of_assignment(job, assigned)
-    if sent:
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "Could not send email — check client is registered and RESEND_API_KEY is set."})
+
+    # Try keyword lookup first, then fall back to client_name match
+    client = _lookup_client_for_job(job)
+    if not client and supabase_client:
+        try:
+            job_client_name = (job.get("client_name") or "").lower().strip()
+            all_clients = supabase_client.table("clients").select("client_name,client_email,recipients").execute().data or []
+            for c in all_clients:
+                if (c.get("client_name") or "").lower().strip() == job_client_name:
+                    client = {"client_name": c["client_name"], "client_email": c["client_email"]}
+                    break
+        except Exception:
+            pass
+
+    if not client:
+        return jsonify({"ok": False, "error": f"No registered client found matching '{job.get('client_name')}'. Make sure they are added in the Clients tab."})
+
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        return jsonify({"ok": False, "error": "RESEND_API_KEY not configured."})
+
+    import httpx as _httpx
+    names_list  = ", ".join(assigned) if assigned else "TBD"
+    site        = job.get("site_address") or "—"
+    description = job.get("work_description") or "—"
+    start_date  = job.get("start_date") or "TBD"
+    client_name = client["client_name"]
+    client_email = client["client_email"]
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+      <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+        <h1 style="margin:0;font-size:26px;letter-spacing:2px">Ashrah Painting</h1>
+        <p style="margin:6px 0 0;opacity:.8;font-size:13px">Professional Painting Services</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
+        <p style="font-size:16px;color:#333;margin:0 0 16px">Dear <strong>{client_name}</strong>,</p>
+        <p style="color:#555;margin:0 0 20px;">We wanted to share the latest details on your painting project:</p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;color:#333;">
+          <tr style="background:#f4f6fb;">
+            <td style="padding:10px 14px;font-weight:600;width:140px;">Site</td>
+            <td style="padding:10px 14px;">{site}</td>
+          </tr>
+          <tr>
+            <td style="padding:10px 14px;font-weight:600;">Start Date</td>
+            <td style="padding:10px 14px;">{start_date}</td>
+          </tr>
+          <tr style="background:#f4f6fb;">
+            <td style="padding:10px 14px;font-weight:600;">Assigned Crew</td>
+            <td style="padding:10px 14px;"><strong>{names_list}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding:10px 14px;font-weight:600;">Scope of Work</td>
+            <td style="padding:10px 14px;">{description}</td>
+          </tr>
+        </table>
+        <p style="color:#555;margin:20px 0 0;">Our crew checks in daily and you will receive end-of-day progress reports. Reach out to Ahmad at any time with any questions.</p>
+        <p style="color:#555;margin:16px 0 0;">Thank you for choosing Ashrah Painting!</p>
+        <p style="margin:24px 0 0;font-size:12px;color:#999;">Lumia | Ashrah Painting Operations</p>
+      </div>
+    </div>"""
+
+    try:
+        resp = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from":    "Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [client_email],
+                "cc":      [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != client_email else [],
+                "subject": f"Your Painting Project Update — {site}",
+                "html":    html,
+                "text":    f"Dear {client_name},\n\nSite: {site}\nStart Date: {start_date}\nCrew: {names_list}\nScope: {description}\n\nThank you for choosing Ashrah Painting!\nLumia | Ashrah Painting Operations",
+            },
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": f"Resend returned {resp.status_code}: {resp.text}"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 @app.route("/api/update-job/<job_id>", methods=["POST"])

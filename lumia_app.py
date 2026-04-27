@@ -4203,7 +4203,9 @@ async function loadClients() {
   if (!d.length) { el.innerHTML = '<p style="color:#999">No clients registered yet.</p>'; return; }
   const tbody = document.createElement('tbody');
   d.forEach(function(c) {
-    const recs = (c.recipients && c.recipients.length) ? c.recipients : [{name:'', email: c.client_email}];
+    let recs = c.recipients;
+    if (typeof recs === 'string') { try { recs = JSON.parse(recs); } catch(e) { recs = null; } }
+    if (!recs || !recs.length) recs = [{name:'', email: c.client_email}];
     const recDiv = document.createElement('div');
     recs.forEach(function(rc, i) {
       const line = document.createElement('div');

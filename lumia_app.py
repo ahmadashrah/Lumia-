@@ -4082,6 +4082,8 @@ async function loadClients() {
 }
 
 function removeRecipientRow(btn) {
+  const rows = document.querySelectorAll('.cf-recipient-row');
+  if (rows.length <= 1) { alert('At least one recipient is required.'); return; }
   btn.closest('.cf-recipient-row').remove();
   document.getElementById('cf-add-row-btn').style.display = '';
 }

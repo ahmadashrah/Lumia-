@@ -4217,11 +4217,18 @@ async function loadClients() {
     const tdRec  = document.createElement('td'); tdRec.appendChild(recDiv);
     const tdKw   = document.createElement('td'); tdKw.innerHTML = '<code>' + c.site_keyword + '</code>';
     const tdBtn  = document.createElement('td');
+    tdBtn.style.cssText = 'display:flex;gap:6px;';
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-sm';
+    editBtn.style.cssText = 'background:#e8f0fe;color:#1F3864;';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = (function(client) { return function() { editClient(client); }; })(c);
     const btn    = document.createElement('button');
     btn.className = 'btn btn-sm btn-red';
     btn.textContent = 'Remove';
     btn.dataset.cid = c.id;
     btn.onclick = function() { removeClient(this.dataset.cid); };
+    tdBtn.appendChild(editBtn);
     tdBtn.appendChild(btn);
     tr.appendChild(tdName); tr.appendChild(tdRec); tr.appendChild(tdKw); tr.appendChild(tdBtn);
     tbody.appendChild(tr);
@@ -4295,6 +4302,77 @@ async function removeClient(id) {
   if (!confirm('Remove this client?')) return;
   await fetch('/api/remove-client/' + id, {method:'POST'});
   loadClients();
+}
+
+function editClient(c) {
+  if (document.getElementById('edit-client-modal')) return;
+  const modal = document.createElement('div');
+  modal.id = 'edit-client-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#fff;border-radius:14px;padding:28px 32px;width:100%;max-width:460px;';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;';
+  title.innerHTML = '<h3 style="margin:0;font-size:18px;color:#1F3864;">Edit Client</h3>';
+  const closeX = document.createElement('button');
+  closeX.textContent = '✕';
+  closeX.style.cssText = 'background:none;border:none;font-size:20px;cursor:pointer;color:#888;';
+  closeX.onclick = function() { modal.remove(); };
+  title.appendChild(closeX);
+  panel.appendChild(title);
+
+  function field(labelTxt, inputEl) {
+    const w = document.createElement('div');
+    w.style.marginBottom = '14px';
+    const l = document.createElement('label');
+    l.textContent = labelTxt;
+    l.style.cssText = 'display:block;font-size:11px;font-weight:700;color:#1F3864;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;';
+    w.appendChild(l); w.appendChild(inputEl); return w;
+  }
+  function inp(val) {
+    const e = document.createElement('input'); e.type = 'text'; e.value = val || '';
+    e.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;box-sizing:border-box;';
+    return e;
+  }
+
+  const fName    = inp(c.client_name);
+  const fKeyword = inp(c.site_keyword);
+  panel.appendChild(field('Client / Company Name', fName));
+  panel.appendChild(field('Site Address Keyword', fKeyword));
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-green';
+  saveBtn.textContent = 'Save Changes';
+  saveBtn.onclick = async function() {
+    const name    = fName.value.trim();
+    const keyword = fKeyword.value.trim().toLowerCase();
+    if (!name || !keyword) { alert('Name and keyword are required.'); return; }
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    try {
+      const r = await fetch('/api/update-client/' + c.id, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ client_name: name, site_keyword: keyword })
+      });
+      const d = await r.json();
+      if (d.ok) { modal.remove(); loadClients(); }
+      else { alert('Error: ' + (d.error || 'Could not save')); saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
+    } catch(e) { alert('Network error'); saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.marginLeft = '10px';
+  cancelBtn.onclick = function() { modal.remove(); };
+  const btnRow = document.createElement('div');
+  btnRow.style.marginTop = '6px';
+  btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
+  panel.appendChild(btnRow);
+
+  modal.appendChild(panel);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
 }
 
 async function sendInvite() {
@@ -5260,6 +5338,24 @@ def api_remove_client(cid):
         return jsonify({"ok": False})
     supabase_client.table("clients").delete().eq("id", cid).execute()
     return jsonify({"ok": True})
+
+
+@app.route("/api/update-client/<cid>", methods=["POST"])
+@require_role("owner")
+def api_update_client(cid):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database."})
+    d = request.get_json() or {}
+    updates = {}
+    if d.get("client_name"):  updates["client_name"]  = d["client_name"].strip()
+    if d.get("site_keyword"): updates["site_keyword"]  = d["site_keyword"].strip().lower()
+    if not updates:
+        return jsonify({"ok": False, "error": "Nothing to update."})
+    try:
+        supabase_client.table("clients").update(updates).eq("id", cid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 @app.route("/api/site-visit", methods=["POST"])

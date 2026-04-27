@@ -4047,22 +4047,38 @@ async function removeManager(id) {
 
 async function loadClients() {
   const r = await apiFetch('/api/clients'); const d = await r.json();
-  if (!d.length) { document.getElementById('clients-list').innerHTML = '<p style="color:#999">No clients registered yet.</p>'; return; }
-  const rows = d.map(c => {
-    const recs = c.recipients && c.recipients.length ? c.recipients : [{name:'', email: c.client_email}];
-    const recHtml = recs.map((rc, i) =>
-      '<div style="font-size:13px;' + (i>0?'margin-top:3px;color:#555;':'') + '">' +
-      (rc.name ? '<b>' + rc.name + '</b> — ' : '') + rc.email + '</div>'
-    ).join('');
-    return '<tr>' +
-      '<td><b>' + c.client_name + '</b></td>' +
-      '<td>' + recHtml + '</td>' +
-      '<td><code>' + c.site_keyword + '</code></td>' +
-      '<td><button class="btn btn-sm btn-red" onclick="removeClient(\'' + c.id + '\')">Remove</button></td>' +
-      '</tr>';
-  }).join('');
-  document.getElementById('clients-list').innerHTML =
-    '<table><tr><th>Name</th><th>Recipients</th><th>Keyword</th><th></th></tr>' + rows + '</table>';
+  const el = document.getElementById('clients-list');
+  if (!d.length) { el.innerHTML = '<p style="color:#999">No clients registered yet.</p>'; return; }
+  const tbody = document.createElement('tbody');
+  d.forEach(function(c) {
+    const recs = (c.recipients && c.recipients.length) ? c.recipients : [{name:'', email: c.client_email}];
+    const recDiv = document.createElement('div');
+    recs.forEach(function(rc, i) {
+      const line = document.createElement('div');
+      line.style.fontSize = '13px';
+      if (i > 0) line.style.color = '#555';
+      line.textContent = rc.name ? rc.name + ' — ' + rc.email : rc.email;
+      recDiv.appendChild(line);
+    });
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td'); tdName.innerHTML = '<b>' + c.client_name + '</b>';
+    const tdRec  = document.createElement('td'); tdRec.appendChild(recDiv);
+    const tdKw   = document.createElement('td'); tdKw.innerHTML = '<code>' + c.site_keyword + '</code>';
+    const tdBtn  = document.createElement('td');
+    const btn    = document.createElement('button');
+    btn.className = 'btn btn-sm btn-red';
+    btn.textContent = 'Remove';
+    btn.dataset.cid = c.id;
+    btn.onclick = function() { removeClient(this.dataset.cid); };
+    tdBtn.appendChild(btn);
+    tr.appendChild(tdName); tr.appendChild(tdRec); tr.appendChild(tdKw); tr.appendChild(tdBtn);
+    tbody.appendChild(tr);
+  });
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Name</th><th>Recipients</th><th>Keyword</th><th></th></tr></thead>';
+  table.appendChild(tbody);
+  el.innerHTML = '';
+  el.appendChild(table);
 }
 
 function removeRecipientRow(btn) {

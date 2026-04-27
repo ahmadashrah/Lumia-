@@ -3442,13 +3442,26 @@ async function loadJobs() {
     assignBtn.className = 'btn btn-sm';
     assignBtn.textContent = 'Assign';
     assignBtn.onclick = function() { openAssign(idx); };
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-sm';
+    editBtn.style.cssText = 'background:#e8f0fe;color:#1F3864;';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = function() { editJob(idx); };
+    const notifyBtn = document.createElement('button');
+    notifyBtn.className = 'btn btn-sm';
+    notifyBtn.style.cssText = 'background:#e8f5e9;color:#2e7d32;';
+    notifyBtn.textContent = 'Notify Client';
+    notifyBtn.dataset.jid = j.id;
+    notifyBtn.onclick = function() { notifyClientJob(this, j.id); };
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm';
-    delBtn.style.cssText = 'background:#fce4ec;color:#c62828;border-color:#f48fb1;';
+    delBtn.style.cssText = 'background:#fce4ec;color:#c62828;';
     delBtn.textContent = 'Delete';
     delBtn.onclick = function() { deleteJob(j.id, idx); };
     actions.appendChild(openBtn);
+    actions.appendChild(editBtn);
     actions.appendChild(assignBtn);
+    actions.appendChild(notifyBtn);
     actions.appendChild(delBtn);
     return tr;
   });
@@ -3602,6 +3615,145 @@ async function doAssign(jobId, idx) {
       }
     } else { alert('Error: ' + (d.error || 'Failed')); }
   } catch(e) { alert('Network error'); }
+}
+
+async function notifyClientJob(btn, jobId) {
+  if (!confirm('Send a project notification email to the client now?')) return;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try {
+    const r = await fetch('/api/notify-client-job/' + jobId, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      btn.textContent = 'Sent!';
+      btn.style.background = '#c8e6c9';
+      setTimeout(function() { btn.textContent = orig; btn.disabled = false; btn.style.background = '#e8f5e9'; }, 3000);
+    } else {
+      alert('Could not send: ' + (d.error || 'Unknown error'));
+      btn.textContent = orig; btn.disabled = false;
+    }
+  } catch(e) { alert('Network error'); btn.textContent = orig; btn.disabled = false; }
+}
+
+async function editJob(idx) {
+  if (document.getElementById('edit-job-modal')) return;
+  const j = _jobs[idx];
+  if (!j) return;
+  const modal = document.createElement('div');
+  modal.id = 'edit-job-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:24px;overflow-y:auto;';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#fff;border-radius:16px;padding:32px;width:100%;max-width:600px;position:relative;margin:auto;';
+
+  // Header
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;';
+  header.innerHTML = '<h2 style="margin:0;font-size:20px;color:#1F3864;">Edit Job</h2>';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'background:none;border:none;font-size:22px;cursor:pointer;color:#888;';
+  closeBtn.onclick = function() { modal.remove(); };
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
+
+  // Form fields
+  function makeField(labelText, inputEl) {
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    wrap.style.marginBottom = '14px';
+    const lbl = document.createElement('label');
+    lbl.textContent = labelText;
+    lbl.style.cssText = 'display:block;font-size:11px;font-weight:700;color:#1F3864;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;';
+    wrap.appendChild(lbl);
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+  function inp(val) {
+    const el = document.createElement('input'); el.type = 'text';
+    el.value = val || '';
+    el.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;';
+    return el;
+  }
+
+  const fClient = inp(j.client_name);
+  const fSite   = inp(j.site_address);
+  const fDate   = document.createElement('input'); fDate.type = 'date';
+  fDate.value = j.start_date || '';
+  fDate.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;';
+  const fDesc   = document.createElement('textarea');
+  fDesc.value = j.work_description || ''; fDesc.rows = 4;
+  fDesc.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;resize:vertical;';
+  const fStatus = document.createElement('select');
+  fStatus.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;';
+  ['open','completed','cancelled'].forEach(function(s) {
+    const o = document.createElement('option'); o.value = s; o.textContent = s;
+    if (j.status === s) o.selected = true;
+    fStatus.appendChild(o);
+  });
+  const fPainters = document.createElement('select');
+  fPainters.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;';
+  [1,2,3,4,5,6].forEach(function(n) {
+    const o = document.createElement('option'); o.value = n; o.textContent = n;
+    if ((j.painters_needed||2) == n) o.selected = true;
+    fPainters.appendChild(o);
+  });
+
+  panel.appendChild(makeField('Client Name', fClient));
+  panel.appendChild(makeField('Site Address', fSite));
+  panel.appendChild(makeField('Start Date', fDate));
+  panel.appendChild(makeField('Painters Needed', fPainters));
+  panel.appendChild(makeField('Status', fStatus));
+  panel.appendChild(makeField('Work Description', fDesc));
+
+  // Save button
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-green';
+  saveBtn.textContent = 'Save Changes';
+  saveBtn.style.marginTop = '8px';
+  saveBtn.onclick = async function() {
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    try {
+      const r = await fetch('/api/update-job/' + j.id, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          client_name:      fClient.value.trim(),
+          site_address:     fSite.value.trim(),
+          start_date:       fDate.value || null,
+          painters_needed:  parseInt(fPainters.value),
+          status:           fStatus.value,
+          work_description: fDesc.value.trim(),
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        // Update local cache
+        _jobs[idx].client_name      = fClient.value.trim();
+        _jobs[idx].site_address     = fSite.value.trim();
+        _jobs[idx].start_date       = fDate.value || null;
+        _jobs[idx].painters_needed  = parseInt(fPainters.value);
+        _jobs[idx].status           = fStatus.value;
+        _jobs[idx].work_description = fDesc.value.trim();
+        modal.remove();
+        loadJobs();
+      } else {
+        alert('Error: ' + (d.error || 'Could not save'));
+        saveBtn.disabled = false; saveBtn.textContent = 'Save Changes';
+      }
+    } catch(e) { alert('Network error'); saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.marginLeft = '10px';
+  cancelBtn.onclick = function() { modal.remove(); };
+  const btnRow = document.createElement('div');
+  btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
+  panel.appendChild(btnRow);
+
+  modal.appendChild(panel);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
 }
 
 async function loadEmployees() {
@@ -6209,6 +6361,46 @@ WRITING RULES:
         print(f"[Inbound] Reply error: {exc}")
 
     return jsonify({"ok": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# NOTIFY CLIENT + EDIT JOB
+# ---------------------------------------------------------------------------
+
+@app.route("/api/notify-client-job/<job_id>", methods=["POST"])
+@require_role("owner")
+def api_notify_client_job(job_id):
+    """Send the client a project notification email on demand."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database."})
+    rows = supabase_client.table("jobs").select("*").eq("id", job_id).limit(1).execute().data
+    if not rows:
+        return jsonify({"ok": False, "error": "Job not found."})
+    job = rows[0]
+    assigned = job.get("assigned_employees") or []
+    sent = _notify_client_of_assignment(job, assigned)
+    if sent:
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Could not send email — check client is registered and RESEND_API_KEY is set."})
+
+
+@app.route("/api/update-job/<job_id>", methods=["POST"])
+@require_role("owner")
+def api_update_job(job_id):
+    """Update editable fields on an existing job."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database."})
+    d = request.get_json() or {}
+    allowed = ["client_name", "site_address", "start_date", "painters_needed",
+               "status", "work_description"]
+    updates = {k: v for k, v in d.items() if k in allowed}
+    if not updates:
+        return jsonify({"ok": False, "error": "Nothing to update."})
+    try:
+        supabase_client.table("jobs").update(updates).eq("id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 # ---------------------------------------------------------------------------

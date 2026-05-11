@@ -8133,6 +8133,120 @@ except Exception as _sched_exc:
 # ---------------------------------------------------------------------------
 # INBOUND EMAIL WEBHOOK — lumia@ashrah.ai replies automatically
 # ---------------------------------------------------------------------------
+_TENDER_KEYWORDS = (
+    "invitation to bid", "invitation to tender", "request for proposal", "request for quotation",
+    "request for tender", " rfp ", " rfq ", " itb ", " itt ",
+    "tender invitation", "bid invitation", "tender opportunity", "bid opportunity",
+    "submission deadline", "closing date", "tender closing", "bid closing",
+    "proposal deadline", "tender package",
+)
+
+def _looks_like_tender_email(subject: str, body: str) -> bool:
+    blob = " " + (subject + " " + body).lower() + " "
+    return any(kw in blob for kw in _TENDER_KEYWORDS)
+
+
+def _ingest_tender_email(subject: str, body: str, sender_name: str, sender_email: str) -> dict:
+    """Use Claude to pull {name, client, close_date, description} from a bid email
+    and insert into the tenders table."""
+    if not supabase_client:
+        return {"ok": False, "error": "Database not connected."}
+
+    today = date.today().isoformat()
+    prompt = f"""You are extracting structured tender data from an email inviting Ashrah Painting to bid.
+
+Today's date: {today}
+
+EMAIL:
+From: {sender_name} <{sender_email}>
+Subject: {subject}
+Body:
+{body[:6000]}
+
+Extract this JSON ONLY (no markdown, no commentary):
+{{
+  "name": "short project name (e.g. 'Pembina Trails SD Painting RFP 2026')",
+  "client": "issuer / company name (or null if not stated)",
+  "close_date": "YYYY-MM-DD format. Pick the SUBMISSION deadline (when bids close). If the email mentions a time, ignore time and use the calendar date only. If no date is found, use null.",
+  "description": "one or two short sentences describing the scope of work being tendered"
+}}
+
+Rules:
+- close_date MUST be in the future. If only a relative term like 'in two weeks' is given, compute from today.
+- If the email is not actually a tender invitation, return {{"name": null}}.
+- Return ONLY the JSON object, nothing else."""
+
+    try:
+        ai_client = _anthropic.Anthropic()
+        resp = ai_client.messages.create(
+            model=MODEL,
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        obj = json.loads(text)
+    except Exception as exc:
+        print(f"[Tender Ingest] AI error: {exc}")
+        return {"ok": False, "error": f"AI extraction failed: {exc}"}
+
+    name       = (obj.get("name") or "").strip()
+    close_date = (obj.get("close_date") or "").strip()
+    if not name or not close_date or close_date == "null":
+        return {"ok": False, "error": "Could not extract tender info."}
+
+    try:
+        row = {
+            "name":        name,
+            "client":      (obj.get("client") or "").strip() or None,
+            "description": (obj.get("description") or "").strip() or None,
+            "close_date":  close_date,
+            "status":      "open",
+            "notes":       f"Auto-ingested from email by Lumia. Sender: {sender_email}",
+        }
+        ins = supabase_client.table("tenders").insert(row).execute()
+        saved = (ins.data or [row])[0]
+        print(f"[Tender Ingest] Added '{name}' closes {close_date}")
+        return {"ok": True, "tender": saved}
+    except Exception as exc:
+        print(f"[Tender Ingest] DB insert error: {exc}")
+        return {"ok": False, "error": str(exc)}
+
+
+def _send_tender_confirmation_email(tender: dict, original_sender: str, original_subject: str) -> None:
+    """Notify Ahmad that a tender was auto-added."""
+    if not OWNER_EMAIL:
+        return
+    import httpx as _httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        return
+    body = (
+        f"Hi Ahmad,\n\n"
+        f"I added a tender to your queue based on an email from {original_sender}.\n\n"
+        f"Tender:  {tender.get('name')}\n"
+        f"Client:  {tender.get('client') or '—'}\n"
+        f"Close:   {tender.get('close_date')}\n"
+        f"Source subject: {original_subject}\n\n"
+        f"You will get a reminder 2 days before the close date.\n"
+        f"Open the Tenders tab in Lumia to review or edit.\n\n"
+        f"— Lumia\n"
+        f"Automated response — Lumia, Ashrah Painting operations system."
+    )
+    try:
+        _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={"from":"Lumia <noreply@ashrah.ai>","to":[OWNER_EMAIL],
+                  "subject": f"📥 Tender added — {tender.get('name')}",
+                  "text": body},
+            timeout=15,
+        )
+    except Exception as exc:
+        print(f"[Tender Ingest] Confirmation email error: {exc}")
+
+
 @app.route("/webhook/inbound-email", methods=["POST"])
 def webhook_inbound_email():
     """Resend forwards inbound emails here. Lumia reads, thinks, and replies."""
@@ -8167,6 +8281,17 @@ def webhook_inbound_email():
         return jsonify({"ok": True, "message": "Ignored no-reply sender"}), 200
 
     print(f"[Inbound] Email from {reply_to} | Subject: {subject}")
+
+    # ── Tender invitation detection ──────────────────────────────────────────
+    # If this email looks like a bid invitation, extract close date + add to
+    # the tenders queue instead of running the normal reply flow.
+    if _looks_like_tender_email(subject, body_text):
+        result = _ingest_tender_email(subject, body_text, sender_name, reply_to)
+        if result.get("ok"):
+            # Confirmation to Ahmad — short, factual, signed by Lumia
+            _send_tender_confirmation_email(result["tender"], reply_to, subject)
+        return jsonify({"ok": True, "ingested_as_tender": result.get("ok", False),
+                        "tender": result.get("tender")}), 200
 
     # ── Build context from Supabase ──────────────────────────────────────────
     context_parts = []

@@ -3923,39 +3923,60 @@ async function loadTenders() {
       return;
     }
     const today = new Date().toISOString().slice(0,10);
-    el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
-      '<thead><tr style="background:#f4f6fb;">' +
+    el.innerHTML = '';
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;';
+    table.innerHTML = '<thead><tr style="background:#f4f6fb;">' +
       '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">NAME</th>' +
       '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">CLIENT</th>' +
       '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">CLOSE DATE</th>' +
       '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">DAYS LEFT</th>' +
       '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">STATUS</th>' +
-      '<th style="padding:10px 12px;"></th>' +
-      '</tr></thead><tbody>' +
-      tenders.map(t => {
-        const d1 = new Date(t.close_date + 'T00:00:00');
-        const d0 = new Date(today + 'T00:00:00');
-        const days = Math.round((d1 - d0) / 86400000);
-        const isPast    = days < 0;
-        const isUrgent  = days >= 0 && days <= 2;
-        const isSoon    = days > 2 && days <= 7;
-        const daysText  = isPast ? `${Math.abs(days)} ago` : days === 0 ? 'TODAY' : `${days} days`;
-        const daysColor = isPast ? '#888' : isUrgent ? '#c62828' : isSoon ? '#f57c00' : '#2e7d32';
-        const statusColor = t.status === 'open' ? '#1F3864' : t.status === 'won' ? '#2e7d32' : t.status === 'lost' ? '#c62828' : '#888';
-        return '<tr style="border-top:1px solid #eee;">' +
-          '<td style="padding:12px;font-size:13px;"><b>' + t.name + '</b>' +
-            (t.notes ? '<div style="font-size:11px;color:#888;margin-top:3px;">' + t.notes + '</div>' : '') +
-          '</td>' +
-          '<td style="padding:12px;font-size:13px;color:#555;">' + (t.client || '—') + '</td>' +
-          '<td style="padding:12px;font-size:13px;">' + t.close_date + '</td>' +
-          '<td style="padding:12px;font-size:13px;font-weight:700;color:' + daysColor + ';">' + daysText + '</td>' +
-          '<td style="padding:12px;"><span style="background:' + statusColor + ';color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;">' + t.status + '</span></td>' +
-          '<td style="padding:12px;text-align:right;">' +
-            '<button class="btn btn-sm" style="background:#e8f0fe;color:#1F3864;" onclick="editTender(\'' + t.id + '\')">Edit</button> ' +
-            '<button class="btn btn-sm owner-only" style="background:#fce4ec;color:#c62828;" onclick="deleteTender(\'' + t.id + '\')">Delete</button>' +
-          '</td></tr>';
-      }).join('') +
-      '</tbody></table>';
+      '<th style="padding:10px 12px;"></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    tenders.forEach(t => {
+      const d1 = new Date(t.close_date + 'T00:00:00');
+      const d0 = new Date(today + 'T00:00:00');
+      const days = Math.round((d1 - d0) / 86400000);
+      const isPast    = days < 0;
+      const isUrgent  = days >= 0 && days <= 2;
+      const isSoon    = days > 2 && days <= 7;
+      const daysText  = isPast ? (Math.abs(days) + ' ago') : days === 0 ? 'TODAY' : (days + ' days');
+      const daysColor = isPast ? '#888' : isUrgent ? '#c62828' : isSoon ? '#f57c00' : '#2e7d32';
+      const statusColor = t.status === 'open' ? '#1F3864' : t.status === 'won' ? '#2e7d32' : t.status === 'lost' ? '#c62828' : '#888';
+      const tr = document.createElement('tr');
+      tr.style.borderTop = '1px solid #eee';
+      tr.innerHTML =
+        '<td style="padding:12px;font-size:13px;"><b></b><div style="font-size:11px;color:#888;margin-top:3px;"></div></td>' +
+        '<td style="padding:12px;font-size:13px;color:#555;"></td>' +
+        '<td style="padding:12px;font-size:13px;"></td>' +
+        '<td style="padding:12px;font-size:13px;font-weight:700;color:' + daysColor + ';"></td>' +
+        '<td style="padding:12px;"><span style="background:' + statusColor + ';color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;"></span></td>' +
+        '<td style="padding:12px;text-align:right;"></td>';
+      const cells = tr.children;
+      cells[0].querySelector('b').textContent = t.name;
+      if (t.notes) cells[0].querySelector('div').textContent = t.notes;
+      else cells[0].querySelector('div').style.display = 'none';
+      cells[1].textContent = t.client || '—';
+      cells[2].textContent = t.close_date;
+      cells[3].textContent = daysText;
+      cells[4].querySelector('span').textContent = t.status;
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn btn-sm';
+      editBtn.style.cssText = 'background:#e8f0fe;color:#1F3864;';
+      editBtn.textContent = 'Edit';
+      editBtn.onclick = () => editTender(t.id);
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-sm owner-only';
+      delBtn.style.cssText = 'background:#fce4ec;color:#c62828;margin-left:6px;';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => deleteTender(t.id);
+      cells[5].appendChild(editBtn);
+      cells[5].appendChild(delBtn);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    el.appendChild(table);
   } catch(e) {
     el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load tenders.</p>';
   }

@@ -3859,8 +3859,11 @@ window.USER_ROLE = "{{ user_role }}";
 <!-- TENDERS -->
 <div class="page" id="tab-tenders">
   <div class="card">
-    <h2>📅 Tenders &amp; Bid Closings</h2>
-    <p style="font-size:13px;color:#555;margin-bottom:16px;">Track tender close dates. Lumia emails you a reminder <b>2 days before</b> each close date.</p>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">📅 Tenders &amp; Bid Closings</h2>
+      <button class="btn btn-sm" onclick="scanTenderEmail(this)" style="background:#1F3864;">📥 Scan Email Now</button>
+    </div>
+    <p style="font-size:13px;color:#555;margin:6px 0 16px;">Track tender close dates. Lumia emails you a reminder <b>2 days before</b> each close date. Auto-ingestion polls your Zoho inbox every 15 minutes for new bid invitations.</p>
 
     <form id="tenderForm" onsubmit="return false" style="background:#fafbfd;border:1.5px solid #dce2ef;border-radius:12px;padding:16px;margin-bottom:20px;">
       <h3 style="margin:0 0 12px;font-size:14px;color:#1F3864;">+ Add a Tender</h3>
@@ -3911,6 +3914,23 @@ function showTab(name) {
   if (name === 'sitevisits') initSiteVisits();
   if (name === 'estimates')  initEstimatesTab();
   if (name === 'tenders')    loadTenders();
+}
+
+async function scanTenderEmail(btn) {
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Scanning...';
+  try {
+    const r = await fetch('/api/tenders/scan-email', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      btn.textContent = d.added > 0 ? ('✓ Added ' + d.added) : '✓ No new tenders';
+      if (d.added > 0) loadTenders();
+    } else {
+      alert(d.error || 'Scan failed.');
+      btn.textContent = orig;
+    }
+  } catch(e) { alert('Network error.'); btn.textContent = orig; }
+  setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 3000);
 }
 
 async function loadTenders() {
@@ -7074,6 +7094,17 @@ def api_on_site_now():
     return jsonify(arrivals)
 
 
+@app.route("/api/tenders/scan-email", methods=["POST"])
+@require_operator
+def api_tenders_scan_email():
+    """Run the Zoho IMAP scan immediately and return how many were added."""
+    if not ZOHO_IMAP_USER or not ZOHO_IMAP_PASSWORD:
+        return jsonify({"ok": False, "error":
+            "Zoho IMAP not configured. Set ZOHO_IMAP_USER and ZOHO_IMAP_PASSWORD env vars."})
+    added = _scan_zoho_for_tenders()
+    return jsonify({"ok": True, "added": added})
+
+
 @app.route("/api/tenders")
 @require_operator
 def api_list_tenders():
@@ -8124,8 +8155,11 @@ try:
                        id="client_escalation_digest", replace_existing=True)
     _scheduler.add_job(_send_tender_reminders, "cron", hour=8, minute=0,
                        id="tender_reminders", replace_existing=True)
+    _scheduler.add_job(_scan_zoho_for_tenders, "interval", minutes=15,
+                       id="zoho_tender_scan", replace_existing=True)
     _scheduler.start()
-    print("[Scheduler] Daily reports 18:00, escalations 20:00, tender reminders 08:00 (Winnipeg)")
+    print("[Scheduler] Daily reports 18:00, escalations 20:00, tender reminders 08:00, "
+          "Zoho tender scan every 15 min (Winnipeg)")
 except Exception as _sched_exc:
     print(f"[Scheduler] Could not start scheduler: {_sched_exc}")
 
@@ -8133,6 +8167,114 @@ except Exception as _sched_exc:
 # ---------------------------------------------------------------------------
 # INBOUND EMAIL WEBHOOK — lumia@ashrah.ai replies automatically
 # ---------------------------------------------------------------------------
+ZOHO_IMAP_HOST     = os.getenv("ZOHO_IMAP_HOST", "imap.zoho.com")
+ZOHO_IMAP_PORT     = int(os.getenv("ZOHO_IMAP_PORT", "993"))
+ZOHO_IMAP_USER     = os.getenv("ZOHO_IMAP_USER", "")
+ZOHO_IMAP_PASSWORD = os.getenv("ZOHO_IMAP_PASSWORD", "")
+
+
+def _scan_zoho_for_tenders() -> int:
+    """Poll Zoho IMAP for unread emails. For each one that looks like a tender
+    invitation, extract with Claude and add to the tenders queue. Mark as read
+    after processing. NEVER replies to the sender. Returns count of tenders added."""
+    if not ZOHO_IMAP_USER or not ZOHO_IMAP_PASSWORD:
+        return 0
+    import imaplib, email
+    from email.header import decode_header
+
+    added = 0
+    try:
+        mail = imaplib.IMAP4_SSL(ZOHO_IMAP_HOST, ZOHO_IMAP_PORT)
+        mail.login(ZOHO_IMAP_USER, ZOHO_IMAP_PASSWORD)
+        mail.select("INBOX")
+        # Only unread messages from the last 14 days to keep it fast
+        from datetime import timedelta as _td
+        since = (date.today() - _td(days=14)).strftime("%d-%b-%Y")
+        typ, data = mail.search(None, f'(UNSEEN SINCE "{since}")')
+        if typ != "OK":
+            mail.logout()
+            return 0
+        uids = data[0].split() if data and data[0] else []
+        print(f"[Zoho IMAP] {len(uids)} unread message(s) to scan")
+
+        for uid in uids:
+            typ, msg_data = mail.fetch(uid, "(BODY.PEEK[])")  # PEEK = don't mark seen yet
+            if typ != "OK" or not msg_data or not msg_data[0]:
+                continue
+            raw = msg_data[0][1]
+            msg = email.message_from_bytes(raw)
+
+            def _hdr(h):
+                v = msg.get(h, "")
+                parts = decode_header(v)
+                out = ""
+                for txt, enc in parts:
+                    if isinstance(txt, bytes):
+                        try: out += txt.decode(enc or "utf-8", errors="replace")
+                        except Exception: out += txt.decode("utf-8", errors="replace")
+                    else:
+                        out += txt
+                return out.strip()
+
+            subject = _hdr("Subject")
+            from_   = _hdr("From")
+            import re as _re
+            m = _re.search(r"[\w.+-]+@[\w.-]+\.\w+", from_)
+            sender_email = m.group(0) if m else from_
+            sender_name  = from_.split("<")[0].strip().strip('"') or sender_email
+
+            # Get the plain text body
+            body_text = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    ctype = part.get_content_type()
+                    disp  = str(part.get("Content-Disposition") or "")
+                    if ctype == "text/plain" and "attachment" not in disp:
+                        try:
+                            body_text = part.get_payload(decode=True).decode(
+                                part.get_content_charset() or "utf-8", errors="replace")
+                            break
+                        except Exception:
+                            pass
+                if not body_text:
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/html":
+                            try:
+                                html = part.get_payload(decode=True).decode(
+                                    part.get_content_charset() or "utf-8", errors="replace")
+                                body_text = _re.sub(r'<[^>]+>', ' ', html)
+                                break
+                            except Exception:
+                                pass
+            else:
+                try:
+                    body_text = msg.get_payload(decode=True).decode(
+                        msg.get_content_charset() or "utf-8", errors="replace")
+                except Exception:
+                    body_text = msg.get_payload() or ""
+
+            if not _looks_like_tender_email(subject, body_text):
+                # Leave it as UNSEEN so the user still reads it in Zoho.
+                continue
+
+            print(f"[Zoho IMAP] Tender candidate: '{subject}' from {sender_email}")
+            result = _ingest_tender_email(subject, body_text, sender_name, sender_email)
+            if result.get("ok"):
+                added += 1
+                # Notify Ahmad in Lumia (no reply to sender)
+                _send_tender_confirmation_email(result["tender"], sender_email, subject)
+                # Mark as read so we don't re-process next poll
+                try:
+                    mail.store(uid, "+FLAGS", "\\Seen")
+                except Exception:
+                    pass
+
+        mail.logout()
+    except Exception as exc:
+        print(f"[Zoho IMAP] Error: {exc}")
+    return added
+
+
 _TENDER_KEYWORDS = (
     "invitation to bid", "invitation to tender", "request for proposal", "request for quotation",
     "request for tender", " rfp ", " rfq ", " itb ", " itt ",

@@ -77,6 +77,19 @@ def require_role(*roles):
         return wrapper
     return decorator
 
+
+# Operational endpoints — production managers can access, plus owner.
+# Owner-only stuff (delete, password resets, manager management, system config)
+# keeps using @require_role("owner") explicitly.
+def require_operator(f):
+    """Allow production_manager OR owner."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if session.get("role") not in ("owner", "production_manager"):
+            return redirect(url_for("login_page", next=request.path))
+        return f(*args, **kwargs)
+    return wrapper
+
 def require_employee(f):
     """Redirect to employee login if no employee session."""
     @functools.wraps(f)
@@ -307,6 +320,41 @@ def _inject_ask_lumia_button(html_body: str, plain_body: str, client_row: dict |
         new_html = (html_body or "") + button_html
     plain_addendum = f"\n\nAsk Lumia about your project: {url}\n"
     return new_html, (plain_body or "") + plain_addendum
+
+
+def _build_photo_grid_html(photo_urls: list) -> str:
+    """Return an HTML photo grid section for inclusion in report emails."""
+    if not photo_urls:
+        return ""
+    cells = ""
+    for url in photo_urls:
+        cells += (
+            f'<td style="padding:4px;">'
+            f'<img src="{url}" width="180" style="border-radius:6px;display:block;'
+            f'object-fit:cover;max-width:100%;" /></td>'
+        )
+    # Split into rows of 3
+    rows_html = ""
+    chunk = []
+    for i, url in enumerate(photo_urls):
+        chunk.append(url)
+        if len(chunk) == 3 or i == len(photo_urls) - 1:
+            row_cells = "".join(
+                f'<td style="padding:4px;">'
+                f'<img src="{u}" width="180" style="border-radius:6px;display:block;object-fit:cover;max-width:100%;" />'
+                f'</td>'
+                for u in chunk
+            )
+            rows_html += f"<tr>{row_cells}</tr>"
+            chunk = []
+    return (
+        '<div style="margin-top:24px;padding:16px 16px 8px;background:#f4f6fb;border-radius:10px;">'
+        '<p style="font-size:13px;font-weight:700;color:#1F3864;margin:0 0 12px;">📷 Site Photos</p>'
+        '<table cellpadding="0" cellspacing="0" border="0" style="width:100%;">'
+        f'{rows_html}'
+        '</table>'
+        '</div>'
+    )
 
 
 def _augment_report_with_ask_lumia(content: dict, site_keyword: str,
@@ -739,6 +787,60 @@ HTML = """<!DOCTYPE html>
     <button class="lang-btn" onclick="setLang('tg')">ትግርኛ</button>
   </div>
 
+  <!-- ARRIVAL CHECK-IN (top, before main form) -->
+  <div id="arrivalSection" style="padding:20px 16px 0;">
+    <div id="arrivalBanner" style="display:none;background:#e8f5e9;border:1.5px solid #4caf50;border-radius:12px;padding:14px 16px;margin-bottom:16px;">
+      <div id="lbl_arriveLogged" style="font-size:11px;font-weight:700;color:#1b5e20;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;">✅ Arrival Logged</div>
+      <div id="arrivalBannerText" style="font-size:14px;color:#1b5e20;font-weight:600;"></div>
+    </div>
+    <button id="openArrivalBtn" type="button" onclick="openArrivalModal()"
+            style="width:100%;padding:16px;background:#1F3864;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:18px;">
+      📍 I've Arrived On Site
+    </button>
+  </div>
+
+  <!-- Arrival Modal -->
+  <div id="arrivalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;padding:20px;overflow-y:auto;">
+    <div style="background:#fff;border-radius:16px;max-width:520px;margin:0 auto;padding:24px;">
+      <h2 id="lbl_arriveTitle" style="margin:0 0 4px;font-size:20px;color:#1F3864;">📍 Arrive On Site</h2>
+      <p id="lbl_arriveSub" style="margin:0 0 18px;font-size:13px;color:#666;">Confirm where you are and acknowledge today's plan.</p>
+
+      <div class="field" style="margin-bottom:14px;">
+        <label id="lbl_arriveSiteLbl" style="font-size:11px;font-weight:700;color:#1F3864;letter-spacing:.5px;text-transform:uppercase;">Site</label>
+        <select id="arrival_site_input" onchange="_loadArrivalPlan(this.value)"
+                style="width:100%;padding:12px 14px;border:1.5px solid #dce2ef;border-radius:10px;font-size:15px;background:#fafbfd;">
+          <option value="">Loading sites...</option>
+        </select>
+        <input type="hidden" id="arrival_job_id">
+      </div>
+
+      <div id="arrivalPlanBox" style="display:none;background:#fff8e1;border:1.5px solid #ffd54f;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+        <div id="lbl_arrivePlanLbl" style="font-size:11px;font-weight:700;color:#5d4037;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;">📋 Today's Plan</div>
+        <div id="arrivalPlanText" style="font-size:14px;color:#222;font-weight:600;line-height:1.4;"></div>
+      </div>
+
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:#f4f6fb;border:1.5px solid #dce2ef;border-radius:10px;padding:14px;margin-bottom:18px;">
+        <input type="checkbox" id="arrival_saw_plan" required
+               style="margin-top:3px;width:18px;height:18px;flex-shrink:0;cursor:pointer;accent-color:#1F3864;">
+        <span id="lbl_arriveSawPlan" style="font-size:14px;color:#222;font-weight:600;line-height:1.4;">
+          I have reviewed today's plan and understand what needs to be done.
+        </span>
+      </label>
+
+      <div style="display:flex;gap:10px;">
+        <button type="button" onclick="submitArrival()" id="arrival_submit_btn"
+                style="flex:1;padding:14px;background:#2e7d32;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">
+          Confirm Arrival
+        </button>
+        <button type="button" onclick="closeArrivalModal()" id="arrival_cancel_btn"
+                style="padding:14px 18px;background:#f4f6fb;color:#666;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;">
+          Cancel
+        </button>
+      </div>
+      <div id="arrival_msg" style="margin-top:10px;font-size:13px;text-align:center;"></div>
+    </div>
+  </div>
+
   <!-- FORM -->
   <div class="form-body" id="formSection">
     <form id="checkinForm">
@@ -759,45 +861,35 @@ HTML = """<!DOCTYPE html>
         <input type="hidden" name="job_id" id="job_id_input">
       </div>
 
-      <!-- Category Scores -->
-      <div class="section-title" id="lbl_rateWork">&#9733; Rate Your Work Today</div>
+      <!-- Today's Plan banner (populated when site is picked) -->
+      <div id="todaysPlanBanner" style="display:none;background:#fff8e1;border:1.5px solid #ffd54f;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;color:#5d4037;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">📋 Today's Plan</div>
+        <div id="todaysPlanWork" style="font-size:14px;color:#222;font-weight:600;line-height:1.4;"></div>
+        <div id="todaysPlanMeta" style="font-size:12px;color:#5d4037;margin-top:6px;"></div>
+      </div>
 
-      {% for field_name, label_text in categories %}
-      <div class="score-row">
-        <div class="score-row-header">
-          <span class="score-label cat-label" data-en="{{ label_text }}">{{ label_text }}</span>
-          <div class="score-badge" id="{{ field_name }}_val" style="background:#f0ad4e">5</div>
+      <!-- Plan completion (only shown when there is a plan for today) -->
+      <div id="planCompletionField" style="display:none;background:#f4f6fb;border:1.5px solid #dce2ef;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <label style="display:block;font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px;">
+          ✅ How much of today's plan did you complete?
+        </label>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <input type="range" name="plan_completion_percent" id="plan_pct_input"
+                 min="0" max="100" step="5" value="100"
+                 oninput="document.getElementById('plan_pct_val').textContent = this.value + '%'; _updatePlanReasonVisibility();"
+                 style="flex:1;">
+          <span id="plan_pct_val" style="font-size:18px;font-weight:700;color:#1F3864;min-width:54px;text-align:right;">100%</span>
         </div>
-        <div class="slider-wrap">
-          <input type="range" name="{{ field_name }}" min="1" max="10" value="5"
-                 oninput="updateScore(this)" data-label="{{ field_name }}_val">
-          <div class="slider-minmax"><span>1</span><span>10</span></div>
+        <div id="planReasonWrap" style="display:none;margin-top:14px;">
+          <label id="lbl_planReason" style="display:block;font-size:12px;font-weight:700;color:#c62828;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
+            ⚠ What slowed you down?
+          </label>
+          <textarea name="plan_variance_reason" id="plan_reason_input"
+                    placeholder="Explain what stopped you from completing today's plan (e.g. ran out of paint, weather delay, extra repairs needed)..."
+                    rows="3"
+                    style="width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
         </div>
       </div>
-      {% endfor %}
-
-      <!-- Custom optional score fields -->
-      <div class="section-title" id="lbl_addOwn">&#43; Add Your Own (Optional)</div>
-      <p class="lang-note" id="lbl_addOwnNote">Leave blank to skip</p>
-
-      {% for i in range(1, 5) %}
-      <div class="custom-score-row">
-        <div class="custom-score-inner">
-          <input type="text" class="custom-label-input" name="custom_label_{{ i }}"
-                 id="custom_label_{{ i }}_input" placeholder="Category name">
-          <div class="custom-slider-wrap">
-            <div class="score-row-header">
-              <span style="font-size:12px;color:#999" id="custom_{{ i }}_hint">Score</span>
-              <div class="score-badge" id="custom_{{ i }}_val"
-                   style="background:#ddd;color:#999;font-size:16px">5</div>
-            </div>
-            <input type="range" name="custom_score_{{ i }}" min="1" max="10" value="5"
-                   oninput="updateScore(this)" data-label="custom_{{ i }}_val">
-            <div class="slider-minmax"><span>1</span><span>10</span></div>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
 
       <!-- Daily Summary -->
       <div class="section-title" id="lbl_summary">&#9998; Daily Summary</div>
@@ -834,8 +926,29 @@ HTML = """<!DOCTYPE html>
                placeholder="Any issues, delays, or extra info...">
       </div>
 
+      <!-- Hours Worked -->
+      <div class="section-title" id="lbl_hours_title">&#9201; Hours Worked Today</div>
+      <div class="form-row" style="margin-bottom:10px;">
+        <div class="field" style="margin-bottom:0;">
+          <label style="font-size:11px;" id="lbl_start_time">START TIME</label>
+          <input type="time" name="start_time" id="start_time_input" required
+                 oninput="_calcHoursWorked()"
+                 style="width:100%;padding:11px 14px;border:1.5px solid #dce2ef;border-radius:10px;font-size:15px;background:#fafbfd;">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="font-size:11px;" id="lbl_end_time">END TIME</label>
+          <input type="time" name="end_time" id="end_time_input" required
+                 oninput="_calcHoursWorked()"
+                 style="width:100%;padding:11px 14px;border:1.5px solid #dce2ef;border-radius:10px;font-size:15px;background:#fafbfd;">
+        </div>
+      </div>
+      <div id="hours_worked_display" style="background:#f0f4ff;border-left:3px solid #1F3864;padding:8px 12px;border-radius:6px;margin-bottom:16px;font-size:13px;color:#1F3864;display:none;">
+        <b id="hours_worked_value">0.0 hrs</b> <span id="lbl_hoursSuffix">worked today</span>
+      </div>
+      <input type="hidden" name="hours_worked" id="hours_worked_input">
+
       <!-- Photo Upload -->
-      <div class="section-title">&#128247; Site Photos (Optional)</div>
+      <div class="section-title" id="lbl_photosTitle">&#128247; Site Photos (Optional)</div>
       <div class="field">
         <div class="photo-upload-area" onclick="document.getElementById('photoInput').click()">
           <input type="file" id="photoInput" accept="image/*" multiple onchange="handlePhotos(this)">
@@ -843,6 +956,37 @@ HTML = """<!DOCTYPE html>
           <div class="photo-previews" id="photoPreviews"></div>
         </div>
         <div id="photoStatus" style="font-size:12px;color:#888;margin-top:6px;"></div>
+      </div>
+
+      <!-- Cleanup Confirmation (required) -->
+      <div class="section-title" id="lbl_cleanup_title">&#129529; Site Cleanup Confirmation</div>
+      <div style="background:#fff8e1;border:1.5px solid #ffd54f;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+        <p id="lbl_cleanup_intro" style="font-size:13px;color:#5d4037;margin:0 0 12px;font-weight:600;">
+          Before you submit, please confirm both of the following:
+        </p>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;font-size:14px;color:#222;line-height:1.4;">
+          <input type="checkbox" name="site_cleaned" id="site_cleaned" required
+                 style="margin-top:3px;width:18px;height:18px;flex-shrink:0;cursor:pointer;accent-color:#1F3864;">
+          <span id="lbl_site_cleaned">I cleaned up the site after myself (debris, drop sheets, masking, etc.)</span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:14px;color:#222;line-height:1.4;margin-bottom:14px;">
+          <input type="checkbox" name="tools_organized" id="tools_organized" required
+                 style="margin-top:3px;width:18px;height:18px;flex-shrink:0;cursor:pointer;accent-color:#1F3864;">
+          <span id="lbl_tools_organized">All tools are gathered in one spot and properly organized.</span>
+        </label>
+
+        <!-- Required cleanup proof photo -->
+        <div style="border-top:1px dashed #ffd54f;padding-top:14px;">
+          <p id="lbl_cleanup_photo" style="font-size:13px;color:#5d4037;margin:0 0 8px;font-weight:600;">
+            📷 Required: photo of the cleaned site and organized tools
+          </p>
+          <div class="photo-upload-area" onclick="document.getElementById('cleanupPhotoInput').click()" style="border-color:#ffb300;">
+            <input type="file" id="cleanupPhotoInput" accept="image/*" multiple onchange="handleCleanupPhotos(this)">
+            <div id="cleanupPhotoLabel" style="color:#5d4037;">📷 Tap to add proof photo(s)</div>
+            <div class="photo-previews" id="cleanupPhotoPreviews"></div>
+          </div>
+          <div id="cleanupPhotoStatus" style="font-size:12px;color:#888;margin-top:6px;"></div>
+        </div>
       </div>
 
       <button type="submit" class="submit-btn" id="submitBtn" data-en="Submit Check-In">
@@ -915,6 +1059,28 @@ HTML = """<!DOCTYPE html>
       tomorrow: "📋 Tomorrow's Plan",
       tomorrowPh: "What is the plan for tomorrow at this site...",
       notes: "NOTES (OPTIONAL)", notesPh: "Any issues, delays, or extra info...",
+      cleanupTitle: "🧹 Site Cleanup Confirmation",
+      cleanupIntro: "Before you submit, please confirm both of the following:",
+      siteCleaned: "I cleaned up the site after myself (debris, drop sheets, masking, etc.)",
+      toolsOrganized: "All tools are gathered in one spot and properly organized.",
+      arriveBtn:    "📍 I've Arrived On Site",
+      arriveUpdate: "📍 Update Arrival",
+      arriveTitle:  "📍 Arrive On Site",
+      arriveSub:    "Confirm where you are and acknowledge today's plan.",
+      arriveSiteLbl:"Site",
+      arrivePickSite:"Pick your site...",
+      arrivePlanLbl:"📋 Today's Plan",
+      arriveSawPlan:"I have reviewed today's plan and understand what needs to be done.",
+      arriveConfirm:"Confirm Arrival",
+      arriveCancel: "Cancel",
+      arriveLogged: "✅ Arrival Logged",
+      arrivedAt:    "Arrived at",
+      hoursTitle:   "⏱ Hours Worked Today",
+      hoursStart:   "START TIME",
+      hoursEnd:     "END TIME",
+      hoursSuffix:  "worked today",
+      photosTitle:  "📷 Site Photos (Optional)",
+      photosTap:    "📷 Tap to add photos from your site",
       submit: "Submit Check-In", submitting: "Submitting...",
       successTitle: "Check-In Submitted!", submitAnother: "Submit Another",
       dir: "ltr"
@@ -931,6 +1097,28 @@ HTML = """<!DOCTYPE html>
       tomorrow: "📋 خطة الغد",
       tomorrowPh: "ما هي الخطة لغد في هذا الموقع...",
       notes: "ملاحظات (اختياري)", notesPh: "أي مشاكل أو تأخيرات أو معلومات إضافية...",
+      cleanupTitle: "🧹 تأكيد تنظيف الموقع",
+      cleanupIntro: "قبل الإرسال، يُرجى تأكيد ما يلي:",
+      siteCleaned: "قمت بتنظيف الموقع بعد العمل (المخلفات، الأغطية، اللاصق، إلخ).",
+      toolsOrganized: "تم تجميع جميع الأدوات في مكان واحد ومرتبة بشكل صحيح.",
+      arriveBtn:    "📍 لقد وصلت إلى الموقع",
+      arriveUpdate: "📍 تحديث الوصول",
+      arriveTitle:  "📍 الوصول إلى الموقع",
+      arriveSub:    "أكد موقعك واطّلع على خطة اليوم.",
+      arriveSiteLbl:"الموقع",
+      arrivePickSite:"اختر موقعك...",
+      arrivePlanLbl:"📋 خطة اليوم",
+      arriveSawPlan:"لقد اطلعت على خطة اليوم وأفهم ما يجب إنجازه.",
+      arriveConfirm:"تأكيد الوصول",
+      arriveCancel: "إلغاء",
+      arriveLogged: "✅ تم تسجيل الوصول",
+      arrivedAt:    "وصل إلى",
+      hoursTitle:   "⏱ ساعات العمل اليوم",
+      hoursStart:   "وقت البدء",
+      hoursEnd:     "وقت الانتهاء",
+      hoursSuffix:  "ساعات عمل اليوم",
+      photosTitle:  "📷 صور الموقع (اختياري)",
+      photosTap:    "📷 اضغط لإضافة صور من موقعك",
       submit: "إرسال تسجيل الحضور", submitting: "جارٍ الإرسال...",
       successTitle: "تم تسجيل الحضور!", submitAnother: "إرسال آخر",
       dir: "rtl"
@@ -947,6 +1135,28 @@ HTML = """<!DOCTYPE html>
       tomorrow: "📋 Plan pour demain",
       tomorrowPh: "Quel est le plan pour demain sur ce chantier...",
       notes: "NOTES (OPTIONNEL)", notesPh: "Problèmes, retards ou infos supplémentaires...",
+      cleanupTitle: "🧹 Confirmation de nettoyage",
+      cleanupIntro: "Avant de soumettre, veuillez confirmer les deux points suivants:",
+      siteCleaned: "J'ai nettoyé le site après mon travail (débris, toiles, ruban, etc.).",
+      toolsOrganized: "Tous les outils sont rassemblés au même endroit et bien organisés.",
+      arriveBtn:    "📍 Je suis arrivé sur le chantier",
+      arriveUpdate: "📍 Mettre à jour l'arrivée",
+      arriveTitle:  "📍 Arriver sur le chantier",
+      arriveSub:    "Confirmez votre emplacement et prenez connaissance du plan du jour.",
+      arriveSiteLbl:"Chantier",
+      arrivePickSite:"Choisissez votre chantier...",
+      arrivePlanLbl:"📋 Plan d'aujourd'hui",
+      arriveSawPlan:"J'ai pris connaissance du plan du jour et je comprends ce qui doit être fait.",
+      arriveConfirm:"Confirmer l'arrivée",
+      arriveCancel: "Annuler",
+      arriveLogged: "✅ Arrivée enregistrée",
+      arrivedAt:    "Arrivé à",
+      hoursTitle:   "⏱ Heures travaillées aujourd'hui",
+      hoursStart:   "HEURE DE DÉBUT",
+      hoursEnd:     "HEURE DE FIN",
+      hoursSuffix:  "travaillées aujourd'hui",
+      photosTitle:  "📷 Photos du chantier (optionnel)",
+      photosTap:    "📷 Appuyez pour ajouter des photos",
       submit: "Soumettre le pointage", submitting: "Envoi en cours...",
       successTitle: "Pointage soumis!", submitAnother: "Soumettre un autre",
       dir: "ltr"
@@ -963,6 +1173,28 @@ HTML = """<!DOCTYPE html>
       tomorrow: "📋 Plan para mañana",
       tomorrowPh: "¿Cuál es el plan para mañana en este sitio?",
       notes: "NOTAS (OPCIONAL)", notesPh: "Problemas, retrasos o información extra...",
+      cleanupTitle: "🧹 Confirmación de limpieza",
+      cleanupIntro: "Antes de enviar, por favor confirma lo siguiente:",
+      siteCleaned: "Limpié el sitio después de mi trabajo (escombros, lonas, cinta, etc.).",
+      toolsOrganized: "Todas las herramientas están reunidas en un lugar y organizadas.",
+      arriveBtn:    "📍 He llegado al sitio",
+      arriveUpdate: "📍 Actualizar llegada",
+      arriveTitle:  "📍 Llegar al sitio",
+      arriveSub:    "Confirma dónde estás y revisa el plan de hoy.",
+      arriveSiteLbl:"Sitio",
+      arrivePickSite:"Elige tu sitio...",
+      arrivePlanLbl:"📋 Plan de hoy",
+      arriveSawPlan:"He revisado el plan de hoy y entiendo lo que hay que hacer.",
+      arriveConfirm:"Confirmar llegada",
+      arriveCancel: "Cancelar",
+      arriveLogged: "✅ Llegada registrada",
+      arrivedAt:    "Llegó a",
+      hoursTitle:   "⏱ Horas trabajadas hoy",
+      hoursStart:   "HORA DE INICIO",
+      hoursEnd:     "HORA DE FIN",
+      hoursSuffix:  "trabajadas hoy",
+      photosTitle:  "📷 Fotos del sitio (opcional)",
+      photosTap:    "📷 Toca para agregar fotos",
       submit: "Enviar registro", submitting: "Enviando...",
       successTitle: "¡Registro enviado!", submitAnother: "Enviar otro",
       dir: "ltr"
@@ -979,6 +1211,28 @@ HTML = """<!DOCTYPE html>
       tomorrow: "📋 ናይ ጽባሕ መደብ",
       tomorrowPh: "ጽባሕ ኣብዚ ቦታ ዘሎ መደብ...",
       notes: "ናይ ተወሳኺ ሓሳብ (ምርጫ)", notesPh: "ዝኾነ ጸገም ወይ ተወሳኺ ሓሳብ...",
+      cleanupTitle: "🧹 ናይ ቦታ ምጽራይ ማረጋገጺ",
+      cleanupIntro: "ቅድሚ ምስዳድ ነዞም ክልተ ነጥቢ ኣረጋግጽ:",
+      siteCleaned: "ድሕሪ ስራሕ ቦታ ኣጽሪየ (ቆሻሻ፣ ሽፋናት፣ ቴፕ ወዘተ).",
+      toolsOrganized: "ኩሎም ኣቕሑት ኣብ ሓደ ቦታ ተኣኪቦም ብስርዓት ተቐሚጦም ኣለዉ።",
+      arriveBtn:    "📍 ኣብ ስራሕ ቦታ በጺሐ",
+      arriveUpdate: "📍 ምብጻሕ ሓድስ",
+      arriveTitle:  "📍 ኣብ ስራሕ ቦታ ምብጻሕ",
+      arriveSub:    "ኣበይ ከም ዘሎኻ ኣረጋግጽ፡ ናይ ሎሚ መደብ ኣሰላሊ።",
+      arriveSiteLbl:"ቦታ",
+      arrivePickSite:"ቦታኻ ምረጽ...",
+      arrivePlanLbl:"📋 ናይ ሎሚ መደብ",
+      arriveSawPlan:"ናይ ሎሚ መደብ ሪአዮን ክግበር ዘለዎ ተረዲአን ኣለኹ።",
+      arriveConfirm:"ምብጻሕ ኣረጋግጽ",
+      arriveCancel: "ሰርዝ",
+      arriveLogged: "✅ ምብጻሕ ተመዝጊቡ",
+      arrivedAt:    "በጺሑ ኣብ",
+      hoursTitle:   "⏱ ናይ ሎሚ ናይ ስራሕ ሰዓታት",
+      hoursStart:   "ናይ ጅማር ሰዓት",
+      hoursEnd:     "ናይ መወዳእታ ሰዓት",
+      hoursSuffix:  "ሰዓታት ሎሚ ተሰሪሑ",
+      photosTitle:  "📷 ናይ ቦታ ስእልታት (ምርጫ)",
+      photosTap:    "📷 ስእልታት ንምውሳኽ ጠውቕ",
       submit: "ጸብጻብ ስደድ", submitting: "እናለኣኸ ኣሎ...",
       successTitle: "ጸብጻብ ተለኢኹ!", submitAnother: "ካልእ ስደድ",
       dir: "ltr"
@@ -991,43 +1245,77 @@ HTML = """<!DOCTYPE html>
     if (!T[lang]) return;
     currentLang = lang;
     const t = T[lang];
-    document.getElementById('htmlRoot').setAttribute('dir', t.dir);
-    document.getElementById('langField').value = lang;
+    // Defensive helpers — skip silently if element/key missing so a single
+    // missing element never blocks the rest of the translation.
+    const setText = (id, val) => {
+      if (val == null) return;
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    const setPh = (id, val) => {
+      if (val == null) return;
+      const el = document.getElementById(id);
+      if (el) el.placeholder = val;
+    };
 
-    document.getElementById('lbl_name').textContent      = t.name;
-    document.getElementById('lbl_selectName').textContent = t.selectName;
-    document.getElementById('lbl_site').textContent      = t.site;
-    // site is now a dropdown, no placeholder needed
-    document.getElementById('lbl_rateWork').textContent  = t.rateWork;
-    document.getElementById('lbl_addOwn').textContent    = t.addOwn;
-    document.getElementById('lbl_addOwnNote').textContent= t.addOwnNote;
-    document.getElementById('lbl_summary').textContent   = t.summary;
-    document.getElementById('lbl_langNote').textContent  = t.langNote;
-    document.getElementById('lbl_tomorrow').textContent  = t.tomorrow;
-    document.getElementById('lbl_notes').textContent     = t.notes;
-    document.getElementById('lbl_successTitle').textContent = t.successTitle;
-    document.getElementById('lbl_submitAnother').textContent = t.submitAnother;
-    document.getElementById('submitBtn').textContent     = t.submit;
-    document.getElementById('submitBtn').dataset.en      = t.submit;
-    document.getElementById('work_description_ta').placeholder = t.summaryPh;
-    document.getElementById('tomorrows_plan_ta').placeholder   = t.tomorrowPh;
-    document.getElementById('notes_input').placeholder         = t.notesPh;
+    const root = document.getElementById('htmlRoot');
+    if (root) root.setAttribute('dir', t.dir || 'ltr');
+    const lf = document.getElementById('langField'); if (lf) lf.value = lang;
 
-    // Category labels
-    const catLabels = document.querySelectorAll('.cat-label');
-    catLabels.forEach((el, i) => {
-      el.textContent = t.cats[i] || el.dataset.en;
-    });
+    setText('lbl_name',           t.name);
+    setText('lbl_site',           t.site);
+    setText('lbl_summary',        t.summary);
+    setText('lbl_langNote',       t.langNote);
+    setText('lbl_tomorrow',       t.tomorrow);
+    setText('lbl_notes',          t.notes);
+    setText('lbl_cleanup_title',  t.cleanupTitle);
+    setText('lbl_cleanup_intro',  t.cleanupIntro);
+    setText('lbl_site_cleaned',   t.siteCleaned);
+    setText('lbl_tools_organized',t.toolsOrganized);
+    setText('lbl_cleanup_photo',  t.cleanupPhotoLabel);
+    setText('lbl_successTitle',   t.successTitle);
+    setText('lbl_submitAnother',  t.submitAnother);
+    setText('submitBtn',          t.submit);
+    const sb = document.getElementById('submitBtn'); if (sb && t.submit) sb.dataset.en = t.submit;
+    setPh('work_description_ta', t.summaryPh);
+    setPh('tomorrows_plan_ta',   t.tomorrowPh);
+    setPh('notes_input',         t.notesPh);
 
-    // Custom field placeholders
-    for (let i = 1; i <= 4; i++) {
-      const el = document.getElementById('custom_label_' + i + '_input');
-      if (el) el.placeholder = t.labelPh;
+    // Arrival
+    setText('lbl_arriveLogged',  t.arriveLogged);
+    setText('lbl_arriveTitle',   t.arriveTitle);
+    setText('lbl_arriveSub',     t.arriveSub);
+    setText('lbl_arriveSiteLbl', t.arriveSiteLbl);
+    setText('lbl_arrivePlanLbl', t.arrivePlanLbl);
+    setText('lbl_arriveSawPlan', t.arriveSawPlan);
+    setText('arrival_submit_btn', t.arriveConfirm);
+    setText('arrival_cancel_btn', t.arriveCancel);
+    // Arrival button — depends on whether they've already arrived
+    const aBtn = document.getElementById('openArrivalBtn');
+    if (aBtn && t.arriveBtn) {
+      const updated = aBtn.dataset.state === 'updated';
+      aBtn.textContent = updated ? (t.arriveUpdate || t.arriveBtn) : t.arriveBtn;
     }
+    // Site dropdown placeholder
+    const aSel = document.getElementById('arrival_site_input');
+    if (aSel && aSel.options[0] && (aSel.options[0].value === '' || aSel.options[0].textContent.startsWith('Loading') || aSel.options[0].textContent.startsWith('Pick'))) {
+      aSel.options[0].textContent = t.arrivePickSite || aSel.options[0].textContent;
+    }
+
+    // Hours
+    setText('lbl_hours_title', t.hoursTitle);
+    setText('lbl_start_time',  t.hoursStart);
+    setText('lbl_end_time',    t.hoursEnd);
+    setText('lbl_hoursSuffix', t.hoursSuffix);
+
+    // Photos
+    setText('lbl_photosTitle', t.photosTitle);
+    const pl = document.getElementById('photoUploadLabel');
+    if (pl && t.photosTap) pl.innerHTML = t.photosTap;
 
     // Active button
     document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    if (typeof event !== 'undefined' && event && event.target) event.target.classList.add('active');
   }
 
   // -----------------------------------------------------------------------
@@ -1052,14 +1340,205 @@ HTML = """<!DOCTYPE html>
   // -----------------------------------------------------------------------
   // Submit
   // -----------------------------------------------------------------------
+  // ── Arrival flow ────────────────────────────────────────────────────────
+  async function _refreshArrivalStatus() {
+    try {
+      const r = await fetch('/api/my-arrival-today');
+      const d = await r.json();
+      const banner = document.getElementById('arrivalBanner');
+      const btn    = document.getElementById('openArrivalBtn');
+      const tx = T[currentLang] || T.en;
+      if (d.ok && d.arrival) {
+        const dt = new Date(d.arrival.arrived_at);
+        const timeStr = dt.toLocaleTimeString('en-CA', {timeZone:'America/Winnipeg', hour:'2-digit', minute:'2-digit'});
+        document.getElementById('arrivalBannerText').textContent =
+          (tx.arrivedAt || 'Arrived at') + ' ' + (d.arrival.site_address || 'site') + ' — ' + timeStr;
+        banner.style.display = '';
+        btn.textContent = tx.arriveUpdate || '📍 Update Arrival';
+        btn.dataset.state = 'updated';
+        btn.style.background = '#5d6d7e';
+      } else {
+        banner.style.display = 'none';
+        btn.textContent = tx.arriveBtn || "📍 I've Arrived On Site";
+        btn.dataset.state = 'fresh';
+        btn.style.background = '#1F3864';
+      }
+    } catch(e) {}
+  }
+
+  async function openArrivalModal() {
+    const sel = document.getElementById('arrival_site_input');
+    sel.innerHTML = '<option value="">Loading...</option>';
+    document.getElementById('arrivalModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    document.getElementById('arrival_saw_plan').checked = false;
+    document.getElementById('arrivalPlanBox').style.display = 'none';
+    document.getElementById('arrival_msg').textContent = '';
+    try {
+      const r = await fetch('/api/active-jobs');
+      const jobs = await r.json();
+      sel.innerHTML = '<option value="">Pick your site...</option>';
+      (jobs || []).forEach(j => {
+        const opt = document.createElement('option');
+        opt.value = j.site_address;
+        opt.dataset.jobId = j.id || '';
+        opt.textContent = j.site_address + ' (' + j.client_name + ')';
+        sel.appendChild(opt);
+      });
+    } catch(e) {
+      sel.innerHTML = '<option value="">Could not load sites</option>';
+    }
+  }
+
+  function closeArrivalModal() {
+    document.getElementById('arrivalModal').style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  async function _loadArrivalPlan(siteAddress) {
+    const sel = document.getElementById('arrival_site_input');
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('arrival_job_id').value = opt ? (opt.dataset.jobId || '') : '';
+    const box = document.getElementById('arrivalPlanBox');
+    const txt = document.getElementById('arrivalPlanText');
+    if (!siteAddress) { box.style.display = 'none'; return; }
+    try {
+      const r = await fetch('/api/site-plan-today?site_address=' + encodeURIComponent(siteAddress));
+      const d = await r.json();
+      if (d.ok && d.today) {
+        txt.textContent = (d.today.work || '') + (d.today.percent ? '  —  ' + d.today.percent + '% of project' : '');
+        box.style.display = '';
+        box.style.background = '#fff8e1';
+        box.style.borderColor = '#ffd54f';
+      } else {
+        txt.textContent = 'No plan set for today.';
+        box.style.display = '';
+        box.style.background = '#f0f4ff';
+        box.style.borderColor = '#aac4ff';
+      }
+    } catch(e) { box.style.display = 'none'; }
+  }
+
+  async function submitArrival() {
+    const site = document.getElementById('arrival_site_input').value;
+    const jobId = document.getElementById('arrival_job_id').value;
+    const sawPlan = document.getElementById('arrival_saw_plan').checked;
+    const msg = document.getElementById('arrival_msg');
+    if (!site) { msg.textContent = 'Please pick a site.'; msg.style.color = '#c62828'; return; }
+    if (!sawPlan) { msg.textContent = "Please confirm you've reviewed the plan."; msg.style.color = '#c62828'; return; }
+    const btn = document.getElementById('arrival_submit_btn');
+    btn.disabled = true; btn.textContent = 'Logging...';
+    try {
+      const r = await fetch('/api/arrive', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({site_address: site, job_id: jobId, saw_plan: true})
+      });
+      const d = await r.json();
+      if (d.ok) {
+        msg.textContent = '✓ Arrival logged'; msg.style.color = '#2e7d32';
+        setTimeout(() => { closeArrivalModal(); _refreshArrivalStatus(); }, 800);
+      } else {
+        msg.textContent = d.error || 'Failed to log arrival.'; msg.style.color = '#c62828';
+      }
+    } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
+    btn.disabled = false; btn.textContent = 'Confirm Arrival';
+  }
+
+  // Refresh arrival status on page load
+  if (document.getElementById('arrivalSection')) _refreshArrivalStatus();
+
+  function _calcHoursWorked() {
+    const s = document.getElementById('start_time_input').value;
+    const e = document.getElementById('end_time_input').value;
+    const display = document.getElementById('hours_worked_display');
+    const valEl   = document.getElementById('hours_worked_value');
+    const hidden  = document.getElementById('hours_worked_input');
+    if (!s || !e) { display.style.display='none'; hidden.value=''; return; }
+    const [sh,sm] = s.split(':').map(Number);
+    const [eh,em] = e.split(':').map(Number);
+    let mins = (eh*60 + em) - (sh*60 + sm);
+    if (mins < 0) mins += 24*60; // handle past-midnight (rare)
+    const hrs = mins / 60;
+    hidden.value = hrs.toFixed(2);
+    valEl.textContent = hrs.toFixed(1) + ' hrs';
+    display.style.display = '';
+  }
+
+  function _updatePlanReasonVisibility() {
+    const pct = parseInt(document.getElementById('plan_pct_input').value, 10);
+    const reasonWrap = document.getElementById('planReasonWrap');
+    const reasonInput = document.getElementById('plan_reason_input');
+    if (pct < 100) {
+      reasonWrap.style.display = '';
+      reasonInput.required = true;
+    } else {
+      reasonWrap.style.display = 'none';
+      reasonInput.required = false;
+      reasonInput.value = '';
+    }
+  }
+
+  async function _loadTodaysPlan(siteAddress) {
+    const banner   = document.getElementById('todaysPlanBanner');
+    const workEl   = document.getElementById('todaysPlanWork');
+    const metaEl   = document.getElementById('todaysPlanMeta');
+    const pctField = document.getElementById('planCompletionField');
+    const pctInput = document.getElementById('plan_pct_input');
+    if (!siteAddress) {
+      banner.style.display = 'none';
+      pctField.style.display = 'none';
+      return;
+    }
+    try {
+      const r = await fetch('/api/site-plan-today?site_address=' + encodeURIComponent(siteAddress));
+      const d = await r.json();
+      if (d.ok && d.today) {
+        workEl.textContent = d.today.work || '(no description)';
+        const pct = d.today.percent ? `${d.today.percent}% of project` : '';
+        metaEl.textContent = pct;
+        banner.style.display = '';
+        banner.style.background = '#fff8e1';
+        banner.style.borderColor = '#ffd54f';
+        // Show plan completion field, default 100%
+        pctField.style.display = '';
+        pctInput.value = 100;
+        document.getElementById('plan_pct_val').textContent = '100%';
+        _updatePlanReasonVisibility();
+      } else if (d.ok) {
+        // No plan entry for today — soft prompt, no completion field
+        workEl.textContent = 'No plan set for today. Please record what you did.';
+        metaEl.textContent = '';
+        banner.style.display = '';
+        banner.style.background = '#f0f4ff';
+        banner.style.borderColor = '#aac4ff';
+        pctField.style.display = 'none';
+      } else {
+        banner.style.display = 'none';
+        pctField.style.display = 'none';
+      }
+    } catch(e) {
+      banner.style.display = 'none';
+      pctField.style.display = 'none';
+    }
+  }
+
   document.getElementById('checkinForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    // Enforce cleanup photo
+    if (!cleanupPhotoUrls.length) {
+      alert('Please upload at least one photo showing the cleaned site and organized tools before submitting.');
+      document.getElementById('cleanupPhotoInput').focus();
+      return;
+    }
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>' + (T[currentLang].submitting);
 
     const data = Object.fromEntries(new FormData(e.target));
-    data.photo_urls = uploadedPhotoUrls.join(',');
+    data.photo_urls         = uploadedPhotoUrls.join(',');
+    data.cleanup_photo_urls = cleanupPhotoUrls.join(',');
+    data.site_cleaned       = document.getElementById('site_cleaned').checked ? '1' : '';
+    data.tools_organized    = document.getElementById('tools_organized').checked ? '1' : '';
 
     try {
       const res  = await fetch('/submit', {
@@ -1097,7 +1576,11 @@ HTML = """<!DOCTYPE html>
     document.getElementById('successSection').style.display = 'none';
     document.getElementById('formSection').style.display    = 'block';
     uploadedPhotoUrls = [];
+    cleanupPhotoUrls = [];
     document.getElementById('photoPreviews').innerHTML = '';
+    const cpp = document.getElementById('cleanupPhotoPreviews'); if (cpp) cpp.innerHTML = '';
+    const cpl = document.getElementById('cleanupPhotoLabel'); if (cpl) cpl.style.display = '';
+    const cps = document.getElementById('cleanupPhotoStatus'); if (cps) cps.textContent = '';
     document.getElementById('photoUploadLabel').style.display = '';
   }
 
@@ -1151,6 +1634,69 @@ HTML = """<!DOCTYPE html>
   // Photo Upload
   // -----------------------------------------------------------------------
   let uploadedPhotoUrls = [];
+  let cleanupPhotoUrls  = [];
+
+  // Resize a phone photo conservatively — only shrink if longer side > 2400px,
+  // and re-encode at 0.92 JPEG quality (no visible quality loss).
+  // If the original is already small (<1 MB), skip the work entirely.
+  async function _maybeCompressPhoto(file) {
+    if (!file.type.startsWith('image/')) return file;
+    if (file.size < 1024 * 1024) return file; // already small
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = URL.createObjectURL(file);
+      });
+      const MAX = 2400;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const longSide = Math.max(w, h);
+      if (longSide <= MAX && file.size < 3 * 1024 * 1024) {
+        URL.revokeObjectURL(img.src);
+        return file; // already reasonable, leave alone
+      }
+      const scale = longSide > MAX ? (MAX / longSide) : 1;
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+      if (!blob || blob.size >= file.size) return file; // no benefit
+      return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch(e) {
+      return file; // any failure → fall back to original
+    }
+  }
+
+  async function _uploadOnePhoto(file, previews, onDone) {
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const res = await fetch('/api/upload-photo', { method:'POST', body: fd });
+      const d = await res.json();
+      if (d.url) {
+        uploadedPhotoUrls.push(d.url);
+        const wrap = document.createElement('div');
+        wrap.className = 'photo-remove';
+        const img = document.createElement('img');
+        img.src = d.url; img.className = 'photo-thumb';
+        const rmBtn = document.createElement('button');
+        rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
+        rmBtn.textContent = '×';
+        rmBtn.onclick = () => {
+          uploadedPhotoUrls = uploadedPhotoUrls.filter(u => u !== d.url);
+          wrap.remove();
+          if (!uploadedPhotoUrls.length) document.getElementById('photoUploadLabel').style.display = '';
+        };
+        wrap.appendChild(img); wrap.appendChild(rmBtn);
+        previews.appendChild(wrap);
+      }
+    } catch(e) { /* swallow individual failures */ }
+    onDone();
+  }
 
   async function handlePhotos(input) {
     const files = Array.from(input.files);
@@ -1158,34 +1704,70 @@ HTML = """<!DOCTYPE html>
     const status = document.getElementById('photoStatus');
     const previews = document.getElementById('photoPreviews');
     document.getElementById('photoUploadLabel').style.display = 'none';
-    status.textContent = 'Uploading photos...';
+    const total = files.length;
+    let done = 0;
+    status.textContent = 'Preparing photos...';
 
-    for (const file of files) {
-      const formData = new FormData();
-      formData.append('photo', file);
-      try {
-        const res = await fetch('/api/upload-photo', { method:'POST', body: formData });
-        const d = await res.json();
-        if (d.url) {
-          uploadedPhotoUrls.push(d.url);
-          const wrap = document.createElement('div');
-          wrap.className = 'photo-remove';
-          const img = document.createElement('img');
-          img.src = d.url; img.className = 'photo-thumb';
-          const rmBtn = document.createElement('button');
-          rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
-          rmBtn.textContent = '×';
-          rmBtn.onclick = () => {
-            uploadedPhotoUrls = uploadedPhotoUrls.filter(u => u !== d.url);
-            wrap.remove();
-            if (!uploadedPhotoUrls.length) document.getElementById('photoUploadLabel').style.display = '';
-          };
-          wrap.appendChild(img); wrap.appendChild(rmBtn);
-          previews.appendChild(wrap);
-        }
-      } catch(e) { status.textContent = 'Upload failed for ' + file.name; }
-    }
+    // Compress in parallel (CPU work) — fast on modern phones
+    const prepared = await Promise.all(files.map(_maybeCompressPhoto));
+
+    status.textContent = `Uploading 0 / ${total}...`;
+    const updateProgress = () => {
+      done += 1;
+      status.textContent = done < total ? `Uploading ${done} / ${total}...` : `${uploadedPhotoUrls.length} photo(s) ready`;
+    };
+
+    // Upload all in parallel
+    await Promise.all(prepared.map(f => _uploadOnePhoto(f, previews, updateProgress)));
+
     status.textContent = uploadedPhotoUrls.length + ' photo(s) ready';
+    input.value = '';
+  }
+
+  async function _uploadOneCleanupPhoto(file, previews, onDone) {
+    const fd = new FormData();
+    fd.append('photo', file);
+    try {
+      const res = await fetch('/api/upload-photo', { method:'POST', body: fd });
+      const d = await res.json();
+      if (d.url) {
+        cleanupPhotoUrls.push(d.url);
+        const wrap = document.createElement('div');
+        wrap.className = 'photo-remove';
+        const img = document.createElement('img');
+        img.src = d.url; img.className = 'photo-thumb';
+        const rmBtn = document.createElement('button');
+        rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
+        rmBtn.textContent = '×';
+        rmBtn.onclick = () => {
+          cleanupPhotoUrls = cleanupPhotoUrls.filter(u => u !== d.url);
+          wrap.remove();
+          if (!cleanupPhotoUrls.length) document.getElementById('cleanupPhotoLabel').style.display = '';
+        };
+        wrap.appendChild(img); wrap.appendChild(rmBtn);
+        previews.appendChild(wrap);
+      }
+    } catch(e) { /* swallow individual failures */ }
+    onDone();
+  }
+
+  async function handleCleanupPhotos(input) {
+    const files = Array.from(input.files);
+    if (!files.length) return;
+    const status = document.getElementById('cleanupPhotoStatus');
+    const previews = document.getElementById('cleanupPhotoPreviews');
+    document.getElementById('cleanupPhotoLabel').style.display = 'none';
+    const total = files.length;
+    let done = 0;
+    status.textContent = 'Preparing photos...';
+    const prepared = await Promise.all(files.map(_maybeCompressPhoto));
+    status.textContent = `Uploading 0 / ${total}...`;
+    const updateProgress = () => {
+      done += 1;
+      status.textContent = done < total ? `Uploading ${done} / ${total}...` : `${cleanupPhotoUrls.length} photo(s) ready`;
+    };
+    await Promise.all(prepared.map(f => _uploadOneCleanupPhoto(f, previews, updateProgress)));
+    status.textContent = cleanupPhotoUrls.length + ' photo(s) ready';
     input.value = '';
   }
 
@@ -1253,6 +1835,7 @@ HTML = """<!DOCTYPE html>
       sel.addEventListener('change', function() {
         const selected = sel.options[sel.selectedIndex];
         jobIdInput.value = selected ? (selected.dataset.jobId || '') : '';
+        _loadTodaysPlan(sel.value);
       });
     } catch(e) {
       console.error('Failed to load jobs:', e);
@@ -1383,7 +1966,38 @@ def submit():
 
         # Use session employee name (prevents spoofing)
         employee_name = session.get("employee_name") or data.get("worker_name", "").strip()
-        photo_urls = (data.get("photo_urls") or "").strip()
+        photo_urls         = (data.get("photo_urls")         or "").strip()
+        cleanup_photo_urls = (data.get("cleanup_photo_urls") or "").strip()
+        site_cleaned    = bool((data.get("site_cleaned")    or "").strip())
+        tools_organized = bool((data.get("tools_organized") or "").strip())
+
+        # Server-side enforcement: cleanup confirmation + proof photo required
+        if not site_cleaned or not tools_organized:
+            return jsonify({"ok": False, "error": "Please confirm cleanup and tool organization before submitting."}), 400
+        if not cleanup_photo_urls:
+            return jsonify({"ok": False, "error": "A photo of the cleaned site and organized tools is required."}), 400
+
+        # Tag the notes with cleanup confirmation so it shows in reports/log
+        cleanup_tag = "[✓ Site cleaned ✓ Tools organized]"
+        if text_fields["notes"]:
+            text_fields["notes"] = f"{cleanup_tag} {text_fields['notes']}"
+        else:
+            text_fields["notes"] = cleanup_tag
+
+        # Plan completion (only present if there was a plan for today)
+        try:
+            plan_pct_raw = data.get("plan_completion_percent")
+            plan_completion_percent = float(plan_pct_raw) if plan_pct_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            plan_completion_percent = None
+        plan_variance_reason = (data.get("plan_variance_reason") or "").strip() or None
+        # Server-side validation: if completion < 100, require a reason
+        if plan_completion_percent is not None and plan_completion_percent < 100 and not plan_variance_reason:
+            return jsonify({"ok": False, "error": "Please explain what slowed you down today."}), 400
+
+        # Merge cleanup photos into the photo set so they appear in reports too
+        if cleanup_photo_urls:
+            photo_urls = (photo_urls + ("," if photo_urls else "") + cleanup_photo_urls).strip(",")
 
         entry = EmployeeDailyEntry(
             entry_date=date.today().isoformat(),
@@ -1426,6 +2040,11 @@ def submit():
                     "tomorrows_plan":    entry.tomorrows_plan,
                     "notes":             entry.notes,
                     "photo_urls":        photo_urls,
+                    "plan_completion_percent": plan_completion_percent,
+                    "plan_variance_reason":    plan_variance_reason,
+                    "start_time":     (data.get("start_time") or "").strip() or None,
+                    "end_time":       (data.get("end_time")   or "").strip() or None,
+                    "hours_worked":   float(data.get("hours_worked")) if data.get("hours_worked") else None,
                 }).execute()
                 print(f"[App] Saved to Supabase ✓")
             except Exception as exc:
@@ -2558,7 +3177,10 @@ def login_page():
             if match:
                 session["role"] = match["role"]
                 session["name"] = match["name"]
-                return redirect("/review" if match["role"] == "manager" else "/owner")
+                # Production managers and owners get the full dashboard
+                if match["role"] in ("production_manager", "owner"):
+                    return redirect("/owner")
+                return redirect("/review")
         except Exception as exc:
             print(f"[Login] Supabase error: {exc}")
     return render_template_string(LOGIN_HTML, next=next_url, error="Incorrect name or PIN. Try again.")
@@ -2644,13 +3266,23 @@ tr:hover td { background:#fafbfd; }
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:12px;">
     <img src="/static/logo.png" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
-    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">Owner Dashboard</span>
+    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">{% if user_role == "production_manager" %}Production Manager Dashboard{% else %}Owner Dashboard{% endif %}</span>
   </div>
   <div style="display:flex;gap:20px;align-items:center">
-    <span style="font-size:13px;opacity:.8">Welcome, {{ name }}</span>
+    <span style="font-size:13px;opacity:.8">Welcome, {{ name }}{% if user_role == "production_manager" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">PM</span>{% endif %}</span>
     <a href="/logout">Logout</a>
   </div>
 </div>
+
+<!-- Role-based visibility -->
+<style>
+{% if user_role == "production_manager" %}
+.owner-only { display: none !important; }
+{% endif %}
+</style>
+<script>
+window.USER_ROLE = "{{ user_role }}";
+</script>
 
 <div class="tabs">
   <div class="tab active" onclick="showTab('overview')">Overview</div>
@@ -2658,11 +3290,12 @@ tr:hover td { background:#fafbfd; }
   <div class="tab" onclick="showTab('reviews')">Reviews</div>
   <div class="tab" onclick="showTab('jobs')">Jobs</div>
   <div class="tab" onclick="showTab('employees')">Employees</div>
-  <div class="tab" onclick="showTab('managers')">Managers</div>
+  <div class="tab owner-only" onclick="showTab('managers')">Managers</div>
   <div class="tab" onclick="showTab('clients')">Clients</div>
   <div class="tab" onclick="showTab('reports')">Reports</div>
   <div class="tab" onclick="showTab('sitevisits')">📍 Site Visits</div>
   <div class="tab" onclick="showTab('estimates')">📐 Estimates</div>
+  <div class="tab" onclick="showTab('tenders')">📅 Tenders</div>
 </div>
 
 <!-- OVERVIEW -->
@@ -2673,6 +3306,14 @@ tr:hover td { background:#fafbfd; }
     <div class="stat"><div class="num" id="stat-employees">{{ employees|length }}</div><div class="lbl">Employees</div></div>
     <div class="stat"><div class="num" id="stat-avg">—</div><div class="lbl">Avg Score Today</div></div>
   </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <h2 style="margin:0;">📍 On Site Now</h2>
+      <button class="btn btn-sm" onclick="loadOnSiteNow()" style="background:#1F3864;">Refresh</button>
+    </div>
+    <div id="onsite-now-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
+
   <div class="card">
     <h2>Recent Check-Ins</h2>
     <div id="overview-checkins"><p style="color:#999">Loading...</p></div>
@@ -2787,6 +3428,102 @@ tr:hover td { background:#fafbfd; }
         <div class="field"><label>Work Description</label>
           <textarea name="work_description" rows="3" placeholder="Describe the job scope, type of work, special requirements..."></textarea>
         </div>
+
+        <!-- ─── Job Scope Calculator ─────────────────────────────────────── -->
+        <div style="border:1.5px solid #dce2ef;border-radius:12px;padding:16px;margin-bottom:16px;background:#fafbfd;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <label style="font-weight:700;color:#1F3864;font-size:13px;margin:0;">📐 Job Scope &amp; Estimate</label>
+            <div style="display:flex;gap:6px;">
+              <button type="button" id="scope-mode-quick" onclick="setScopeMode('quick')"
+                      style="padding:6px 12px;border:1.5px solid #1F3864;background:#1F3864;color:#fff;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Quick</button>
+              <button type="button" id="scope-mode-detailed" onclick="setScopeMode('detailed')"
+                      style="padding:6px 12px;border:1.5px solid #1F3864;background:#fff;color:#1F3864;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Detailed</button>
+            </div>
+          </div>
+
+          <!-- Quick Mode -->
+          <div id="scope-quick" style="display:block;">
+            <div class="form-row">
+              <div class="field" style="margin-bottom:10px;">
+                <label style="font-size:11px;">Total Square Footage <span style="font-weight:400;color:#888;">— interior space being painted</span></label>
+                <input type="number" id="sm_sqft" min="0" oninput="recalcScope()" placeholder="e.g. 1800">
+              </div>
+              <div class="field" style="margin-bottom:10px;">
+                <label style="font-size:11px;">Job Complexity <span style="font-weight:400;color:#888;">— how much prep / repair</span></label>
+                <select id="sm_complexity" onchange="recalcScope()">
+                  <option value="1.0">Light (new construction, minimal prep)</option>
+                  <option value="1.3" selected>Medium (standard repaint)</option>
+                  <option value="1.7">Heavy (restoration, lots of repairs)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detailed Mode -->
+          <div id="scope-detailed" style="display:none;">
+            <p style="font-size:11px;color:#666;margin:0 0 10px;line-height:1.5;">
+              Enter only what you know — leave others at 0. Each field is optional. Live estimate updates as you type.
+            </p>
+            <div class="form-row">
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Wall area (sqft) <span style="color:#888;font-weight:400;">walls only</span></label>
+                <input type="number" id="sm_wall_sqft" min="0" value="0" oninput="recalcScope()"></div>
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Ceiling area (sqft)</label>
+                <input type="number" id="sm_ceiling_sqft" min="0" value="0" oninput="recalcScope()"></div>
+            </div>
+            <div class="form-row">
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Trim / baseboard (linear ft)</label>
+                <input type="number" id="sm_trim_lf" min="0" value="0" oninput="recalcScope()"></div>
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Number of rooms</label>
+                <input type="number" id="sm_rooms" min="0" value="0" oninput="recalcScope()"></div>
+            </div>
+            <div class="form-row">
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Doors <span style="color:#888;font-weight:400;">~40 min each</span></label>
+                <input type="number" id="sm_doors" min="0" value="0" oninput="recalcScope()"></div>
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Windows <span style="color:#888;font-weight:400;">~30 min each</span></label>
+                <input type="number" id="sm_windows" min="0" value="0" oninput="recalcScope()"></div>
+            </div>
+            <div class="form-row">
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Ceiling height (ft) <span style="color:#888;font-weight:400;">9 = standard</span></label>
+                <input type="number" id="sm_height" min="8" max="20" value="9" oninput="recalcScope()"></div>
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Number of coats</label>
+                <select id="sm_coats" onchange="recalcScope()">
+                  <option value="1">1 coat</option>
+                  <option value="2" selected>2 coats</option>
+                  <option value="3">Primer + 2 coats</option>
+                </select></div>
+            </div>
+            <div class="form-row">
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Surface condition</label>
+                <select id="sm_surface" onchange="recalcScope()">
+                  <option value="1.0">New (perfect drywall)</option>
+                  <option value="1.2" selected>Good (minor patching)</option>
+                  <option value="1.5">Fair (cracks, holes, sanding)</option>
+                  <option value="2.0">Poor (heavy repair)</option>
+                </select></div>
+              <div class="field" style="margin-bottom:10px;"><label style="font-size:11px;">Prep level <span style="color:#888;font-weight:400;">masking + protection</span></label>
+                <select id="sm_prep" onchange="recalcScope()">
+                  <option value="1.0">Light (empty house)</option>
+                  <option value="1.3" selected>Medium (some furniture)</option>
+                  <option value="1.7">Heavy (occupied, fragile)</option>
+                </select></div>
+            </div>
+          </div>
+
+          <!-- Live Estimate Display -->
+          <div id="scope-result" style="margin-top:12px;padding:12px 14px;background:#fff;border:1.5px dashed #1F3864;border-radius:10px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center;">
+              <div><div id="sm_hours" style="font-size:22px;font-weight:700;color:#1F3864;">—</div><div style="font-size:11px;color:#888;">Estimated Hours</div></div>
+              <div><div id="sm_days" style="font-size:22px;font-weight:700;color:#1F3864;">—</div><div style="font-size:11px;color:#888;">Painter-Days</div></div>
+              <div><div id="sm_crew_days" style="font-size:22px;font-weight:700;color:#1F3864;">—</div><div style="font-size:11px;color:#888;">Days @ Selected Crew</div></div>
+            </div>
+            <p style="font-size:11px;color:#666;margin:10px 0 0;text-align:center;line-height:1.4;">
+              📊 Calibrated estimate — gets more accurate as Lumia learns from completed jobs.
+            </p>
+          </div>
+        </div>
+        <input type="hidden" name="scope_metrics" id="sm_payload">
+        <input type="hidden" name="estimated_hours" id="sm_estimated_hours">
+
         <div class="field">
           <label>Assign Employees <span style="font-weight:400;color:#888;font-size:12px;">(they will be emailed)</span></label>
           <div id="job-emp-list" style="display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;min-height:44px;">
@@ -2912,6 +3649,13 @@ tr:hover td { background:#fafbfd; }
   <div class="card">
     <h2>Sent Reports History</h2>
     <p style="font-size:13px;color:#666;margin-bottom:14px;">Every report sent to a client — click to view the full email.</p>
+    <div style="margin-bottom:14px;">
+      <select id="reports-client-filter" onchange="filterSentReports()"
+              style="padding:9px 14px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;
+                     background:#fff;color:#222;width:100%;max-width:320px;">
+        <option value="">All Clients</option>
+      </select>
+    </div>
     <div id="sent-reports-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
   </div>
 
@@ -2956,9 +3700,15 @@ tr:hover td { background:#fafbfd; }
       </div>
       <div class="field"><label>Role</label>
         <select name="mgr_role">
-          <option value="manager">Manager (review only)</option>
-          <option value="owner">Owner (full access)</option>
+          <option value="manager">Reviewer (check-in reviews only)</option>
+          <option value="production_manager" selected>Production Manager (jobs, clients, reports)</option>
+          <option value="owner">Owner (full access — use sparingly)</option>
         </select>
+        <p style="font-size:12px;color:#888;margin:6px 0 0;line-height:1.4;">
+          <b>Reviewer:</b> only sees the check-in review page.<br>
+          <b>Production Manager:</b> can create/edit jobs, manage clients, send reports, view all data — but <b>cannot</b> delete records, reset passwords, or manage other managers.<br>
+          <b>Owner:</b> full access to everything (you).
+        </p>
       </div>
       <button type="button" class="btn" onclick="addManager()">Add Manager</button>
     </form>
@@ -3106,6 +3856,42 @@ tr:hover td { background:#fafbfd; }
   </div>
 </div>
 
+<!-- TENDERS -->
+<div class="page" id="tab-tenders">
+  <div class="card">
+    <h2>📅 Tenders &amp; Bid Closings</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:16px;">Track tender close dates. Lumia emails you a reminder <b>2 days before</b> each close date.</p>
+
+    <form id="tenderForm" onsubmit="return false" style="background:#fafbfd;border:1.5px solid #dce2ef;border-radius:12px;padding:16px;margin-bottom:20px;">
+      <h3 style="margin:0 0 12px;font-size:14px;color:#1F3864;">+ Add a Tender</h3>
+      <div class="form-row">
+        <div class="field"><label>Tender Name / Project</label>
+          <input type="text" id="tender-name" placeholder="e.g. Pembina Hwy School District RFP" required></div>
+        <div class="field"><label>Client / Issuer (optional)</label>
+          <input type="text" id="tender-client" placeholder="e.g. Pembina Trails SD"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Close Date</label>
+          <input type="date" id="tender-date" required></div>
+        <div class="field"><label>Status</label>
+          <select id="tender-status">
+            <option value="open" selected>Open — bidding</option>
+            <option value="submitted">Submitted</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select></div>
+      </div>
+      <div class="field"><label>Notes (optional)</label>
+        <textarea id="tender-notes" rows="2" placeholder="Scope, contact name, link to docs..."></textarea>
+      </div>
+      <button type="button" class="btn btn-green" onclick="addTender()">Add Tender</button>
+      <span id="tender-msg" style="font-size:13px;margin-left:12px;"></span>
+    </form>
+
+    <div id="tenders-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
+</div>
+
 <script>
 let lastRecommendation = null;
 
@@ -3124,6 +3910,111 @@ function showTab(name) {
   if (name === 'reports')    initReportsTab();
   if (name === 'sitevisits') initSiteVisits();
   if (name === 'estimates')  initEstimatesTab();
+  if (name === 'tenders')    loadTenders();
+}
+
+async function loadTenders() {
+  const el = document.getElementById('tenders-list');
+  try {
+    const r = await fetch('/api/tenders');
+    const tenders = await r.json();
+    if (!tenders || !tenders.length) {
+      el.innerHTML = '<p style="color:#999;font-size:13px;margin:0;">No tenders yet. Add one above.</p>';
+      return;
+    }
+    const today = new Date().toISOString().slice(0,10);
+    el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+      '<thead><tr style="background:#f4f6fb;">' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">NAME</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">CLIENT</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">CLOSE DATE</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">DAYS LEFT</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1F3864;">STATUS</th>' +
+      '<th style="padding:10px 12px;"></th>' +
+      '</tr></thead><tbody>' +
+      tenders.map(t => {
+        const d1 = new Date(t.close_date + 'T00:00:00');
+        const d0 = new Date(today + 'T00:00:00');
+        const days = Math.round((d1 - d0) / 86400000);
+        const isPast    = days < 0;
+        const isUrgent  = days >= 0 && days <= 2;
+        const isSoon    = days > 2 && days <= 7;
+        const daysText  = isPast ? `${Math.abs(days)} ago` : days === 0 ? 'TODAY' : `${days} days`;
+        const daysColor = isPast ? '#888' : isUrgent ? '#c62828' : isSoon ? '#f57c00' : '#2e7d32';
+        const statusColor = t.status === 'open' ? '#1F3864' : t.status === 'won' ? '#2e7d32' : t.status === 'lost' ? '#c62828' : '#888';
+        return '<tr style="border-top:1px solid #eee;">' +
+          '<td style="padding:12px;font-size:13px;"><b>' + t.name + '</b>' +
+            (t.notes ? '<div style="font-size:11px;color:#888;margin-top:3px;">' + t.notes + '</div>' : '') +
+          '</td>' +
+          '<td style="padding:12px;font-size:13px;color:#555;">' + (t.client || '—') + '</td>' +
+          '<td style="padding:12px;font-size:13px;">' + t.close_date + '</td>' +
+          '<td style="padding:12px;font-size:13px;font-weight:700;color:' + daysColor + ';">' + daysText + '</td>' +
+          '<td style="padding:12px;"><span style="background:' + statusColor + ';color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;">' + t.status + '</span></td>' +
+          '<td style="padding:12px;text-align:right;">' +
+            '<button class="btn btn-sm" style="background:#e8f0fe;color:#1F3864;" onclick="editTender(\'' + t.id + '\')">Edit</button> ' +
+            '<button class="btn btn-sm owner-only" style="background:#fce4ec;color:#c62828;" onclick="deleteTender(\'' + t.id + '\')">Delete</button>' +
+          '</td></tr>';
+      }).join('') +
+      '</tbody></table>';
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load tenders.</p>';
+  }
+}
+
+async function addTender() {
+  const payload = {
+    name:        (document.getElementById('tender-name').value || '').trim(),
+    client:      (document.getElementById('tender-client').value || '').trim(),
+    close_date:  document.getElementById('tender-date').value,
+    status:      document.getElementById('tender-status').value,
+    notes:       (document.getElementById('tender-notes').value || '').trim(),
+  };
+  if (!payload.name || !payload.close_date) {
+    document.getElementById('tender-msg').textContent = 'Name and close date required.';
+    document.getElementById('tender-msg').style.color = '#c62828';
+    return;
+  }
+  try {
+    const r = await fetch('/api/tender', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('tender-msg').textContent = '✓ Tender added';
+      document.getElementById('tender-msg').style.color = '#2e7d32';
+      document.getElementById('tenderForm').reset();
+      loadTenders();
+    } else {
+      document.getElementById('tender-msg').textContent = d.error || 'Failed.';
+      document.getElementById('tender-msg').style.color = '#c62828';
+    }
+  } catch(e) {
+    document.getElementById('tender-msg').textContent = 'Network error.';
+    document.getElementById('tender-msg').style.color = '#c62828';
+  }
+}
+
+async function editTender(id) {
+  const newDate   = prompt('New close date (YYYY-MM-DD), leave blank to keep:');
+  const newStatus = prompt('New status (open / submitted / won / lost), leave blank to keep:');
+  const update = {};
+  if (newDate && newDate.trim())   update.close_date = newDate.trim();
+  if (newStatus && newStatus.trim()) update.status = newStatus.trim();
+  if (!Object.keys(update).length) return;
+  try {
+    const r = await fetch('/api/tender/' + id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(update)});
+    const d = await r.json();
+    if (d.ok) loadTenders();
+    else alert(d.error || 'Update failed.');
+  } catch(e) { alert('Network error.'); }
+}
+
+async function deleteTender(id) {
+  if (!confirm('Delete this tender? This cannot be undone.')) return;
+  try {
+    const r = await fetch('/api/tender/' + id, {method:'DELETE'});
+    const d = await r.json();
+    if (d.ok) loadTenders();
+    else alert(d.error || 'Delete failed.');
+  } catch(e) { alert('Network error.'); }
 }
 
 function scoreColor(v) {
@@ -3189,6 +4080,40 @@ async function loadOverview() {
     document.getElementById('stat-jobs').textContent = jd.filter(j => j.status === 'open').length;
   } catch(e) {
     if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
+  }
+  loadOnSiteNow();
+}
+
+async function loadOnSiteNow() {
+  const el = document.getElementById('onsite-now-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/on-site-now');
+    const arrivals = await r.json();
+    if (!arrivals || !arrivals.length) {
+      el.innerHTML = '<p style="color:#999;font-size:13px;margin:0;">No employees have logged arrival today.</p>';
+      return;
+    }
+    el.innerHTML = arrivals.map(a => {
+      const t = new Date(a.arrived_at).toLocaleTimeString('en-CA', {timeZone:'America/Winnipeg', hour:'2-digit', minute:'2-digit'});
+      const stateColor = a.checked_out ? '#9e9e9e' : '#2e7d32';
+      const stateText  = a.checked_out ? 'Checked out' : 'On site';
+      const planChip = a.saw_plan
+        ? '<span style="font-size:11px;background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-weight:600;">✓ Plan reviewed</span>'
+        : '<span style="font-size:11px;background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-weight:600;">⚠ Plan not reviewed</span>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#fafbfd;border-radius:10px;margin-bottom:8px;flex-wrap:wrap;">' +
+        '<div>' +
+        '<div style="font-weight:700;color:#1F3864;font-size:14px;">' + a.worker_name + '</div>' +
+        '<div style="font-size:12px;color:#666;margin-top:2px;">📍 ' + (a.site_address || '—') + '</div>' +
+        (a.plan_snapshot ? '<div style="font-size:11px;color:#888;margin-top:4px;font-style:italic;">Today: ' + a.plan_snapshot + '</div>' : '') +
+        '</div>' +
+        '<div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px;">' +
+        '<div style="font-size:13px;color:' + stateColor + ';font-weight:700;">' + stateText + ' · ' + t + '</div>' +
+        planChip +
+        '</div></div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load.</p>';
   }
 }
 
@@ -3364,8 +4289,73 @@ function showJobMsg(text, ok) {
   setTimeout(() => { el.style.display = 'none'; }, 5000);
 }
 
+// ── Job Scope Calculator ───────────────────────────────────────────────────
+let _scopeMode = 'quick';
+function setScopeMode(mode) {
+  _scopeMode = mode;
+  document.getElementById('scope-quick').style.display    = mode === 'quick'    ? 'block' : 'none';
+  document.getElementById('scope-detailed').style.display = mode === 'detailed' ? 'block' : 'none';
+  const qBtn = document.getElementById('scope-mode-quick');
+  const dBtn = document.getElementById('scope-mode-detailed');
+  qBtn.style.background = mode === 'quick' ? '#1F3864' : '#fff';
+  qBtn.style.color      = mode === 'quick' ? '#fff'    : '#1F3864';
+  dBtn.style.background = mode === 'detailed' ? '#1F3864' : '#fff';
+  dBtn.style.color      = mode === 'detailed' ? '#fff'    : '#1F3864';
+  recalcScope();
+}
+
+function _val(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+function recalcScope() {
+  let hours = 0;
+  const metrics = { mode: _scopeMode };
+  if (_scopeMode === 'quick') {
+    const sqft = _val('sm_sqft');
+    const cmplx = parseFloat(document.getElementById('sm_complexity').value) || 1.3;
+    metrics.sqft = sqft;
+    metrics.complexity = cmplx;
+    // Quick formula: 0.025 hr/sqft × complexity (covers prep, paint, cleanup as a blend)
+    hours = sqft * 0.025 * cmplx;
+  } else {
+    const wall    = _val('sm_wall_sqft');
+    const ceiling = _val('sm_ceiling_sqft');
+    const trim    = _val('sm_trim_lf');
+    const rooms   = _val('sm_rooms');
+    const doors   = _val('sm_doors');
+    const windows = _val('sm_windows');
+    const height  = _val('sm_height') || 9;
+    const coats   = parseFloat(document.getElementById('sm_coats').value) || 2;
+    const surface = parseFloat(document.getElementById('sm_surface').value) || 1.2;
+    const prep    = parseFloat(document.getElementById('sm_prep').value) || 1.3;
+    metrics.wall_sqft = wall; metrics.ceiling_sqft = ceiling; metrics.trim_linear_ft = trim;
+    metrics.rooms = rooms; metrics.doors = doors; metrics.windows = windows;
+    metrics.ceiling_height = height; metrics.coats = coats;
+    metrics.surface_mult = surface; metrics.prep_mult = prep;
+    // Height penalty kicks in above 9ft
+    const heightPenalty = height > 9 ? 1 + (height - 9) * 0.06 : 1;
+    let base = (wall * 0.012) + (ceiling * 0.015 * heightPenalty)
+             + (trim * 0.05) + (doors * 0.65) + (windows * 0.55)
+             + (rooms * 0.5);
+    hours = base * coats * surface * prep;
+  }
+  const painters = parseInt(document.querySelector('select[name="painters_needed"]')?.value || '2', 10);
+  const painterDays = hours / 8;
+  const crewDays = painters > 0 ? painterDays / painters : painterDays;
+  document.getElementById('sm_hours').textContent     = hours    > 0 ? hours.toFixed(1)    : '—';
+  document.getElementById('sm_days').textContent      = hours    > 0 ? painterDays.toFixed(1) : '—';
+  document.getElementById('sm_crew_days').textContent = hours    > 0 ? crewDays.toFixed(1) + ' (' + painters + ')' : '—';
+  metrics.estimated_hours = parseFloat(hours.toFixed(2));
+  document.getElementById('sm_payload').value = JSON.stringify(metrics);
+  document.getElementById('sm_estimated_hours').value = hours > 0 ? hours.toFixed(2) : '';
+}
+// Recalculate when crew size changes
+document.addEventListener('change', function(e){
+  if (e.target && e.target.name === 'painters_needed') recalcScope();
+});
+
 async function saveJob() {
   const form = document.getElementById('jobForm');
+  recalcScope();
   const fd = Object.fromEntries(new FormData(form));
   if (!fd.client_name || !fd.site_address) { showJobMsg('Client name and site address are required.', false); return; }
   fd.assigned_employees = checkedEmps(document.getElementById('job-emp-list'));
@@ -3454,7 +4444,7 @@ async function loadJobs() {
     notifyBtn.dataset.jid = j.id;
     notifyBtn.onclick = function() { notifyClientJob(this, j.id); };
     const delBtn = document.createElement('button');
-    delBtn.className = 'btn btn-sm';
+    delBtn.className = 'btn btn-sm owner-only';
     delBtn.style.cssText = 'background:#fce4ec;color:#c62828;';
     delBtn.textContent = 'Delete';
     delBtn.onclick = function() { deleteJob(j.id, idx); };
@@ -3491,12 +4481,16 @@ async function openJob(idx) {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:24px;overflow-y:auto;';
   const panel = document.createElement('div');
   panel.style.cssText = 'background:#fff;border-radius:16px;padding:32px;width:100%;max-width:780px;position:relative;';
-  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">' +
+  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">' +
     '<div><h2 style="margin:0 0 4px;font-size:22px;color:#1F3864;">' + j.client_name + '</h2>' +
     '<p style="margin:0;color:#666;font-size:14px;">📍 ' + j.site_address + '</p></div>' +
     '<button id="jd-close-btn" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;padding:0;">✕</button></div>' +
 
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px;">' +
+    '<div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">' +
+    '<button id="jd-preview-btn" class="btn btn-green" style="flex:1;min-width:180px;">📄 Preview &amp; Send Report</button>' +
+    '</div>' +
+
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:14px;">' +
     '<div style="background:#f4f6fb;border-radius:10px;padding:14px;text-align:center;">' +
     '<div id="jd-checkins" style="font-size:28px;font-weight:700;color:#1F3864;">—</div><div style="font-size:12px;color:#888;margin-top:4px;">Total Check-Ins</div></div>' +
     '<div style="background:#f4f6fb;border-radius:10px;padding:14px;text-align:center;">' +
@@ -3504,12 +4498,36 @@ async function openJob(idx) {
     '<div style="background:#f4f6fb;border-radius:10px;padding:14px;text-align:center;">' +
     '<div id="jd-avg" style="font-size:28px;font-weight:700;color:#1F3864;">—</div><div style="font-size:12px;color:#888;margin-top:4px;">Avg Score</div></div></div>' +
 
+    // Estimate vs Actual hours (only renders if estimated_hours is set)
+    (j.estimated_hours ? '<div id="jd-estimate-row" style="background:#fff;border:1.5px dashed #1F3864;border-radius:10px;padding:12px 14px;margin-bottom:24px;display:flex;justify-content:space-around;flex-wrap:wrap;gap:10px;text-align:center;">' +
+      '<div><div style="font-size:18px;font-weight:700;color:#1F3864;">' + parseFloat(j.estimated_hours).toFixed(1) + ' hrs</div><div style="font-size:11px;color:#888;">Estimated</div></div>' +
+      '<div><div id="jd-actual-hours" style="font-size:18px;font-weight:700;color:#1F3864;">—</div><div style="font-size:11px;color:#888;">Actual (est. from check-ins)</div></div>' +
+      '<div><div id="jd-variance" style="font-size:14px;font-weight:700;color:#888;">—</div><div style="font-size:11px;color:#888;">Variance</div></div>' +
+      '</div>' : '') +
+
     '<div style="margin-bottom:20px;">' +
     '<h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">ASSIGNED CREW</h4>' +
     '<p style="margin:0;font-size:14px;">' + ((j.assigned_employees||[]).join(', ') || '—') + '</p></div>' +
 
+    '<div style="margin-bottom:20px;">' +
+    '<h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">WORKERS ON SITE <span style="color:#888;font-size:11px;font-weight:400;">(based on check-ins)</span></h4>' +
+    '<p id="jd-workers-on-site" style="margin:0;font-size:14px;color:#999;">—</p></div>' +
+
     (j.work_description ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">SCOPE OF WORK</h4>' +
     '<pre style="white-space:pre-wrap;font-size:13px;color:#333;background:#f9f9f9;border-radius:8px;padding:14px;margin:0;max-height:160px;overflow-y:auto;">' + j.work_description + '</pre></div>' : '') +
+
+    '<div style="margin-bottom:20px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+    '<h4 style="margin:0;color:#1F3864;font-size:14px;">DAILY PLAN</h4>' +
+    '<div id="jd-plan-progress" style="font-size:12px;color:#2e7d32;font-weight:600;"></div>' +
+    '</div>' +
+    '<div id="jd-plan-list" style="font-size:13px;color:#999;">Loading plan...</div>' +
+    '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<button id="jd-add-plan-btn" class="btn btn-sm" style="background:#1F3864;">+ Add Plan Day</button>' +
+    '<button id="jd-save-plan-btn" class="btn btn-sm" style="background:#2e7d32;display:none;">Save Plan</button>' +
+    '<span id="jd-plan-msg" style="font-size:12px;color:#666;align-self:center;"></span>' +
+    '</div>' +
+    '</div>' +
 
     '<h4 style="margin:0 0 12px;color:#1F3864;font-size:14px;">DAILY CHECK-INS</h4>' +
     '<div id="jd-checkins-list" style="font-size:13px;color:#999;">Loading...</div>';
@@ -3519,6 +4537,143 @@ async function openJob(idx) {
   panel.querySelector('#jd-close-btn').onclick = function() { modal.remove(); };
   modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
 
+  // Wire up Preview & Send Report button
+  panel.querySelector('#jd-preview-btn').onclick = async function() {
+    const btn = this;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Generating preview...';
+    try {
+      // Look up client by job's client_name
+      const clients = await apiFetch('/api/clients').then(r => r.json());
+      const match = clients.find(c => (c.client_name||'').trim().toLowerCase() === (j.client_name||'').trim().toLowerCase());
+      if (!match) {
+        alert('No registered client found for "' + j.client_name + '". Add them in the Clients tab first.');
+        btn.disabled = false; btn.textContent = orig; return;
+      }
+      const r = await fetch('/api/preview-report', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({client_name: match.client_name, client_email: match.client_email, site_keyword: match.site_keyword}),
+        signal: AbortSignal.timeout(280000),
+      });
+      const dat = await r.json();
+      if (dat.ok) {
+        _previewClient = {client_name: match.client_name, client_email: match.client_email, site_keyword: match.site_keyword};
+        openPreview(match.client_name, match.client_email, dat.subject, dat.plain_body, dat.html_body);
+      } else {
+        alert(dat.message || 'Could not generate preview.');
+      }
+    } catch(e) { alert('Error generating preview.'); }
+    btn.disabled = false; btn.textContent = orig;
+  };
+
+  // ── Daily Plan editor ─────────────────────────────────────────────────────
+  let jdPlan = [];
+  let jdPlanDirty = false;
+  function _renderJdPlan(checkinDates) {
+    const listEl = document.getElementById('jd-plan-list');
+    const progEl = document.getElementById('jd-plan-progress');
+    const saveBtn = document.getElementById('jd-save-plan-btn');
+    saveBtn.style.display = jdPlanDirty ? '' : 'none';
+    if (!jdPlan.length) {
+      listEl.innerHTML = '<p style="color:#999;font-size:13px;margin:0;">No plan yet. Click "+ Add Plan Day" to add the first day.</p>';
+      progEl.textContent = '';
+      return;
+    }
+    const totalPct = jdPlan.reduce((s,p) => s + (parseFloat(p.percent)||0), 0);
+    const dates = checkinDates || [];
+    const completedPct = jdPlan.filter(p => dates.includes(p.date))
+                              .reduce((s,p) => s + (parseFloat(p.percent)||0), 0);
+    const completedDays = jdPlan.filter(p => dates.includes(p.date)).length;
+    progEl.textContent = `${Math.round(completedPct)}% complete  •  ${completedDays}/${jdPlan.length} days on track`;
+    const today = new Date().toISOString().slice(0,10);
+    listEl.innerHTML = '';
+    jdPlan.forEach((p, i) => {
+      const row = document.createElement('div');
+      const isToday = p.date === today;
+      const done = dates.includes(p.date);
+      row.style.cssText = 'display:grid;grid-template-columns:130px 1fr 80px 30px;gap:8px;align-items:center;padding:8px;margin-bottom:6px;border:1px solid '+(isToday?'#1F3864':'#e8ecf4')+';border-radius:8px;background:'+(done?'#e8f5e9':isToday?'#fff8e1':'#fff')+';';
+      const dateInp = document.createElement('input');
+      dateInp.type = 'date'; dateInp.value = p.date || '';
+      dateInp.style.cssText = 'padding:6px 8px;border:1px solid #dce2ef;border-radius:6px;font-size:12px;';
+      dateInp.onchange = function() { jdPlan[i].date = this.value; jdPlanDirty = true; saveBtn.style.display=''; };
+      const workInp = document.createElement('input');
+      workInp.type = 'text'; workInp.value = p.work || ''; workInp.placeholder = 'e.g. Priming all walls';
+      workInp.style.cssText = 'padding:6px 8px;border:1px solid #dce2ef;border-radius:6px;font-size:12px;';
+      workInp.onchange = function() { jdPlan[i].work = this.value; jdPlanDirty = true; saveBtn.style.display=''; };
+      const pctInp = document.createElement('input');
+      pctInp.type = 'number'; pctInp.min='0'; pctInp.max='100'; pctInp.value = p.percent || 0;
+      pctInp.style.cssText = 'padding:6px 8px;border:1px solid #dce2ef;border-radius:6px;font-size:12px;';
+      pctInp.onchange = function() { jdPlan[i].percent = parseFloat(this.value)||0; jdPlanDirty = true; saveBtn.style.display=''; };
+      const rmBtn = document.createElement('button');
+      rmBtn.type='button'; rmBtn.textContent='×';
+      rmBtn.style.cssText='background:#f8d7da;border:none;color:#721c24;border-radius:6px;cursor:pointer;font-size:14px;height:28px;';
+      rmBtn.onclick = function() { jdPlan.splice(i,1); jdPlanDirty=true; _renderJdPlan(checkinDates); };
+      row.appendChild(dateInp); row.appendChild(workInp); row.appendChild(pctInp); row.appendChild(rmBtn);
+      // Status pill
+      if (done) {
+        const tag = document.createElement('div');
+        tag.textContent = '✓';
+        tag.style.cssText = 'grid-column:1/-1;font-size:11px;color:#2e7d32;font-weight:700;text-align:right;margin-top:-2px;';
+        row.appendChild(tag);
+      } else if (isToday) {
+        const tag = document.createElement('div');
+        tag.textContent = 'Today';
+        tag.style.cssText = 'grid-column:1/-1;font-size:11px;color:#1F3864;font-weight:700;text-align:right;margin-top:-2px;';
+        row.appendChild(tag);
+      }
+      listEl.appendChild(row);
+    });
+    // Total pct hint
+    const totalRow = document.createElement('div');
+    totalRow.style.cssText = 'font-size:11px;color:#888;margin-top:6px;text-align:right;';
+    totalRow.textContent = `Plan total: ${Math.round(totalPct)}%`;
+    listEl.appendChild(totalRow);
+  }
+
+  panel.querySelector('#jd-add-plan-btn').onclick = function() {
+    const today = new Date().toISOString().slice(0,10);
+    const lastDate = jdPlan.length ? jdPlan[jdPlan.length-1].date : today;
+    // Increment last date by 1
+    let next = lastDate;
+    if (jdPlan.length) {
+      const d = new Date(lastDate); d.setDate(d.getDate()+1);
+      next = d.toISOString().slice(0,10);
+    }
+    jdPlan.push({date: next, work: '', percent: 0});
+    jdPlanDirty = true;
+    _renderJdPlan(window._jdCheckinDates || []);
+  };
+
+  panel.querySelector('#jd-save-plan-btn').onclick = async function() {
+    const btn = this;
+    btn.disabled = true; btn.textContent = 'Saving...';
+    const msg = document.getElementById('jd-plan-msg');
+    try {
+      const r = await fetch('/api/job/' + j.id + '/plan', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({plan: jdPlan})
+      });
+      const d = await r.json();
+      if (d.ok) {
+        jdPlan = d.plan || [];
+        jdPlanDirty = false;
+        msg.textContent = 'Saved ✓'; msg.style.color = '#2e7d32';
+        setTimeout(()=>{ msg.textContent=''; }, 2500);
+        _renderJdPlan(window._jdCheckinDates || []);
+      } else {
+        msg.textContent = 'Save failed: ' + (d.error||'unknown'); msg.style.color = '#c62828';
+      }
+    } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
+    btn.disabled = false; btn.textContent = 'Save Plan';
+  };
+
+  // Load existing plan
+  fetch('/api/job/' + j.id + '/plan').then(r=>r.json()).then(d=>{
+    jdPlan = d.plan || [];
+    _renderJdPlan(window._jdCheckinDates || []);
+  }).catch(()=>{ document.getElementById('jd-plan-list').textContent = 'Could not load plan.'; });
+
   try {
     const res = await fetch('/api/job-report/' + j.id);
     const data = await res.json();
@@ -3527,16 +4682,51 @@ async function openJob(idx) {
     document.getElementById('jd-days').textContent = s.days_worked ?? '0';
     document.getElementById('jd-avg').textContent = s.avg_score != null ? s.avg_score + '/10' : '—';
     const checkins = data.checkins || [];
+    // Calculate actual hours used: sum of hours_worked from check-ins, fall back to 8 × count
+    if (j.estimated_hours) {
+      let actualHrs = checkins.reduce((s,c)=> s + (parseFloat(c.hours_worked)||0), 0);
+      if (actualHrs <= 0) actualHrs = checkins.length * 8;
+      const est = parseFloat(j.estimated_hours);
+      document.getElementById('jd-actual-hours').textContent = actualHrs.toFixed(0) + ' hrs';
+      const diff = actualHrs - est;
+      const pct  = est > 0 ? Math.round((diff / est) * 100) : 0;
+      const ve = document.getElementById('jd-variance');
+      if (Math.abs(pct) <= 10) {
+        ve.textContent = 'On target'; ve.style.color = '#2e7d32';
+      } else if (diff < 0) {
+        ve.textContent = pct + '% under'; ve.style.color = '#2e7d32';
+      } else {
+        ve.textContent = '+' + pct + '% over'; ve.style.color = '#c62828';
+      }
+    }
+    // Distinct check-in dates → used to mark plan days as completed
+    window._jdCheckinDates = [...new Set(checkins.map(c=>c.entry_date).filter(Boolean))];
+    if (jdPlan.length) _renderJdPlan(window._jdCheckinDates);
+    // Populate workers on site (distinct names)
+    const workers = [...new Set(checkins.map(c => c.worker_name).filter(Boolean))];
+    document.getElementById('jd-workers-on-site').textContent = workers.length ? workers.join(', ') : 'No workers checked in yet.';
     const listEl = document.getElementById('jd-checkins-list');
     if (!checkins.length) { listEl.textContent = 'No check-ins yet for this job.'; return; }
     const rows = checkins.map(c => {
       const photos = (c.photo_urls||'').split(',').filter(u=>u.trim());
       const photoHtml = photos.length ? photos.map(u => '<a href="'+u.trim()+'" target="_blank"><img src="'+u.trim()+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px;"></a>').join('') : '';
+      // Plan completion display (only if a value was recorded)
+      let planHtml = '';
+      if (c.plan_completion_percent != null) {
+        const pct = parseFloat(c.plan_completion_percent);
+        const color = pct >= 100 ? '#2e7d32' : pct >= 75 ? '#f57c00' : '#c62828';
+        const label = pct >= 100 ? 'Plan completed in full' : `Plan ${pct}% completed`;
+        planHtml = '<div style="background:'+(pct>=100?'#e8f5e9':'#fff3e0')+';border-left:3px solid '+color+';padding:8px 10px;margin:8px 0;border-radius:6px;">' +
+          '<div style="font-size:12px;font-weight:700;color:'+color+';">' + label + '</div>' +
+          (c.plan_variance_reason ? '<div style="font-size:12px;color:#5d4037;margin-top:4px;line-height:1.4;"><b>Reason:</b> ' + c.plan_variance_reason + '</div>' : '') +
+          '</div>';
+      }
       return '<div style="border:1px solid #e8ecf4;border-radius:10px;padding:14px;margin-bottom:10px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
         '<div><b>' + c.worker_name + '</b> <span style="color:#888;font-size:12px;">— ' + c.entry_date + '</span></div>' +
         '<span style="font-weight:700;font-size:16px;color:' + (c.avg_score>=8?'#2e7d32':c.avg_score>=5?'#f57c00':'#c62828') + ';">' + (c.avg_score||'—') + '/10</span></div>' +
         (c.work_description ? '<p style="margin:0 0 6px;font-size:13px;color:#444;">' + c.work_description + '</p>' : '') +
+        planHtml +
         (c.tomorrows_plan ? '<p style="margin:0 0 6px;font-size:12px;color:#888;">Tomorrow: ' + c.tomorrows_plan + '</p>' : '') +
         (photoHtml ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + photoHtml + '</div>' : '') +
         '</div>';
@@ -3766,9 +4956,9 @@ async function loadEmployees() {
       <td>${e.email}</td>
       <td>${e.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>'}</td>
       <td style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-sm" onclick="resendInvite('${e.id}','${e.name}')">Resend Invite</button>
+        <button class="btn btn-sm owner-only" onclick="resendInvite('${e.id}','${e.name}')">Resend Invite</button>
         ${e.active ? `<button class="btn btn-sm btn-red" onclick="removeEmployee('${e.id}')">Deactivate</button>` : ''}
-        <button class="btn btn-sm" style="background:#fff;border:1.5px solid #e53935;color:#e53935;" onclick="deleteEmployee('${e.id}','${e.name}')">Delete</button>
+        <button class="btn btn-sm owner-only" style="background:#fff;border:1.5px solid #e53935;color:#e53935;" onclick="deleteEmployee('${e.id}','${e.name}')">Delete</button>
       </td>
     </tr>`).join('') + '</tbody></table>';
 }
@@ -3949,18 +5139,67 @@ async function loadSentReports() {
   const el = document.getElementById('sent-reports-list');
   try {
     const rows = await fetch('/api/sent-reports').then(r => r.json());
+    // Tag each row with its original index
+    rows.forEach((r, i) => { r._origIdx = i; });
     window._sentReports = rows;
     if (!rows.length) {
       el.innerHTML = '<p style="color:#999;font-size:13px;">No reports sent yet.</p>';
-      return;
+    } else {
+      _renderSentReports(rows);
     }
+
+    // Populate client filter dropdown from clients table (always complete)
+    const sel = document.getElementById('reports-client-filter');
+    // Reset to just the "All" option
+    while (sel.options.length > 1) sel.remove(1);
+    try {
+      const clients = await apiFetch('/api/clients').then(r => r.json());
+      const names = [...new Set(clients.map(c => (c.client_name || '').trim()).filter(Boolean))].sort();
+      names.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+    } catch(e) {
+      // fallback: populate from sent reports
+      const seen = new Set();
+      rows.forEach(r => {
+        const name = (r.client_name || '').trim();
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          sel.appendChild(opt);
+        }
+      });
+    }
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading history.</p>';
+  }
+}
+
+function filterSentReports() {
+  const sel = document.getElementById('reports-client-filter');
+  const filter = sel.value;
+  const rows = window._sentReports || [];
+  const filtered = filter ? rows.filter(r => (r.client_name || '').trim() === filter) : rows;
+  _renderSentReports(filtered);
+}
+
+function _renderSentReports(rows) {
+  const el = document.getElementById('sent-reports-list');
+  if (!rows.length) {
+    el.innerHTML = '<p style="color:#999;font-size:13px;">No reports found.</p>';
+    return;
+  }
 
     // Group by client_name + site_address
     const groups = {};
     rows.forEach((r, i) => {
       const key = (r.client_name || '—') + '||' + (r.site_address || '—');
       if (!groups[key]) groups[key] = { client_name: r.client_name, site_address: r.site_address, reports: [] };
-      groups[key].reports.push({...r, _idx: i});
+      groups[key].reports.push({...r, _idx: r._origIdx !== undefined ? r._origIdx : (window._sentReports||[]).indexOf(r)});
     });
 
     el.innerHTML = Object.values(groups).map(g => {
@@ -3998,17 +5237,14 @@ async function loadSentReports() {
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
               <span style="font-size:12px;color:#888;">${count} report${count>1?'s':''} &bull; Last: ${latestDt}</span>
-              <span id="arr-${groupId}" style="font-size:16px;color:#1F3864;">▼</span>
+              <span id="arr-${groupId}" style="font-size:16px;color:#1F3864;">▶</span>
             </div>
           </div>
-          <div id="${groupId}" style="padding:12px 14px 6px;">
+          <div id="${groupId}" style="padding:12px 14px 6px;display:none;">
             ${reportRows}
           </div>
         </div>`;
     }).join('');
-  } catch(e) {
-    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading history.</p>';
-  }
 }
 
 function toggleReportGroup(id) {
@@ -4020,10 +5256,10 @@ function toggleReportGroup(id) {
 }
 
 function viewSentReport(i) {
-  const r = (window._sentReports || [])[i];
+  const r = (window._sentReports || []).find(x => x._origIdx === i) || (window._sentReports || [])[i];
   if (!r) return;
   const dt = r.sent_at ? new Date(r.sent_at).toLocaleString('en-CA', {timeZone:'America/Winnipeg'}) : '';
-  openPreview(r.client_name + (dt ? '  •  ' + dt : ''), r.client_email, r.subject, r.plain_body);
+  openPreview(r.client_name + (dt ? '  •  ' + dt : ''), r.client_email, r.subject, r.plain_body, r.html_body);
   // Hide the send button — this is a view of an already-sent report
   document.getElementById('preview-send-btn').style.display = 'none';
   _previewClient = null;
@@ -4076,7 +5312,7 @@ async function loadClientReportList() {
           const j = await r.json();
           if (j.ok) {
             _previewClient = {client_name: c.client_name, client_email: c.client_email, site_keyword: c.site_keyword};
-            openPreview(c.client_name, c.client_email, j.subject, j.plain_body);
+            openPreview(c.client_name, c.client_email, j.subject, j.plain_body, j.html_body);
             statusEl.textContent = '';
           } else {
             statusEl.textContent = j.message || 'Error generating preview.';
@@ -4097,10 +5333,15 @@ async function loadClientReportList() {
   }
 }
 
-function openPreview(clientName, clientEmail, subject, body) {
+function openPreview(clientName, clientEmail, subject, body, htmlBody) {
   document.getElementById('preview-modal-meta').textContent = clientEmail ? 'To: ' + clientName + ' <' + clientEmail + '>' : clientName;
   document.getElementById('preview-subject').textContent = 'Subject: ' + subject;
-  document.getElementById('preview-body').textContent = body;
+  const bodyEl = document.getElementById('preview-body');
+  if (htmlBody && htmlBody.trim()) {
+    bodyEl.innerHTML = htmlBody;
+  } else {
+    bodyEl.textContent = body;
+  }
   document.getElementById('preview-send-msg').textContent = '';
   const sendBtn = document.getElementById('preview-send-btn');
   sendBtn.style.display = '';
@@ -4226,7 +5467,7 @@ async function loadClients() {
     editBtn.textContent = 'Edit';
     editBtn.onclick = (function(client) { return function() { editClient(client); }; })(c);
     const btn    = document.createElement('button');
-    btn.className = 'btn btn-sm btn-red';
+    btn.className = 'btn btn-sm btn-red owner-only';
     btn.textContent = 'Remove';
     btn.dataset.cid = c.id;
     btn.onclick = function() { removeClient(this.dataset.cid); };
@@ -4550,14 +5791,206 @@ function toggleLumiaMic() {
   rec.onerror = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
   rec.start();
 }
+// ─── ESTIMATES TAB ──────────────────────────────────────────────────────────
+
+let _estJobId = null;
+let _estPollTimer = null;
+
+function initEstimatesTab() {
+  // Nothing to load on init — user drives via upload
+}
+
+function resetEstimatesTab() {
+  _estJobId = null;
+  if (_estPollTimer) { clearInterval(_estPollTimer); _estPollTimer = null; }
+  document.getElementById('est-upload-panel').style.display = '';
+  document.getElementById('est-progress-panel').style.display = 'none';
+  document.getElementById('est-results-panel').style.display = 'none';
+  document.getElementById('est-error-panel').style.display = 'none';
+  document.getElementById('est-file-input').value = '';
+  document.getElementById('est-create-job-result').textContent = '';
+}
+
+async function handleEstimateFile(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  if (file.type !== 'application/pdf') {
+    alert('Please choose a PDF file.');
+    return;
+  }
+  const clientName  = document.getElementById('est-client-name').value.trim();
+  const siteAddress = document.getElementById('est-site-address').value.trim();
+  const fd = new FormData();
+  fd.append('pdf', file);
+  fd.append('client_name', clientName);
+  fd.append('site_address', siteAddress);
+  document.getElementById('est-upload-panel').style.display = 'none';
+  document.getElementById('est-progress-panel').style.display = '';
+  document.getElementById('est-progress-title').textContent = 'Uploading ' + file.name + '...';
+  document.getElementById('est-progress-msg').textContent = 'Sending to Lumia...';
+  try {
+    const r = await fetch('/api/estimates/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Upload failed');
+    _estJobId = d.job_id;
+    document.getElementById('est-progress-title').textContent = 'Extracting measurements...';
+    document.getElementById('est-progress-msg').textContent = 'Queued...';
+    _estPollTimer = setInterval(_pollEstimateStatus, 2500);
+  } catch(e) {
+    _showEstimateError(e.message);
+  }
+}
+
+async function _pollEstimateStatus() {
+  if (!_estJobId) return;
+  try {
+    const r = await fetch('/api/estimates/status/' + _estJobId);
+    const d = await r.json();
+    document.getElementById('est-progress-msg').textContent = d.progress || '...';
+    if (d.status === 'processing' || d.status === 'queued') {
+      document.getElementById('est-progress-title').textContent = 'Processing PDF...';
+      return;
+    }
+    clearInterval(_estPollTimer); _estPollTimer = null;
+    if (d.status === 'done') {
+      _renderEstimateResults(d);
+    } else {
+      _showEstimateError(d.error || 'Unknown error during extraction.');
+    }
+  } catch(e) { /* network blip — keep polling */ }
+}
+
+function _showEstimateError(msg) {
+  // Friendlier message for transient Google API outages
+  const m = (msg || '').toString();
+  if (/503|UNAVAILABLE|high demand|RESOURCE_EXHAUSTED|429/i.test(m)) {
+    msg = "Google's AI is overloaded right now. We retried 4 times. "
+        + "Please wait a couple of minutes and try again — this usually clears up quickly.";
+  }
+  if (_estPollTimer) { clearInterval(_estPollTimer); _estPollTimer = null; }
+  document.getElementById('est-progress-panel').style.display = 'none';
+  document.getElementById('est-error-panel').style.display = '';
+  document.getElementById('est-error-msg').textContent = msg;
+}
+
+async function _renderEstimateResults(job) {
+  const r = await fetch('/api/estimates/' + _estJobId);
+  const d = await r.json();
+  document.getElementById('est-progress-panel').style.display = 'none';
+  document.getElementById('est-results-panel').style.display = '';
+  const raw = d.raw_json || {};
+  const dt = raw.document_totals || {};
+  document.getElementById('est-measurements-summary').innerHTML =
+    '<b>' + (dt.pages_processed||0) + '</b> pages &nbsp;|&nbsp; ' +
+    '<b>' + (dt.total_measurements||0) + '</b> measurements extracted &nbsp;|&nbsp; ' +
+    '<span style="color:#888;">File: ' + (dt.file_name||'') + '</span>';
+  const pc = d.paint_calc || {};
+  document.getElementById('est-scope').textContent = pc.scope_summary || '';
+  const rooms = pc.rooms || [];
+  if (rooms.length > 0) {
+    let tbl = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+      '<thead><tr style="background:#f1f5ff;">' +
+      '<th style="padding:8px 10px;text-align:left;border-bottom:1.5px solid #d0d7e8;">Room / Area</th>' +
+      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Walls (sqft)</th>' +
+      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Ceiling (sqft)</th>' +
+      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Trim (lin ft)</th>' +
+      '<th style="padding:8px 10px;text-align:left;border-bottom:1.5px solid #d0d7e8;">Notes</th>' +
+      '</tr></thead><tbody>';
+    rooms.forEach(function(rm, i) {
+      const bg = i % 2 === 0 ? '#fff' : '#f8f9fc';
+      tbl += '<tr style="background:' + bg + ';">' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;">' + (rm.name||'') + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.wall_area_sqft||0) + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.ceiling_area_sqft||0) + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.trim_linear_ft||0) + '</td>' +
+        '<td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#666;">' + (rm.notes||'') + '</td>' +
+        '</tr>';
+    });
+    const t = pc.totals || {};
+    tbl += '<tr style="background:#eef2fb;font-weight:600;">' +
+      '<td style="padding:8px 10px;">Total</td>' +
+      '<td style="padding:8px 10px;text-align:right;">' + (t.wall_area_sqft||0) + '</td>' +
+      '<td style="padding:8px 10px;text-align:right;">' + (t.ceiling_area_sqft||0) + '</td>' +
+      '<td style="padding:8px 10px;text-align:right;">' + (t.trim_linear_ft||0) + '</td>' +
+      '<td style="padding:8px 10px;color:#555;font-size:12px;font-weight:400;">' + (t.total_paintable_sqft||0) + ' sqft total</td>' +
+      '</tr></tbody></table>';
+    document.getElementById('est-rooms-table').innerHTML = tbl;
+  } else {
+    document.getElementById('est-rooms-table').innerHTML = '<p style="color:#888;font-size:13px;">No room breakdown available.</p>';
+  }
+  const mat = pc.materials || {};
+  document.getElementById('est-materials').innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
+    _statPill('Wall Paint', (mat.wall_paint_gallons||0) + ' gal') +
+    _statPill('Ceiling Paint', (mat.ceiling_paint_gallons||0) + ' gal') +
+    _statPill('Primer', (mat.primer_gallons||0) + ' gal') + '</div>' +
+    (mat.notes ? '<p style="font-size:12px;color:#888;margin-top:6px;">' + mat.notes + '</p>' : '');
+  const lab = pc.labor || {};
+  document.getElementById('est-labor').innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;">' +
+    _statPill('Est. Days', lab.estimated_days||0) +
+    _statPill('Painters', lab.painters_recommended||0) +
+    _statPill('Hours', lab.hours_estimate||0) + '</div>' +
+    (lab.notes ? '<p style="font-size:12px;color:#888;margin-top:6px;">' + lab.notes + '</p>' : '');
+  const asmpt = pc.assumptions || [];
+  if (asmpt.length) {
+    document.getElementById('est-assumptions').innerHTML = 'Assumptions: ' + asmpt.join(' &bull; ');
+  }
+  document.getElementById('est-work-order').textContent = d.work_order || 'Not available.';
+}
+
+function _statPill(label, val) {
+  return '<div style="background:#eef2fb;border-radius:8px;padding:10px 16px;min-width:100px;">' +
+    '<div style="font-size:18px;font-weight:700;color:#1F3864;">' + val + '</div>' +
+    '<div style="font-size:11px;color:#666;margin-top:2px;">' + label + '</div></div>';
+}
+
+function copyWorkOrder() {
+  const txt = document.getElementById('est-work-order').textContent;
+  navigator.clipboard.writeText(txt).then(function() { alert('Work order copied.'); });
+}
+
+async function createJobFromEstimate() {
+  if (!_estJobId) return;
+  const btn = document.getElementById('est-create-job-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  try {
+    const r = await fetch('/api/estimates/' + _estJobId + '/create-job', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('est-create-job-result').innerHTML =
+        '<span style="color:#2e7d32;">Job created. Switch to the Jobs tab to assign crew.</span>';
+      btn.textContent = 'Job Created';
+    } else {
+      document.getElementById('est-create-job-result').innerHTML =
+        '<span style="color:#c0392b;">Failed: ' + (d.error||'Unknown error') + '</span>';
+      btn.disabled = false;
+      btn.textContent = 'Create Job from This Estimate';
+    }
+  } catch(e) {
+    document.getElementById('est-create-job-result').innerHTML =
+      '<span style="color:#c0392b;">Error: ' + e.message + '</span>';
+    btn.disabled = false;
+    btn.textContent = 'Create Job from This Estimate';
+  }
+}
+
+// ─── END ESTIMATES TAB ──────────────────────────────────────────────────────
 </script>
 </body></html>"""
 
 
 @app.route("/owner")
-@require_role("owner")
+@require_role("owner", "production_manager")
 def owner_dashboard():
-    resp = make_response(render_template_string(OWNER_HTML, name=session.get("name","Ahmad"), employees=EMPLOYEES))
+    role = session.get("role", "owner")
+    resp = make_response(render_template_string(
+        OWNER_HTML,
+        name=session.get("name","Ahmad"),
+        employees=EMPLOYEES,
+        user_role=role,
+    ))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -4894,186 +6327,6 @@ function toggleLumiaMic() {
   rec.start();
 }
 
-// ─── ESTIMATES TAB ──────────────────────────────────────────────────────────
-
-let _estJobId = null;
-let _estPollTimer = null;
-
-function initEstimatesTab() {
-  // Nothing to load on init — user drives via upload
-}
-
-function resetEstimatesTab() {
-  _estJobId = null;
-  if (_estPollTimer) { clearInterval(_estPollTimer); _estPollTimer = null; }
-  document.getElementById('est-upload-panel').style.display = '';
-  document.getElementById('est-progress-panel').style.display = 'none';
-  document.getElementById('est-results-panel').style.display = 'none';
-  document.getElementById('est-error-panel').style.display = 'none';
-  document.getElementById('est-file-input').value = '';
-  document.getElementById('est-create-job-result').textContent = '';
-}
-
-async function handleEstimateFile(input) {
-  if (!input.files || !input.files[0]) return;
-  const file = input.files[0];
-  if (file.type !== 'application/pdf') {
-    alert('Please choose a PDF file.');
-    return;
-  }
-  const clientName  = document.getElementById('est-client-name').value.trim();
-  const siteAddress = document.getElementById('est-site-address').value.trim();
-  const fd = new FormData();
-  fd.append('pdf', file);
-  fd.append('client_name', clientName);
-  fd.append('site_address', siteAddress);
-  document.getElementById('est-upload-panel').style.display = 'none';
-  document.getElementById('est-progress-panel').style.display = '';
-  document.getElementById('est-progress-title').textContent = 'Uploading ' + file.name + '...';
-  document.getElementById('est-progress-msg').textContent = 'Sending to Lumia...';
-  try {
-    const r = await fetch('/api/estimates/upload', { method: 'POST', body: fd });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || 'Upload failed');
-    _estJobId = d.job_id;
-    document.getElementById('est-progress-title').textContent = 'Extracting measurements...';
-    document.getElementById('est-progress-msg').textContent = 'Queued...';
-    _estPollTimer = setInterval(_pollEstimateStatus, 2500);
-  } catch(e) {
-    _showEstimateError(e.message);
-  }
-}
-
-async function _pollEstimateStatus() {
-  if (!_estJobId) return;
-  try {
-    const r = await fetch('/api/estimates/status/' + _estJobId);
-    const d = await r.json();
-    document.getElementById('est-progress-msg').textContent = d.progress || '...';
-    if (d.status === 'processing' || d.status === 'queued') {
-      document.getElementById('est-progress-title').textContent = 'Processing PDF...';
-      return;
-    }
-    clearInterval(_estPollTimer); _estPollTimer = null;
-    if (d.status === 'done') {
-      _renderEstimateResults(d);
-    } else {
-      _showEstimateError(d.error || 'Unknown error during extraction.');
-    }
-  } catch(e) { /* network blip — keep polling */ }
-}
-
-function _showEstimateError(msg) {
-  if (_estPollTimer) { clearInterval(_estPollTimer); _estPollTimer = null; }
-  document.getElementById('est-progress-panel').style.display = 'none';
-  document.getElementById('est-error-panel').style.display = '';
-  document.getElementById('est-error-msg').textContent = msg;
-}
-
-async function _renderEstimateResults(job) {
-  const r = await fetch('/api/estimates/' + _estJobId);
-  const d = await r.json();
-  document.getElementById('est-progress-panel').style.display = 'none';
-  document.getElementById('est-results-panel').style.display = '';
-  const raw = d.raw_json || {};
-  const dt = raw.document_totals || {};
-  document.getElementById('est-measurements-summary').innerHTML =
-    '<b>' + (dt.pages_processed||0) + '</b> pages &nbsp;|&nbsp; ' +
-    '<b>' + (dt.total_measurements||0) + '</b> measurements extracted &nbsp;|&nbsp; ' +
-    '<span style="color:#888;">File: ' + (dt.file_name||'') + '</span>';
-  const pc = d.paint_calc || {};
-  document.getElementById('est-scope').textContent = pc.scope_summary || '';
-  const rooms = pc.rooms || [];
-  if (rooms.length > 0) {
-    let tbl = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
-      '<thead><tr style="background:#f1f5ff;">' +
-      '<th style="padding:8px 10px;text-align:left;border-bottom:1.5px solid #d0d7e8;">Room / Area</th>' +
-      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Walls (sqft)</th>' +
-      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Ceiling (sqft)</th>' +
-      '<th style="padding:8px 10px;text-align:right;border-bottom:1.5px solid #d0d7e8;">Trim (lin ft)</th>' +
-      '<th style="padding:8px 10px;text-align:left;border-bottom:1.5px solid #d0d7e8;">Notes</th>' +
-      '</tr></thead><tbody>';
-    rooms.forEach(function(rm, i) {
-      const bg = i % 2 === 0 ? '#fff' : '#f8f9fc';
-      tbl += '<tr style="background:' + bg + ';">' +
-        '<td style="padding:7px 10px;border-bottom:1px solid #eee;">' + (rm.name||'') + '</td>' +
-        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.wall_area_sqft||0) + '</td>' +
-        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.ceiling_area_sqft||0) + '</td>' +
-        '<td style="padding:7px 10px;border-bottom:1px solid #eee;text-align:right;">' + (rm.trim_linear_ft||0) + '</td>' +
-        '<td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#666;">' + (rm.notes||'') + '</td>' +
-        '</tr>';
-    });
-    const t = pc.totals || {};
-    tbl += '<tr style="background:#eef2fb;font-weight:600;">' +
-      '<td style="padding:8px 10px;">Total</td>' +
-      '<td style="padding:8px 10px;text-align:right;">' + (t.wall_area_sqft||0) + '</td>' +
-      '<td style="padding:8px 10px;text-align:right;">' + (t.ceiling_area_sqft||0) + '</td>' +
-      '<td style="padding:8px 10px;text-align:right;">' + (t.trim_linear_ft||0) + '</td>' +
-      '<td style="padding:8px 10px;color:#555;font-size:12px;font-weight:400;">' + (t.total_paintable_sqft||0) + ' sqft total</td>' +
-      '</tr></tbody></table>';
-    document.getElementById('est-rooms-table').innerHTML = tbl;
-  } else {
-    document.getElementById('est-rooms-table').innerHTML = '<p style="color:#888;font-size:13px;">No room breakdown available.</p>';
-  }
-  const mat = pc.materials || {};
-  document.getElementById('est-materials').innerHTML =
-    '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
-    _statPill('Wall Paint', (mat.wall_paint_gallons||0) + ' gal') +
-    _statPill('Ceiling Paint', (mat.ceiling_paint_gallons||0) + ' gal') +
-    _statPill('Primer', (mat.primer_gallons||0) + ' gal') + '</div>' +
-    (mat.notes ? '<p style="font-size:12px;color:#888;margin-top:6px;">' + mat.notes + '</p>' : '');
-  const lab = pc.labor || {};
-  document.getElementById('est-labor').innerHTML =
-    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;">' +
-    _statPill('Est. Days', lab.estimated_days||0) +
-    _statPill('Painters', lab.painters_recommended||0) +
-    _statPill('Hours', lab.hours_estimate||0) + '</div>' +
-    (lab.notes ? '<p style="font-size:12px;color:#888;margin-top:6px;">' + lab.notes + '</p>' : '');
-  const asmpt = pc.assumptions || [];
-  if (asmpt.length) {
-    document.getElementById('est-assumptions').innerHTML = 'Assumptions: ' + asmpt.join(' &bull; ');
-  }
-  document.getElementById('est-work-order').textContent = d.work_order || 'Not available.';
-}
-
-function _statPill(label, val) {
-  return '<div style="background:#eef2fb;border-radius:8px;padding:10px 16px;min-width:100px;">' +
-    '<div style="font-size:18px;font-weight:700;color:#1F3864;">' + val + '</div>' +
-    '<div style="font-size:11px;color:#666;margin-top:2px;">' + label + '</div></div>';
-}
-
-function copyWorkOrder() {
-  const txt = document.getElementById('est-work-order').textContent;
-  navigator.clipboard.writeText(txt).then(function() { alert('Work order copied.'); });
-}
-
-async function createJobFromEstimate() {
-  if (!_estJobId) return;
-  const btn = document.getElementById('est-create-job-btn');
-  btn.disabled = true;
-  btn.textContent = 'Creating...';
-  try {
-    const r = await fetch('/api/estimates/' + _estJobId + '/create-job', { method: 'POST' });
-    const d = await r.json();
-    if (d.ok) {
-      document.getElementById('est-create-job-result').innerHTML =
-        '<span style="color:#2e7d32;">Job created. Switch to the Jobs tab to assign crew.</span>';
-      btn.textContent = 'Job Created';
-    } else {
-      document.getElementById('est-create-job-result').innerHTML =
-        '<span style="color:#c0392b;">Failed: ' + (d.error||'Unknown error') + '</span>';
-      btn.disabled = false;
-      btn.textContent = 'Create Job from This Estimate';
-    }
-  } catch(e) {
-    document.getElementById('est-create-job-result').innerHTML =
-      '<span style="color:#c0392b;">Error: ' + e.message + '</span>';
-    btn.disabled = false;
-    btn.textContent = 'Create Job from This Estimate';
-  }
-}
-
-// ─── END ESTIMATES TAB ──────────────────────────────────────────────────────
 </script>
 </body></html>"""
 
@@ -5210,7 +6463,7 @@ def api_remove_manager(mgr_id):
 
 
 @app.route("/api/clients")
-@require_role("owner")
+@require_operator
 def api_clients():
     if not supabase_client:
         return jsonify([])
@@ -5221,7 +6474,7 @@ def api_clients():
 
 
 @app.route("/api/add-client", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_add_client():
     if not supabase_client:
         return jsonify({"message": "No database"})
@@ -5246,7 +6499,7 @@ def api_add_client():
 
 
 @app.route("/api/send-client-test-invite", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_send_client_test_invite():
     """Send a client a branded welcome email with the Ask Lumia button.
     Useful to test / onboard — no check-ins required.
@@ -5343,7 +6596,7 @@ def api_remove_client(cid):
 
 
 @app.route("/api/update-client/<cid>", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_update_client(cid):
     if not supabase_client:
         return jsonify({"ok": False, "error": "No database."})
@@ -5361,7 +6614,7 @@ def api_update_client(cid):
 
 
 @app.route("/api/site-visit", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_site_visit():
     """Owner confirms an employee is physically on site."""
     if not supabase_client:
@@ -5377,7 +6630,7 @@ def api_site_visit():
 
 
 @app.route("/api/site-visits")
-@require_role("owner")
+@require_operator
 def api_site_visits():
     if not supabase_client:
         return jsonify([])
@@ -5409,26 +6662,156 @@ def api_mark_job_done():
 
 
 def _notify_owner_job_done(job_id: str, done_by: str) -> None:
+    """Send a full completion report email to the owner when a job is marked done."""
     import httpx as _httpx
     resend_key = os.getenv("RESEND_API_KEY", "")
-    if not resend_key or not OWNER_EMAIL:
+    if not resend_key or not OWNER_EMAIL or not supabase_client:
         return
     try:
-        job_row = (supabase_client.table("jobs").select("client_name,site_address")
+        job_row = (supabase_client.table("jobs").select("*")
                    .eq("id", job_id).execute().data or [{}])[0]
-        subject = f"Job Marked Done — {job_row.get('site_address', job_id)}"
-        body    = (f"{done_by} marked the job at {job_row.get('site_address','?')} "
-                   f"({job_row.get('client_name','?')}) as completed.\n\n"
-                   f"Review it in your Lumia dashboard.")
+        site_addr = job_row.get("site_address") or "?"
+        client_nm = job_row.get("client_name")  or "?"
+        # Pull every check-in for this job (by job_id and by site address fallback)
+        by_id = supabase_client.table("checkins").select("*").eq("job_id", job_id).execute().data or []
+        by_site = []
+        if site_addr and site_addr != "?":
+            recent = supabase_client.table("checkins").select("*").order("entry_date", desc=True).limit(500).execute().data or []
+            by_site = [c for c in recent
+                       if (c.get("site_address") or "").lower().strip() == site_addr.lower().strip()
+                       and not c.get("job_id")]
+        seen = set()
+        checkins = []
+        for c in (by_id + by_site):
+            cid = c.get("id")
+            if cid in seen: continue
+            seen.add(cid)
+            checkins.append(c)
+        checkins.sort(key=lambda c: c.get("entry_date") or "")
+        # Aggregate stats
+        total_hours = sum(float(c.get("hours_worked") or 0) for c in checkins)
+        days = len({c.get("entry_date") for c in checkins if c.get("entry_date")})
+        crew = sorted({c.get("worker_name") for c in checkins if c.get("worker_name")})
+        all_photos = []
+        for c in checkins:
+            for u in (c.get("photo_urls") or "").split(","):
+                u = u.strip()
+                if u: all_photos.append(u)
+        # Plan adherence
+        plan_completions = [float(c.get("plan_completion_percent")) for c in checkins
+                            if c.get("plan_completion_percent") is not None]
+        avg_plan_pct = round(sum(plan_completions) / len(plan_completions), 1) if plan_completions else None
+        variance_reasons = [(c.get("entry_date"), c.get("plan_variance_reason")) for c in checkins
+                            if c.get("plan_variance_reason")]
+        # Estimate vs actual
+        estimated = float(job_row.get("estimated_hours") or 0)
+        variance_pct = None
+        if estimated > 0 and total_hours > 0:
+            variance_pct = round(((total_hours - estimated) / estimated) * 100, 1)
+        # Update the job with actual_hours_used (best effort)
+        try:
+            supabase_client.table("jobs").update({"actual_hours_used": total_hours}).eq("id", job_id).execute()
+        except Exception:
+            pass
+
+        # Build HTML report
+        rows = ""
+        for c in checkins:
+            hrs = c.get("hours_worked")
+            hrs_str = f"{float(hrs):.1f} hrs" if hrs else "—"
+            rows += (
+                f'<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;color:#333;">'
+                f'{c.get("entry_date","—")}</td>'
+                f'<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;color:#333;">'
+                f'{c.get("worker_name","—")}</td>'
+                f'<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;color:#333;">{hrs_str}</td>'
+                f'<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;color:#555;">'
+                f'{(c.get("work_description") or "")[:200]}</td></tr>'
+            )
+
+        # Photo grid
+        photo_grid = _build_photo_grid_html(all_photos) if all_photos else ""
+
+        variance_color = "#2e7d32" if variance_pct is None or abs(variance_pct) <= 10 else ("#2e7d32" if variance_pct < 0 else "#c62828")
+        variance_text  = "—" if variance_pct is None else (f"{variance_pct:+.1f}% vs estimate")
+
+        reasons_html = ""
+        if variance_reasons:
+            reasons_html = '<h3 style="font-size:14px;color:#1F3864;margin:18px 0 6px;">Variance reasons logged</h3><ul style="font-size:13px;color:#444;margin:0;padding-left:20px;">'
+            for d, r in variance_reasons:
+                reasons_html += f'<li><b>{d}:</b> {r}</li>'
+            reasons_html += '</ul>'
+
+        html_body = f"""
+<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:760px;margin:0 auto;padding:24px;color:#222;">
+  <h2 style="color:#1F3864;margin:0 0 4px;">Job Completion Report</h2>
+  <p style="color:#666;margin:0 0 20px;font-size:14px;">{client_nm} — {site_addr}</p>
+  <p style="font-size:13px;color:#888;margin:0 0 20px;">Marked complete by {done_by}</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:20px;">
+    <div style="background:#f4f6fb;border-radius:8px;padding:10px;text-align:center;">
+      <div style="font-size:18px;font-weight:700;color:#1F3864;">{total_hours:.1f} hrs</div>
+      <div style="font-size:11px;color:#888;">Actual Hours</div></div>
+    <div style="background:#f4f6fb;border-radius:8px;padding:10px;text-align:center;">
+      <div style="font-size:18px;font-weight:700;color:#1F3864;">{estimated:.1f} hrs</div>
+      <div style="font-size:11px;color:#888;">Estimated</div></div>
+    <div style="background:#f4f6fb;border-radius:8px;padding:10px;text-align:center;">
+      <div style="font-size:14px;font-weight:700;color:{variance_color};">{variance_text}</div>
+      <div style="font-size:11px;color:#888;">Variance</div></div>
+    <div style="background:#f4f6fb;border-radius:8px;padding:10px;text-align:center;">
+      <div style="font-size:18px;font-weight:700;color:#1F3864;">{days}</div>
+      <div style="font-size:11px;color:#888;">Days Worked</div></div>
+  </div>
+
+  <p style="font-size:13px;color:#444;margin:0 0 16px;"><b>Crew:</b> {", ".join(crew) if crew else "—"}</p>
+  {f'<p style="font-size:13px;color:#444;margin:0 0 16px;"><b>Avg plan completion:</b> {avg_plan_pct}%</p>' if avg_plan_pct is not None else ""}
+
+  <h3 style="font-size:14px;color:#1F3864;margin:18px 0 6px;">Daily check-ins ({len(checkins)})</h3>
+  <table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+    <thead><tr style="background:#f4f6fb;">
+      <th style="padding:8px;text-align:left;font-size:11px;color:#1F3864;">Date</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#1F3864;">Worker</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#1F3864;">Hours</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#1F3864;">Work</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+
+  {reasons_html}
+
+  {photo_grid}
+
+  <p style="font-size:11px;color:#888;margin-top:24px;">Lumia · Ashrah Painting Operations</p>
+</div>
+""".strip()
+
+        plain_body = (
+            f"JOB COMPLETION REPORT\n"
+            f"{client_nm} — {site_addr}\n"
+            f"Marked complete by {done_by}\n\n"
+            f"Actual hours: {total_hours:.1f} hrs\n"
+            f"Estimated:    {estimated:.1f} hrs\n"
+            f"Variance:     {variance_text}\n"
+            f"Days worked:  {days}\n"
+            f"Crew:         {', '.join(crew)}\n"
+            + (f"Avg plan completion: {avg_plan_pct}%\n" if avg_plan_pct is not None else "")
+            + f"\n{len(checkins)} check-ins. Review the full report in Lumia."
+        )
+
+        subject = f"✅ Job Complete — {site_addr} — {client_nm}"
         _httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={"from": "Ashrah Painting <noreply@ashrah.ai>",
-                  "to": [OWNER_EMAIL], "subject": subject, "text": body},
-            timeout=15,
+                  "to": [OWNER_EMAIL], "subject": subject,
+                  "html": html_body, "text": plain_body},
+            timeout=20,
         )
+        print(f"[JobDone] Completion report sent to {OWNER_EMAIL} for {site_addr}")
     except Exception as exc:
-        print(f"[JobDone] Notify error: {exc}")
+        import traceback
+        print(f"[JobDone] Completion report error: {exc}")
+        traceback.print_exc()
 
 
 @app.route("/api/active-jobs")
@@ -5450,7 +6833,7 @@ def api_active_jobs():
 
 
 @app.route("/api/jobs")
-@require_role("owner")
+@require_operator
 def api_jobs():
     if not supabase_client:
         return jsonify([])
@@ -5467,21 +6850,328 @@ def api_delete_job(job_id):
 
 
 @app.route("/api/job-report/<job_id>")
-@require_role("owner")
+@require_operator
 def api_job_report(job_id):
     if not supabase_client:
         return jsonify({"job": {}, "checkins": []})
     job = supabase_client.table("jobs").select("*").eq("id", job_id).limit(1).execute().data
     job = job[0] if job else {}
-    checkins = supabase_client.table("checkins").select("*").eq("job_id", job_id).order("entry_date", desc=True).execute().data or []
+    # Pull check-ins both by job_id and by matching site_address (covers old check-ins without job_id)
+    by_id = supabase_client.table("checkins").select("*").eq("job_id", job_id).execute().data or []
+    site_addr = (job.get("site_address") or "").strip()
+    by_site = []
+    if site_addr:
+        # Use a short distinctive token from the site address (numbers + first word)
+        site_lower = site_addr.lower()
+        all_recent = supabase_client.table("checkins").select("*") \
+            .order("entry_date", desc=True).limit(500).execute().data or []
+        by_site = [c for c in all_recent
+                   if (c.get("site_address") or "").lower().strip() == site_lower
+                   and not c.get("job_id")]
+    seen = set()
+    checkins = []
+    for c in (by_id + by_site):
+        cid = c.get("id")
+        if cid in seen: continue
+        seen.add(cid)
+        checkins.append(c)
+    checkins.sort(key=lambda c: c.get("entry_date") or "", reverse=True)
     total = len(checkins)
     avg = round(sum(c.get("avg_score", 0) or 0 for c in checkins) / total, 1) if total else None
-    days = len(set(c["entry_date"] for c in checkins))
+    days = len(set(c["entry_date"] for c in checkins if c.get("entry_date")))
     return jsonify({"job": job, "checkins": checkins, "stats": {"total_checkins": total, "avg_score": avg, "days_worked": days}})
 
 
-@app.route("/api/match-crew", methods=["POST"])
+@app.route("/api/job/<job_id>/plan", methods=["GET"])
+@require_operator
+def api_get_job_plan(job_id):
+    """Return the daily_plan array for a job."""
+    if not supabase_client:
+        return jsonify({"plan": []})
+    rows = supabase_client.table("jobs").select("daily_plan").eq("id", job_id).limit(1).execute().data or []
+    plan = rows[0].get("daily_plan") if rows else []
+    if isinstance(plan, str):
+        try: plan = json.loads(plan)
+        except Exception: plan = []
+    return jsonify({"plan": plan or []})
+
+
+@app.route("/api/job/<job_id>/plan", methods=["POST"])
+@require_operator
+def api_save_job_plan(job_id):
+    """Replace the daily_plan array for a job. Body: {plan: [{date, work, percent}]}"""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    plan = d.get("plan") or []
+    # Sanitize each entry
+    cleaned = []
+    for p in plan:
+        if not isinstance(p, dict): continue
+        entry = {
+            "date":    (p.get("date") or "").strip(),
+            "work":    (p.get("work") or "").strip(),
+            "percent": float(p.get("percent") or 0),
+        }
+        if entry["date"] and entry["work"]:
+            cleaned.append(entry)
+    cleaned.sort(key=lambda e: e["date"])
+    try:
+        supabase_client.table("jobs").update({"daily_plan": cleaned}).eq("id", job_id).execute()
+        return jsonify({"ok": True, "plan": cleaned})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/site-plan-today")
+def api_site_plan_today():
+    """For the check-in form. Given site_address, returns today's planned work entry (if any).
+    Auth: any logged-in user (employee or owner)."""
+    if not session.get("employee_name") and not session.get("role"):
+        return jsonify({"ok": False}), 401
+    if not supabase_client:
+        return jsonify({"ok": True, "today": None})
+    site_address = (request.args.get("site_address") or "").strip()
+    if not site_address:
+        return jsonify({"ok": True, "today": None})
+    today = date.today().isoformat()
+    # Find jobs matching this site_address (forgiving)
+    jobs = supabase_client.table("jobs").select("id,client_name,site_address,daily_plan,start_date") \
+        .order("created_at", desc=True).limit(50).execute().data or []
+    match = None
+    for j in jobs:
+        if _site_match(site_address, j.get("site_address") or "") or \
+           _site_match(j.get("site_address") or "", site_address):
+            match = j; break
+    if not match:
+        return jsonify({"ok": True, "today": None})
+    plan = match.get("daily_plan") or []
+    if isinstance(plan, str):
+        try: plan = json.loads(plan)
+        except Exception: plan = []
+    today_entry = next((p for p in plan if p.get("date") == today), None)
+    # Total percent + cumulative percent up to and including today
+    total_pct  = sum(float(p.get("percent") or 0) for p in plan)
+    return jsonify({
+        "ok": True,
+        "today":   today_entry,
+        "job":     {"client_name": match.get("client_name"), "site_address": match.get("site_address")},
+        "total_planned_percent": total_pct,
+    })
+
+
+@app.route("/api/arrive", methods=["POST"])
+def api_arrive():
+    """Log an employee's arrival at a site."""
+    employee_name = session.get("employee_name") or session.get("name")
+    if not employee_name:
+        return jsonify({"ok": False, "error": "Not logged in."}), 401
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."}), 500
+    d = request.get_json() or {}
+    site_address = (d.get("site_address") or "").strip()
+    if not site_address:
+        return jsonify({"ok": False, "error": "Site is required."})
+    job_id = (d.get("job_id") or "").strip() or None
+    saw_plan = bool(d.get("saw_plan"))
+    today = date.today().isoformat()
+    # Snapshot today's plan (so we know what they acknowledged)
+    plan_snapshot = ""
+    try:
+        if job_id:
+            jrows = supabase_client.table("jobs").select("daily_plan").eq("id", job_id).limit(1).execute().data or []
+            if jrows:
+                plan = jrows[0].get("daily_plan") or []
+                if isinstance(plan, str):
+                    try: plan = json.loads(plan)
+                    except Exception: plan = []
+                today_entry = next((p for p in plan if p.get("date") == today), None)
+                if today_entry:
+                    plan_snapshot = today_entry.get("work", "")
+    except Exception:
+        pass
+    try:
+        # Check if there's already an arrival today for this worker — update vs insert
+        start_of_day = today + "T00:00:00"
+        existing = supabase_client.table("arrivals").select("id") \
+            .eq("worker_name", employee_name) \
+            .gte("arrived_at", start_of_day) \
+            .execute().data or []
+        if existing:
+            supabase_client.table("arrivals").update({
+                "site_address":  site_address,
+                "job_id":        job_id,
+                "arrived_at":    datetime.utcnow().isoformat(),
+                "saw_plan":      saw_plan,
+                "plan_snapshot": plan_snapshot,
+            }).eq("id", existing[0]["id"]).execute()
+        else:
+            supabase_client.table("arrivals").insert({
+                "worker_name":   employee_name,
+                "site_address":  site_address,
+                "job_id":        job_id,
+                "saw_plan":      saw_plan,
+                "plan_snapshot": plan_snapshot,
+            }).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/my-arrival-today")
+def api_my_arrival_today():
+    """Return today's arrival record for the logged-in employee, if any."""
+    employee_name = session.get("employee_name") or session.get("name")
+    if not employee_name or not supabase_client:
+        return jsonify({"ok": True, "arrival": None})
+    today = date.today().isoformat()
+    start_of_day = today + "T00:00:00"
+    rows = supabase_client.table("arrivals").select("*") \
+        .eq("worker_name", employee_name) \
+        .gte("arrived_at", start_of_day) \
+        .order("arrived_at", desc=True).limit(1).execute().data or []
+    return jsonify({"ok": True, "arrival": rows[0] if rows else None})
+
+
+@app.route("/api/on-site-now")
+@require_operator
+def api_on_site_now():
+    """Return all employees who arrived today (and haven't submitted their daily check-in yet)."""
+    if not supabase_client:
+        return jsonify([])
+    today = date.today().isoformat()
+    start_of_day = today + "T00:00:00"
+    arrivals = supabase_client.table("arrivals").select("*") \
+        .gte("arrived_at", start_of_day) \
+        .order("arrived_at", desc=True).execute().data or []
+    # Mark "checked_out" if a daily check-in exists for that worker today
+    todays_checkins = supabase_client.table("checkins").select("worker_name") \
+        .eq("entry_date", today).execute().data or []
+    checked_out = {c["worker_name"] for c in todays_checkins}
+    for a in arrivals:
+        a["checked_out"] = a.get("worker_name") in checked_out
+    return jsonify(arrivals)
+
+
+@app.route("/api/tenders")
+@require_operator
+def api_list_tenders():
+    if not supabase_client:
+        return jsonify([])
+    rows = supabase_client.table("tenders").select("*") \
+        .order("close_date", desc=False).execute().data or []
+    return jsonify(rows)
+
+
+@app.route("/api/tender", methods=["POST"])
+@require_operator
+def api_create_tender():
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    name = (d.get("name") or "").strip()
+    close_date = (d.get("close_date") or "").strip()
+    if not name or not close_date:
+        return jsonify({"ok": False, "error": "Name and close date required."})
+    try:
+        supabase_client.table("tenders").insert({
+            "name":        name,
+            "client":      (d.get("client") or "").strip() or None,
+            "description": (d.get("description") or "").strip() or None,
+            "close_date":  close_date,
+            "status":      (d.get("status") or "open").strip(),
+            "notes":       (d.get("notes") or "").strip() or None,
+        }).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/tender/<tid>", methods=["PATCH"])
+@require_operator
+def api_update_tender(tid):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    update = {}
+    for k in ("name", "client", "description", "close_date", "status", "notes"):
+        if k in d and d[k] is not None:
+            update[k] = (d[k] or "").strip() or None if isinstance(d[k], str) else d[k]
+    # If close_date moved, reset the notification flag so a fresh reminder can fire
+    if "close_date" in update:
+        update["notified_2d"] = False
+    try:
+        supabase_client.table("tenders").update(update).eq("id", tid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/tender/<tid>", methods=["DELETE"])
 @require_role("owner")
+def api_delete_tender(tid):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    try:
+        supabase_client.table("tenders").delete().eq("id", tid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+def _send_tender_reminders():
+    """Daily check: send a reminder for any tender closing in exactly 2 days
+    (and not yet notified). Owner gets the email."""
+    if not supabase_client or not OWNER_EMAIL:
+        return
+    try:
+        from datetime import date as _date, timedelta as _td
+        target = (_date.today() + _td(days=2)).isoformat()
+        rows = supabase_client.table("tenders").select("*") \
+            .eq("close_date", target) \
+            .eq("status", "open") \
+            .eq("notified_2d", False) \
+            .execute().data or []
+        if not rows:
+            return
+        import httpx as _httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key:
+            print("[Tenders] No RESEND_API_KEY — skipping reminder")
+            return
+        for t in rows:
+            subject = f"⏰ Tender closing in 2 days — {t['name']}"
+            body = (
+                f"Hi Ahmad,\n\n"
+                f"This is a reminder that the following tender closes in 2 days:\n\n"
+                f"Tender:  {t['name']}\n"
+                f"Client:  {t.get('client') or '—'}\n"
+                f"Close:   {t['close_date']}\n"
+                f"Status:  {t.get('status') or 'open'}\n"
+                f"{('Notes:   ' + t['notes'] + chr(10)) if t.get('notes') else ''}"
+                f"\nMake sure your submission is ready.\n\n"
+                f"— Lumia"
+            )
+            try:
+                resp = _httpx.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                    json={"from":"Lumia <noreply@ashrah.ai>","to":[OWNER_EMAIL],"subject":subject,"text":body},
+                    timeout=15,
+                )
+                if resp.status_code in (200, 201):
+                    supabase_client.table("tenders").update({"notified_2d": True}).eq("id", t["id"]).execute()
+                    print(f"[Tenders] Reminder sent for '{t['name']}' (closes {t['close_date']})")
+                else:
+                    print(f"[Tenders] Reminder failed: {resp.status_code} {resp.text[:200]}")
+            except Exception as exc:
+                print(f"[Tenders] Send error: {exc}")
+    except Exception as exc:
+        print(f"[Tenders] Reminder job error: {exc}")
+
+
+@app.route("/api/match-crew", methods=["POST"])
+@require_operator
 def api_match_crew():
     d = request.get_json()
     # Gather employee history from Supabase
@@ -5545,7 +7235,7 @@ Be specific and reference the data. If trust scores are low, flag it."""
 
 
 @app.route("/api/save-job", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_save_job():
     d = request.get_json()
     assigned = d.get("assigned_employees") or []
@@ -5563,8 +7253,29 @@ def api_save_job():
         "status":             "open",
         "assigned_employees": assigned,
     }
+    # Optional scope metrics + estimated hours (added 2026-04 — calibration loop)
+    raw_metrics = d.get("scope_metrics")
+    if raw_metrics:
+        try:
+            scope_obj = raw_metrics if isinstance(raw_metrics, dict) else json.loads(raw_metrics)
+            job_info["scope_metrics"] = scope_obj
+        except Exception:
+            pass
+    try:
+        eh = float(d.get("estimated_hours") or 0)
+        if eh > 0:
+            job_info["estimated_hours"] = eh
+    except (TypeError, ValueError):
+        pass
     if supabase_client:
-        supabase_client.table("jobs").insert(job_info).execute()
+        try:
+            supabase_client.table("jobs").insert(job_info).execute()
+        except Exception as exc:
+            # Fallback: drop the new columns if the schema migration hasn't run yet
+            print(f"[Jobs] Insert failed ({exc}) — retrying without scope columns")
+            for k in ("scope_metrics", "estimated_hours"):
+                job_info.pop(k, None)
+            supabase_client.table("jobs").insert(job_info).execute()
 
     def _send_all():
         _notify_assigned_employees(job_info, assigned)
@@ -5579,7 +7290,7 @@ def api_save_job():
 
 
 @app.route("/api/assign-employees", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_assign_employees():
     d = request.get_json()
     job_id       = d.get("job_id")
@@ -5602,7 +7313,7 @@ def api_assign_employees():
 
 
 @app.route("/api/assignment-log")
-@require_role("owner")
+@require_operator
 def api_assignment_log():
     """Return crew assignment notification history."""
     if not supabase_client:
@@ -5620,7 +7331,7 @@ def api_assignment_log():
 # API: EMPLOYEE MANAGEMENT
 # ---------------------------------------------------------------------------
 @app.route("/api/employees")
-@require_role("owner")
+@require_operator
 def api_employees():
     if not supabase_client:
         return jsonify([{"id": n, "name": n, "email": "", "active": True} for n in EMPLOYEES])
@@ -5639,7 +7350,7 @@ def api_employees():
 
 
 @app.route("/api/add-employee", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_add_employee():
     if not supabase_client:
         return jsonify({"message": "No database"})
@@ -5737,10 +7448,48 @@ def api_reset_employee_password():
 # API: MANUAL DAILY REPORTS TRIGGER
 # ---------------------------------------------------------------------------
 @app.route("/api/send-daily-reports", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_send_daily_reports():
     threading.Thread(target=_run_daily_reports, daemon=True).start()
     return jsonify({"message": "Reports are being sent to all clients with check-ins today."})
+
+
+def _site_match(keyword: str, site_address: str) -> bool:
+    """Forgiving site-keyword match: ignores case, spaces, and punctuation differences.
+    e.g. '19 lone oak place' matches '19 loneoak place' or '19 LoneOak Pl.'"""
+    import re
+    norm = lambda s: re.sub(r"[\s\.,'-]+", "", (s or "").lower())
+    kw_n = norm(keyword)
+    site_n = norm(site_address)
+    if not kw_n: return False
+    if kw_n in site_n: return True
+    # Token-based fallback — every word in keyword must appear (in any order) in site
+    tokens = [t for t in re.split(r"\s+", (keyword or "").lower()) if t]
+    site_lower = (site_address or "").lower()
+    site_lower_nospace = norm(site_address)
+    return all(t in site_lower or norm(t) in site_lower_nospace for t in tokens)
+
+
+def _latest_checkins_for_site(site_keyword: str):
+    """Find all check-ins SUBMITTED today (by created_at) for a site, regardless of entry_date.
+    This way late submissions are picked up — if a worker checks in today for yesterday's work,
+    that report goes out today.
+    Returns (date_iso, entries_list)."""
+    if not supabase_client or not site_keyword:
+        return None, []
+    today = date.today().isoformat()
+    # Get every check-in submitted today (UTC). created_at is a timestamp, so use date range.
+    start_of_day = today + "T00:00:00"
+    rows = supabase_client.table("checkins").select("*") \
+        .gte("created_at", start_of_day) \
+        .order("created_at", desc=True).execute().data or []
+    rows = [c for c in rows if _site_match(site_keyword, c.get("site_address") or "")]
+    if not rows:
+        return None, []
+    # Use the latest entry_date among today's submissions
+    latest_date = rows[0].get("entry_date") or today
+    entries = [c for c in rows if c.get("entry_date") == latest_date]
+    return latest_date, entries
 
 
 def _build_report_content(client_name: str, client_email: str, site_keyword: str):
@@ -5748,10 +7497,9 @@ def _build_report_content(client_name: str, client_email: str, site_keyword: str
     today = date.today().isoformat()
     if not supabase_client:
         return {"ok": False, "message": "Database not connected."}
-    checkins = supabase_client.table("checkins").select("*").eq("entry_date", today).execute().data or []
-    entries = [c for c in checkins if site_keyword.lower() in (c.get("site_address") or "").lower()]
+    report_date, entries = _latest_checkins_for_site(site_keyword)
     if not entries:
-        return {"ok": False, "message": f"No check-ins found today for site keyword '{site_keyword}'."}
+        return {"ok": False, "message": f"No check-ins found for site keyword '{site_keyword}'."}
     crew = [e["worker_name"] for e in entries]
     work_completed = "\n\n".join(
         f"{e['worker_name']}: {e.get('work_description','')}" for e in entries if e.get("work_description")
@@ -5761,7 +7509,7 @@ def _build_report_content(client_name: str, client_email: str, site_keyword: str
     for name in crew:
         tracker.add_worker(Worker(worker_id=name, name=name))
     dr = DailyReport(
-        report_date=today, job_id="",
+        report_date=report_date or today, job_id="",
         site_address=entries[0].get("site_address",""),
         client_name=client_name, client_email=client_email,
         crew_present=crew, work_completed=work_completed,
@@ -5774,16 +7522,32 @@ def _build_report_content(client_name: str, client_email: str, site_keyword: str
     )
     content = reporter.generate(dr, tracker)
     _augment_report_with_ask_lumia(content, site_keyword, client_name, client_email)
+    html_body  = content.get("html_body", "")
+    plain_body = content.get("plain_body", "")
+    # Append photo grid
+    all_photo_urls = []
+    for e in entries:
+        for u in (e.get("photo_urls") or "").split(","):
+            u = u.strip()
+            if u:
+                all_photo_urls.append(u)
+    if all_photo_urls:
+        photo_grid = _build_photo_grid_html(all_photo_urls)
+        html_body = html_body.rstrip()
+        if html_body.endswith("</body></html>"):
+            html_body = html_body[:-14] + photo_grid + "</body></html>"
+        else:
+            html_body += photo_grid
     return {
         "ok": True,
-        "subject":    content.get("subject", f"Daily Site Report — {dr.site_address} — {today}"),
-        "html_body":  content.get("html_body", ""),
-        "plain_body": content.get("plain_body", ""),
+        "subject":    content.get("subject", f"Daily Site Report — {dr.site_address} — {report_date or today}"),
+        "html_body":  html_body,
+        "plain_body": plain_body,
     }
 
 
 @app.route("/api/preview-report", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_preview_report():
     """Generate a report and return the content for preview — does NOT send email."""
     d = request.get_json()
@@ -5799,7 +7563,7 @@ def api_preview_report():
 
 
 @app.route("/api/send-client-report", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_send_client_report():
     """Send today's report to one specific client immediately."""
     d = request.get_json()
@@ -5830,13 +7594,9 @@ def api_send_client_report():
     if not supabase_client:
         return jsonify({"ok": False, "message": "Database not connected."})
 
-    checkins = supabase_client.table("checkins").select("*") \
-        .eq("entry_date", today).execute().data or []
-    # Filter to this client's site
-    entries = [c for c in checkins if site_keyword in (c.get("site_address") or "").lower()]
-
+    report_date, entries = _latest_checkins_for_site(site_keyword)
     if not entries:
-        return jsonify({"ok": False, "message": f"No check-ins found today for '{site_keyword}'."})
+        return jsonify({"ok": False, "message": f"No check-ins found for '{site_keyword}'."})
 
     crew = [e["worker_name"] for e in entries]
     work_completed = "\n\n".join(
@@ -5849,7 +7609,7 @@ def api_send_client_report():
         tracker.add_worker(Worker(worker_id=name, name=name))
 
     dr = DailyReport(
-        report_date=today,
+        report_date=report_date or today,
         job_id="",
         site_address=entries[0].get("site_address",""),
         client_name=client_name,
@@ -5872,9 +7632,23 @@ def api_send_client_report():
         )
         content = reporter.generate(dr, tracker)
         _augment_report_with_ask_lumia(content, site_keyword, client_name, client_email)
-        subject   = content.get("subject", f"Daily Site Report — {entries[0].get('site_address','')} — {today}")
+        subject   = content.get("subject", f"Daily Site Report — {entries[0].get('site_address','')} — {report_date or today}")
         html_body = content.get("html_body", "")
         plain_body = content.get("plain_body", "")
+        # Append photo grid
+        all_photo_urls = []
+        for e in entries:
+            for u in (e.get("photo_urls") or "").split(","):
+                u = u.strip()
+                if u:
+                    all_photo_urls.append(u)
+        if all_photo_urls:
+            photo_grid = _build_photo_grid_html(all_photo_urls)
+            html_body = html_body.rstrip()
+            if html_body.endswith("</body></html>"):
+                html_body = html_body[:-14] + photo_grid + "</body></html>"
+            else:
+                html_body += photo_grid
         # Send via Resend (SMTP is blocked on Railway)
         import httpx
         resend_key = os.getenv("RESEND_API_KEY", "")
@@ -5911,7 +7685,7 @@ def api_send_client_report():
 
 
 @app.route("/api/compose-email", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_compose_email():
     """Generate a custom client intro/assignment email and optionally send it."""
     import httpx as _httpx
@@ -6036,13 +7810,13 @@ Write like a real person. Short sentences. Say what needs to be said, nothing mo
 
 
 @app.route("/api/sent-reports")
-@require_role("owner")
+@require_operator
 def api_sent_reports():
     if not supabase_client:
         return jsonify([])
     try:
         rows = supabase_client.table("sent_reports").select("*") \
-            .order("sent_at", desc=True).limit(30).execute().data or []
+            .order("sent_at", desc=True).execute().data or []
         return jsonify(rows)
     except Exception as exc:
         return jsonify([])
@@ -6144,9 +7918,9 @@ def _run_daily_reports() -> None:
     # Group check-ins by matching client keyword
     client_checkins: dict[str, list] = {}
     for ci in checkins:
-        site_lower = (ci.get("site_address") or "").lower()
+        site_addr = ci.get("site_address") or ""
         for keyword, info in all_clients.items():
-            if keyword in site_lower:
+            if _site_match(keyword, site_addr):
                 key = info["client_email"]
                 client_checkins.setdefault(key, {"info": info, "keyword": keyword, "entries": []})
                 client_checkins[key]["entries"].append(ci)
@@ -6197,6 +7971,20 @@ def _run_daily_reports() -> None:
             subject   = content.get("subject", f"Daily Site Report — {dr.site_address} — {today}")
             html_body = content.get("html_body", "")
             plain_body = content.get("plain_body", "")
+            # Append photo grid
+            all_photo_urls = []
+            for e in entries:
+                for u in (e.get("photo_urls") or "").split(","):
+                    u = u.strip()
+                    if u:
+                        all_photo_urls.append(u)
+            if all_photo_urls:
+                photo_grid = _build_photo_grid_html(all_photo_urls)
+                html_body = html_body.rstrip()
+                if html_body.endswith("</body></html>"):
+                    html_body = html_body[:-14] + photo_grid + "</body></html>"
+                else:
+                    html_body += photo_grid
             recs_list = info.get("recipients") or [{"name":"","email": dr.client_email}]
             recipients = list({r["email"] for r in recs_list if r.get("email")})
             cc_list = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL not in recipients else []
@@ -6313,8 +8101,10 @@ try:
                        id="daily_reports", replace_existing=True)
     _scheduler.add_job(_run_client_escalation_digest, "cron", hour=20, minute=0,
                        id="client_escalation_digest", replace_existing=True)
+    _scheduler.add_job(_send_tender_reminders, "cron", hour=8, minute=0,
+                       id="tender_reminders", replace_existing=True)
     _scheduler.start()
-    print("[Scheduler] Daily reports at 18:00, client escalation digest at 20:00 Winnipeg time")
+    print("[Scheduler] Daily reports 18:00, escalations 20:00, tender reminders 08:00 (Winnipeg)")
 except Exception as _sched_exc:
     print(f"[Scheduler] Could not start scheduler: {_sched_exc}")
 
@@ -6466,7 +8256,7 @@ WRITING RULES:
 # ---------------------------------------------------------------------------
 
 @app.route("/api/notify-client-job/<job_id>", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_notify_client_job(job_id):
     """Send the client a project notification email on demand."""
     if not supabase_client:
@@ -6560,7 +8350,7 @@ def api_notify_client_job(job_id):
 
 
 @app.route("/api/update-job/<job_id>", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_update_job(job_id):
     """Update editable fields on an existing job."""
     if not supabase_client:
@@ -6583,7 +8373,7 @@ def api_update_job(job_id):
 # ---------------------------------------------------------------------------
 
 @app.route("/api/estimates/upload", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_estimates_upload():
     """Receive a PDF, create a job, kick off background extraction."""
     if "pdf" not in request.files:
@@ -6603,7 +8393,7 @@ def api_estimates_upload():
 
 
 @app.route("/api/estimates/status/<job_id>")
-@require_role("owner")
+@require_operator
 def api_estimates_status(job_id):
     """Poll endpoint — returns status + progress message."""
     job = lumia_estimates.get_job(job_id)
@@ -6618,7 +8408,7 @@ def api_estimates_status(job_id):
 
 
 @app.route("/api/estimates/<job_id>")
-@require_role("owner")
+@require_operator
 def api_estimates_result(job_id):
     """Return full job result (raw_json, paint_calc, work_order)."""
     job = lumia_estimates.get_job(job_id)
@@ -6635,7 +8425,7 @@ def api_estimates_result(job_id):
 
 
 @app.route("/api/estimates/<job_id>/create-job", methods=["POST"])
-@require_role("owner")
+@require_operator
 def api_estimates_create_job(job_id):
     """Create a Lumia job record from a completed estimate."""
     job = lumia_estimates.get_job(job_id)

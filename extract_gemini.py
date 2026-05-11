@@ -42,15 +42,36 @@ def build_config(effort):
     )
 
 
-def call_gemini(client, parts, effort):
-    resp = client.models.generate_content(
-        model=MODEL,
-        contents=parts,
-        config=build_config(effort),
-    )
-    text = resp.text or ""
-    usage = resp.usage_metadata
-    return text, usage
+def call_gemini(client, parts, effort, max_retries=4):
+    """Call Gemini with automatic retry on transient failures (503 UNAVAILABLE,
+    429 RESOURCE_EXHAUSTED, etc.). Uses exponential backoff: 4s, 8s, 16s, 32s."""
+    import time as _time
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            resp = client.models.generate_content(
+                model=MODEL,
+                contents=parts,
+                config=build_config(effort),
+            )
+            text = resp.text or ""
+            usage = resp.usage_metadata
+            return text, usage
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc).upper()
+            transient = any(tok in msg for tok in (
+                "UNAVAILABLE", "503", "RESOURCE_EXHAUSTED", "429",
+                "DEADLINE_EXCEEDED", "504", "INTERNAL", "500",
+            ))
+            if not transient or attempt == max_retries:
+                raise
+            wait_s = 4 * (2 ** attempt)
+            print(f"[Gemini] Transient error on attempt {attempt+1}: {exc}. "
+                  f"Retrying in {wait_s}s...")
+            _time.sleep(wait_s)
+    # Shouldn't reach here, but safety net
+    raise last_exc if last_exc else RuntimeError("Gemini call failed.")
 
 
 def extract_json_and_summary(text):

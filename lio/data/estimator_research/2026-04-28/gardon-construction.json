@@ -1,0 +1,39 @@
+{
+  "company": "Gardon Construction Ltd.",
+  "researched_at": "2026-04-28T16:20:00Z",
+  "website": "https://gardonconstruction.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Shane Johnson",
+      "title": "Chief Estimator, Gardon Construction Ltd.",
+      "email": "sjohnson@gardonconstruction.com",
+      "phone": null,
+      "linkedin": "https://www.linkedin.com/in/shane-johnson-001a58a1/",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": ["Associate of Sciences (AS)"],
+      "personalization_hooks": [
+        "Direct email is public (sjohnson@gardonconstruction.com) — easiest first-touch in this entire batch of 30",
+        "Chief Estimator title — runs the bid list at Gardon",
+        "AS degree (sciences background) — values data; Ashrah's 6-day delay forecasting and structured reporting will land",
+        "Gardon is a mid-sized Manitoba commercial GC — reach out with a short note + a one-pager on the daily report system"
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/shane-johnson-001a58a1/", "claim": "Title: Chief Estimator at Gardon Construction"},
+        {"url": "https://www.zoominfo.com/p/Shane-Johnson/2299419947", "claim": "Email confirmed: sjohnson@gardonconstruction.com"},
+        {"url": "https://www.gardonconstruction.com/our-team", "claim": "Team page exists"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": null,
+    "title": null,
+    "rationale": "Shane is the named Chief Estimator with public email — go direct. Gardon's Our Team page lists additional staff if needed."
+  },
+  "needs_review_flags": [
+    "Confirm Shane's tenure years",
+    "Identify any junior estimators reporting to Shane"
+  ]
+}

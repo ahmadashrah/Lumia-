@@ -1,0 +1,28 @@
+{
+  "company": "Hedman Construction Ltd.",
+  "researched_at": "2026-04-28T16:25:00Z",
+  "website": "https://hedmanconst.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "David Hedman",
+    "title": "Owner, Hedman Construction Ltd.",
+    "phone": "204-284-0277",
+    "rationale": "Commercial GC since 1997 (~28 years). David is the owner — likely runs estimating personally. Hedman explicitly markets 'quick, accurate budget estimates' for property managers / leasing agents — they value speed in the bid process, which means they value subs that turn around bids fast. Office: 557 Marion St, Saint Boniface. Graham Wiebe was listed as a contact on a city contractor document — possible secondary contact."
+  },
+  "needs_review_flags": [
+    "No dedicated estimator surfaced; David likely owns the estimating function",
+    "Verify Graham Wiebe role at Hedman"
+  ],
+  "personalization_hooks": [
+    "Commercial GC since 1997 — institutional Manitoba builder",
+    "Explicitly markets fast budget estimates for property managers — pitch Ashrah's 24-hour bid turnaround as an aligned value",
+    "St. Boniface office — south-east Winnipeg",
+    "Property-management-driven bid flow = high-frequency repeat tenant-improvement work, lots of paint scope"
+  ],
+  "sources": [
+    {"url": "https://hedmanconst.com/", "claim": "Hedman commercial GC; quick budget estimates value prop"},
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/general-contractor/hedman-construction-ltd-0057-31605", "claim": "Owner David Hedman"},
+    {"url": "https://www.yellowpages.ca/bus/Manitoba/Saint-Boniface/Hedman-Construction-Ltd/2312300.html", "claim": "Address 557 Marion St"}
+  ]
+}

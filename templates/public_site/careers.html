@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Careers — Ashrah Painting</title>
+<link rel="icon" href="/static/site_design/ashrah-logo.jpeg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/site_design/styles.css" />
+<style>
+  /* Careers-page specific */
+  .careers-hero {
+    padding: clamp(80px, 9vw, 130px) var(--pad-x) 40px;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: clamp(40px, 6vw, 80px);
+    align-items: end;
+    border-bottom: 1px solid var(--line);
+  }
+  .careers-hero h1 {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 800; font-stretch: 75%;
+    font-size: clamp(48px, 7vw, 104px);
+    line-height: 0.94;
+    letter-spacing: -0.025em;
+    text-transform: uppercase;
+    margin: 24px 0 0;
+    text-wrap: balance;
+  }
+  .careers-hero h1 em {
+    font-style: normal;
+    -webkit-text-stroke: 1.5px var(--ink);
+    color: transparent;
+  }
+  .careers-hero .underline {
+    background-image: var(--rainbow);
+    background-size: 100% 0.12em;
+    background-position: 0 92%;
+    background-repeat: no-repeat;
+    padding-bottom: 0.04em;
+  }
+  .careers-hero p.lede {
+    font-size: clamp(16px, 1.3vw, 19px);
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 52ch;
+    margin: 28px 0 0;
+  }
+  .careers-hero-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--bone-2);
+  }
+  .careers-hero-stats div {
+    padding: 22px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .careers-hero-stats div:nth-child(2n) { border-right: 0; }
+  .careers-hero-stats div:nth-last-child(-n+2) { border-bottom: 0; }
+  .careers-hero-stats b {
+    display: block;
+    font-family: 'Archivo', sans-serif;
+    font-weight: 800; font-stretch: 75%;
+    font-size: 36px; letter-spacing: -0.01em;
+    line-height: 1; margin-bottom: 6px;
+  }
+  .careers-hero-stats span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--mute);
+  }
+
+  /* Open roles list */
+  .roles-section {
+    padding: clamp(60px, 8vw, 100px) var(--pad-x);
+  }
+  .roles-list {
+    list-style: none; padding: 0; margin: 24px 0 0;
+    display: grid; gap: 0;
+    border-top: 1px solid var(--line);
+  }
+  .roles-list li {
+    display: grid;
+    grid-template-columns: 48px 1.4fr 1fr auto;
+    gap: 20px; align-items: center;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--line);
+    transition: padding-left .25s;
+  }
+  .roles-list li:hover { padding-left: 12px; }
+  .role-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.12em;
+    color: var(--mute);
+  }
+  .role-title {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700; font-stretch: 75%;
+    font-size: clamp(22px, 2.2vw, 28px);
+    letter-spacing: -0.005em;
+    text-transform: uppercase;
+    line-height: 1.05;
+  }
+  .role-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.06em;
+    color: var(--mute);
+    margin-top: 4px;
+  }
+  .role-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .role-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--ink);
+  }
+  .role-apply {
+    display: inline-flex; align-items: center; gap: 8px;
+    text-decoration: none;
+    color: var(--bone); background: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px; font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 999px;
+    transition: transform .12s;
+  }
+  .role-apply:hover { transform: translateY(-1px); }
+
+  /* Why work here */
+  .why {
+    padding: clamp(60px, 8vw, 100px) var(--pad-x);
+    background: var(--bone-2);
+    border-block: 1px solid var(--line);
+  }
+  .why-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: clamp(40px, 6vw, 80px);
+    align-items: start;
+  }
+  .why-grid h2 {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 800; font-stretch: 75%;
+    font-size: clamp(36px, 4.2vw, 60px);
+    line-height: 0.96; letter-spacing: -0.02em;
+    text-transform: uppercase;
+    margin: 12px 0 0;
+    text-wrap: balance;
+  }
+  .why-grid h2 em {
+    font-style: normal;
+    -webkit-text-stroke: 1.5px var(--ink);
+    color: transparent;
+  }
+  .why-list {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; gap: 0;
+    border-top: 1px solid var(--line);
+  }
+  .why-list li {
+    display: grid;
+    grid-template-columns: 50px 1fr;
+    gap: 18px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .why-list .why-n {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.12em;
+    color: var(--mute);
+  }
+  .why-list b {
+    display: block;
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700; font-stretch: 75%;
+    font-size: 19px; letter-spacing: -0.005em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .why-list p { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+
+  /* Apply form */
+  .apply {
+    padding: clamp(60px, 8vw, 100px) var(--pad-x);
+  }
+  .apply-head { max-width: 64ch; }
+  .apply-head h2 {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 800; font-stretch: 75%;
+    font-size: clamp(36px, 4.2vw, 64px);
+    line-height: 0.96; letter-spacing: -0.02em;
+    text-transform: uppercase;
+    margin: 12px 0 16px;
+    text-wrap: balance;
+  }
+  .apply-head h2 em {
+    font-style: normal;
+    -webkit-text-stroke: 1.5px var(--ink);
+    color: transparent;
+  }
+  .apply-head p {
+    font-size: 16px; color: var(--ink-2); line-height: 1.5;
+    max-width: 60ch;
+  }
+  .apply-form {
+    margin-top: 36px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    padding: 32px;
+    background: var(--bone-2);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+  }
+  .apply-form .full { grid-column: 1 / -1; }
+  .apply-form .field { display: flex; flex-direction: column; gap: 6px; }
+  .apply-form label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+  .apply-form input, .apply-form select, .apply-form textarea {
+    background: var(--bone);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color .15s, background .15s;
+  }
+  .apply-form input:focus, .apply-form select:focus, .apply-form textarea:focus {
+    border-color: var(--ink);
+  }
+  .apply-form textarea { resize: vertical; min-height: 110px; }
+
+  /* Resume drop */
+  .drop {
+    position: relative;
+    background: var(--bone);
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 12px;
+    padding: 28px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    transition: all .15s;
+    min-height: 140px;
+  }
+  .drop:hover { border-color: var(--ink); background: color-mix(in oklch, var(--bone) 80%, var(--accent) 6%); }
+  .drop.drag { border-color: var(--accent); border-style: solid; background: color-mix(in oklch, var(--bone) 70%, var(--accent) 10%); }
+  .drop.has-file { border-style: solid; border-color: var(--ink); }
+  .drop input[type="file"] {
+    position: absolute; inset: 0;
+    opacity: 0; cursor: pointer;
+  }
+  .drop-icon {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: var(--ink); color: var(--bone);
+    display: grid; place-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  .drop-title {
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700; font-stretch: 75%;
+    font-size: 18px;
+    text-transform: uppercase;
+    letter-spacing: -0.005em;
+  }
+  .drop-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-top: 6px;
+  }
+  .drop-file {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%;
+    background: var(--bone-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 12px;
+    text-align: left;
+  }
+  .drop-file .fname {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px; font-weight: 600;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .drop-file .fmeta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--mute);
+    letter-spacing: 0.06em;
+  }
+  .drop-clear {
+    appearance: none; border: 0; background: transparent;
+    color: var(--mute); cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 8px; border-radius: 6px;
+  }
+  .drop-clear:hover { background: rgba(0,0,0,.06); color: var(--ink); }
+
+  .apply-submit {
+    grid-column: 1 / -1;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 14px;
+    margin-top: 4px;
+  }
+  .apply-submit small {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mute);
+    max-width: 40ch;
+  }
+  .success {
+    grid-column: 1 / -1;
+    padding: 22px 28px;
+    border-radius: 14px;
+    background: var(--ink); color: var(--bone);
+    display: flex; align-items: center; gap: 18px;
+  }
+  .success .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #34d76a;
+    box-shadow: 0 0 0 4px rgba(52,215,106,.18);
+  }
+  .success b {
+    display: block;
+    font-family: 'Archivo', sans-serif;
+    font-weight: 700; font-stretch: 75%;
+    text-transform: uppercase;
+    font-size: 18px; letter-spacing: -0.005em;
+  }
+  .success span {
+    font-size: 13.5px;
+    color: rgba(244,241,236,.78);
+  }
+
+  @media (max-width: 900px) {
+    .careers-hero { grid-template-columns: 1fr; }
+    .roles-list li { grid-template-columns: 36px 1fr; }
+    .roles-list .role-meta-cell, .roles-list .role-apply { grid-column: 2; }
+    .why-grid { grid-template-columns: 1fr; }
+    .apply-form { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+const ROLES = [
+  { id: 'painter', t: 'Commercial Painter', loc: 'Winnipeg, MB', type: 'Full-time', pay: '$24–32 / hr', tags: ['Interior', 'Exterior', '2+ yrs exp.'] },
+  { id: 'foreman', t: 'Foreman / Lead Hand', loc: 'Winnipeg, MB', type: 'Full-time', pay: '$32–42 / hr', tags: ['5+ yrs exp.', 'Crew lead', 'Driver\'s license'] },
+  { id: 'cleaner', t: 'Post-construction Cleaner', loc: 'Winnipeg · Kenora', type: 'Full-time / PT', pay: '$20–26 / hr', tags: ['Detail-focused', 'Reliable transport'] },
+  { id: 'industrial', t: 'Industrial Coatings Applicator', loc: 'Manitoba-wide', type: 'Full-time', pay: '$28–38 / hr', tags: ['Epoxy / urethane', 'Spray cert.', 'Travel'] },
+];
+
+function NavBar() {
+  return (
+    <nav className="nav">
+      <a href="/site/" className="nav-brand">
+        <img src="/static/site_design/ashrah-logo.jpeg" alt="Ashrah Painting" />
+        <div className="nav-brand-text">
+          Ashrah <em>Painting</em>
+          <small>EST. MANITOBA · KENORA</small>
+        </div>
+      </a>
+      <div className="nav-links">
+        <a href="/site/#services">Services</a>
+        <a href="/site/#process">Process</a>
+        <a href="/site/#portal">Portal</a>
+        <a href="careers.html" style={{color:'var(--accent)'}}>Careers</a>
+        <a href="/site/#contact">Contact</a>
+      </div>
+      <div className="nav-cta">
+        <a href="#apply" className="btn btn-primary">Apply now <span className="arrow">→</span></a>
+      </div>
+    </nav>
+  );
+}
+
+function CareersHero() {
+  return (
+    <section className="careers-hero">
+      <div>
+        <div className="eyebrow">Careers · Ashrah Painting</div>
+        <h1>
+          Good crews. <em>Good tools.</em><br/>
+          <span className="underline">Good work.</span>
+        </h1>
+        <p className="lede">
+          We're a Manitoba-based commercial painting &amp; post-construction cleaning company hiring crew across the province and Kenora. Steady commercial work, real schedules, the right gear, and a tech-first ops platform that makes the job easier — not harder.
+        </p>
+      </div>
+      <div className="careers-hero-stats">
+        <div><b>4</b><span>Open roles</span></div>
+        <div><b>$5M</b><span>Insured</span></div>
+        <div><b>WCB</b><span>Manitoba covered</span></div>
+        <div><b>24/7</b><span>Operations</span></div>
+      </div>
+    </section>
+  );
+}
+
+function OpenRoles({ onSelect }) {
+  return (
+    <section className="roles-section" id="roles">
+      <div className="section-coord"><span className="dot" /><span>01 / Open roles</span></div>
+      <div className="eyebrow">Open positions</div>
+      <h2 className="display" style={{fontWeight:800, fontStretch:'75%', fontSize:'clamp(34px, 4vw, 56px)', textTransform:'uppercase', letterSpacing:'-0.02em', lineHeight:0.96, margin:'12px 0 8px', textWrap:'balance', maxWidth:'18ch'}}>
+          What we're hiring for.
+      </h2>
+      <ul className="roles-list">
+        {ROLES.map((r, i) => (
+          <li key={r.id}>
+            <div className="role-num">/ {String(i+1).padStart(2,'0')}</div>
+            <div>
+              <div className="role-title">{r.t}</div>
+              <div className="role-meta role-meta-cell">{r.loc} · {r.type} · {r.pay}</div>
+            </div>
+            <div className="role-tags">
+              {r.tags.map(t => <span key={t} className="role-tag">{t}</span>)}
+            </div>
+            <a href="#apply" className="role-apply" onClick={() => onSelect(r.id)}>
+              Apply <span className="arrow">→</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function WhyWorkHere() {
+  const items = [
+    ['01', 'Steady work, real schedules', 'Commercial pipeline, not bouncing between random residential jobs. Phased plans you can see weeks in advance.'],
+    ['02', 'The right gear', 'Lifts, sprayers, scaffold, sanders — kept maintained. We invest in tools so you don\'t fight them.'],
+    ['03', 'Paid training', 'Specialty coatings, industrial environments, working around live machinery — we train you and pay you while we do it.'],
+    ['04', 'Software that works with you', 'GPS check-in, day-log on your phone, paint records logged once and done. No paperwork end-of-day.'],
+    ['05', 'WCB + $5M insured', 'Full Manitoba WCB coverage. You\'re protected on every site.'],
+    ['06', 'Grow with us', 'Painter → foreman → ops is a real path here. We promote from inside first.'],
+  ];
+  return (
+    <section className="why">
+      <div className="section-coord"><span className="dot" /><span>02 / Why Ashrah</span></div>
+      <div className="why-grid">
+        <div>
+          <div className="eyebrow">Why work here</div>
+          <h2>We treat the crew like <em>the product.</em></h2>
+        </div>
+        <ul className="why-list">
+          {items.map(([n, t, d]) => (
+            <li key={n}>
+              <div className="why-n">/ {n}</div>
+              <div>
+                <b>{t}</b>
+                <p>{d}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function ApplyForm({ initialRole, onPicked }) {
+  const [role, setRole] = useState(initialRole || '');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [exp, setExp] = useState('');
+  const [city, setCity] = useState('');
+  const [about, setAbout] = useState('');
+  const [file, setFile] = useState(null);
+  const [drag, setDrag] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (initialRole) setRole(initialRole);
+  }, [initialRole]);
+
+  const handleFile = (f) => {
+    if (!f) return;
+    const max = 10 * 1024 * 1024;
+    if (f.size > max) { alert('Resume must be 10 MB or smaller.'); return; }
+    setFile(f);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDrag(false);
+    handleFile(e.dataTransfer.files?.[0]);
+  };
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!file) { alert('Please attach your resume.'); return; }
+    setSubmitted(true);
+  };
+
+  const fmtSize = (b) => b < 1024*1024 ? `${(b/1024).toFixed(0)} KB` : `${(b/1024/1024).toFixed(2)} MB`;
+
+  return (
+    <section className="apply" id="apply">
+      <div className="section-coord"><span className="dot" /><span>03 / Apply</span></div>
+      <div className="apply-head">
+        <div className="eyebrow">Apply</div>
+        <h2>Drop your <em>resume</em> below.</h2>
+        <p>Fill in your details, attach your resume (PDF or DOCX, up to 10 MB), and we'll be in touch within 2 business days. No cover letter needed.</p>
+      </div>
+
+      {submitted ? (
+        <div className="apply-form">
+          <div className="success">
+            <span className="dot" />
+            <div>
+              <b>Application received.</b>
+              <span>Thanks {name.split(' ')[0] || 'there'} — we'll review your resume and reach out within 2 business days at {email}.</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <form className="apply-form" onSubmit={submit}>
+          <div className="field full">
+            <label>Role you're applying for</label>
+            <select required value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">— Select a role —</option>
+              {ROLES.map(r => <option key={r.id} value={r.id}>{r.t}</option>)}
+              <option value="general">Open application (no specific role)</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Full name</label>
+            <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+          </div>
+          <div className="field">
+            <label>Phone</label>
+            <input required type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(204) 000-0000" />
+          </div>
+
+          <div className="field">
+            <label>Email</label>
+            <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+          </div>
+          <div className="field">
+            <label>City you can work from</label>
+            <input required value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Winnipeg, Brandon, Kenora" />
+          </div>
+
+          <div className="field">
+            <label>Years of experience</label>
+            <select required value={exp} onChange={(e) => setExp(e.target.value)}>
+              <option value="">— Select —</option>
+              <option>0 – 1 years</option>
+              <option>1 – 3 years</option>
+              <option>3 – 5 years</option>
+              <option>5 – 10 years</option>
+              <option>10+ years</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Driver's license?</label>
+            <select required defaultValue="">
+              <option value="">— Select —</option>
+              <option>Yes, Class 5</option>
+              <option>Yes, Class 3 or higher</option>
+              <option>No</option>
+            </select>
+          </div>
+
+          <div className="field full">
+            <label>Tell us about your experience (optional)</label>
+            <textarea value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Types of jobs, specialty coatings, equipment you've run, certifications, references..." />
+          </div>
+
+          <div className="field full">
+            <label>Resume (PDF or DOCX, max 10 MB)</label>
+            <div
+              className={`drop ${drag ? 'drag' : ''} ${file ? 'has-file' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={onDrop}
+              onClick={() => inputRef.current?.click()}
+            >
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf"
+                onChange={(e) => handleFile(e.target.files?.[0])}
+              />
+              {!file ? (
+                <React.Fragment>
+                  <div className="drop-icon">↑</div>
+                  <div className="drop-title">Drop your resume here</div>
+                  <div className="drop-sub">or click to browse · PDF / DOCX · up to 10 MB</div>
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <div className="drop-icon">✓</div>
+                  <div className="drop-title">Resume attached</div>
+                  <div className="drop-file" onClick={(e) => e.stopPropagation()}>
+                    <span className="fname">{file.name}</span>
+                    <span className="fmeta">{fmtSize(file.size)}</span>
+                    <button type="button" className="drop-clear" onClick={(e) => { e.stopPropagation(); setFile(null); }}>Replace</button>
+                  </div>
+                </React.Fragment>
+              )}
+            </div>
+          </div>
+
+          <div className="apply-submit">
+            <small>By submitting you agree we can contact you about this role. Your info isn't shared with anyone else.</small>
+            <button type="submit" className="btn btn-primary">Submit application <span className="arrow">→</span></button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function FooterMini() {
+  return (
+    <footer className="foot" style={{paddingTop:40}}>
+      <div className="foot-bot" style={{paddingTop:0, borderTop:0}}>
+        <span>© 2026 Ashrah Painting Ltd. · 1100 Notre Dame Ave, Winnipeg MB · info@ashrahpainting.ca</span>
+        <span><a href="/site/" style={{color:'inherit'}}>← Back to main site</a></span>
+      </div>
+    </footer>
+  );
+}
+
+function App() {
+  const [picked, setPicked] = useState('');
+  return (
+    <React.Fragment>
+      <NavBar />
+      <CareersHero />
+      <OpenRoles onSelect={setPicked} />
+      <WhyWorkHere />
+      <ApplyForm initialRole={picked} />
+      <FooterMini />
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

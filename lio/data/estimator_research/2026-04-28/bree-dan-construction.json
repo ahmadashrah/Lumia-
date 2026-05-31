@@ -1,0 +1,29 @@
+{
+  "company": "Bree-Dan Construction Ltd.",
+  "researched_at": "2026-04-28T16:10:00Z",
+  "website": "https://breedan.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Kevin Burton",
+    "title": "President / General Manager, Bree-Dan Construction Ltd.",
+    "email": "k***@breedan.ca (likely kevin@breedan.ca or kburton@breedan.ca)",
+    "rationale": "Family-run firm, no dedicated estimator title surfaced. Kevin runs estimating personally based on size of company and his Carpenter background. Brandan Burton (Executive VP, likely his son or nephew) is the secondary contact."
+  },
+  "needs_review_flags": [
+    "No dedicated estimator title in the company; estimating is owner-handled",
+    "Confirm exact email pattern (firstname@breedan.ca vs firstinitial+lastname)"
+  ],
+  "personalization_hooks": [
+    "Kevin Burton is a Red River College Carpenter program graduate — STRONG shared-trades-pipeline angle. Ahmad's painters often come through Red River. Lead with this.",
+    "Family-run company (Burton family — Kevin + Brandan + Amy Bree on accounting) — second-generation Manitoba builder vibes",
+    "Pitch the structured painter training — resonates with a President who came up through trades himself",
+    "Commercial + residential mix — paint scope variety"
+  ],
+  "sources": [
+    {"url": "https://ca.linkedin.com/in/kevin-burton-74515a63", "claim": "Kevin Burton — Bree-Dan Construction Ltd, Red River College Carpenter"},
+    {"url": "https://www.zoominfo.com/p/Kevin-Burton/10395713757", "claim": "General Manager title, email pattern @breedan.ca"},
+    {"url": "https://www.zoominfo.com/p/Brandan-Burton/9959870332", "claim": "Brandan Burton — Executive VP"},
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/general-contractor/bree-dan-construction-ltd-0057-33694", "claim": "BBB profile / Winnipeg general contractor"}
+  ]
+}

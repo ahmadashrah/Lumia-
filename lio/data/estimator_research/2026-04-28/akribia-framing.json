@@ -1,0 +1,22 @@
+{
+  "company": "Akribia Framing",
+  "researched_at": "2026-04-28T16:00:00Z",
+  "website": "https://www.akribiaframing.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": null,
+    "title": null,
+    "rationale": "Phone 204-257-4242 and ask for the estimating department or owner. Akribia is a framing subcontractor (commercial buildings in Winnipeg, MB and Western Canada). Note that as a framing sub themselves, Akribia is more of a peer/partner than a GC-buyer of painting — they sometimes GC small projects but the strongest angle is partnership: refer painting to them when they need a sub on builds where they're framing."
+  },
+  "needs_review_flags": [
+    "Akribia is primarily a framing subcontractor, not a GC — this may be a partner relationship rather than a bid-list opportunity",
+    "No public leadership names surfaced",
+    "Phone 204-257-4242 to introduce and ask who handles their estimating / who they recommend painters work with"
+  ],
+  "sources": [
+    {"url": "https://www.akribiaframing.ca/", "claim": "Company exists, framing services Winnipeg / Manitoba / Western Canada"},
+    {"url": "https://www.findglocal.com/CA/Unknown/110336443835436/Akribia-Framing", "claim": "Phone number 204-257-4242"},
+    {"url": "https://ca.linkedin.com/company/akribia-framing", "claim": "Akribia Framing LinkedIn company page exists"}
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.617059",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "form-structures-steve",
+  "to_name": "Steve",
+  "to_email": "sw@formstructuresweastren.ca",
+  "company": "Form Structures Western",
+  "segment": "GC",
+  "angle_used": "Pain: chasing painters / no surface damage",
+  "subject": "Commercial paint sub that doesn't go dark",
+  "body": "Hi Steve,\n\nQuick intro — Ashrah Painting, Winnipeg-based commercial.\n\nMost painting subs make your PM chase. Status calls, missed updates, dings on finished surfaces at handoff. We do it differently: Lumia auto-reports daily plus answers your PM on demand. Six-day delay forecasting. Pro cleaning at handoff with no surface damage.\n\nOpen to a 10-minute call?",
+  "cta": "Open to a 10-minute call?",
+  "signals_used": "None — site unreachable, web search inconclusive.",
+  "needs_review_flags": [
+    "Email domain has typo ('weastren' vs. 'western') — verify domain before send.",
+    "Last name missing.",
+    "Generic anchor — consider deferring until we have actual signals on this company."
+  ]
+}

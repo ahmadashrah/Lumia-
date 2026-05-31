@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ settings.company_name }} — One crew. Paint and clean. No coordination headaches.</title>
+<meta name="description" content="{{ settings.tagline }}" />
+<link rel="icon" href="/static/site_design/ashrah-logo.jpeg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/site_design/styles.css" />
+
+<!-- Server-driven settings — components.jsx may read window.SITE to inject -->
+<script>
+window.SITE = {
+  company:       {{ settings.company_name|tojson }},
+  tagline:       {{ settings.tagline|tojson }},
+  address:       {{ settings.address|tojson }},
+  phone:         {{ settings.phone|tojson }},
+  email:         {{ settings.email|tojson }},
+  hours:         {{ (settings.hours or '24/7')|tojson }},
+  insurance:     {{ (settings.insurance or '$5M')|tojson }},
+  ai_projects:   {{ (settings.ai_projects or '65')|tojson }},
+  ai_accuracy:   {{ (settings.ai_accuracy or '95%')|tojson }},
+  forecast_days: {{ (settings.forecast_days or '6')|tojson }},
+  service_area:  {{ (settings.service_area or 'Manitoba & Kenora')|tojson }},
+  linkedin:      {{ settings.linkedin|tojson }},
+  instagram:     {{ settings.instagram|tojson }},
+  facebook:      {{ settings.facebook|tojson }}
+};
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="/static/site_design/components.jsx"></script>
+<script type="text/babel">
+function App() {
+  // Visual settings driven from Lumia CMS — no dev tweaks panel in production.
+  React.useEffect(() => {
+    document.documentElement.dataset.theme   = 'light';
+    document.documentElement.dataset.density = 'tight';
+    document.documentElement.style.setProperty('--accent', {{ (settings.primary_color or '#E91E63')|tojson }});
+  }, []);
+
+  return (
+    <React.Fragment>
+      <Nav />
+      <Hero headline="a" />
+      <Marquee />
+      <Services />
+      <Process />
+      <Trust />
+      <Careers />
+      <Contact />
+      <Quote />
+      <Footer />
+      <LumiaFab />
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

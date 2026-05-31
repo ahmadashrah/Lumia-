@@ -1,0 +1,15 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.617119",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "gardon-construction-shane-johnson",
+  "to_name": "Shane Johnson",
+  "to_email": "sjohnson@gardonconstruction.com",
+  "company": "Gardon Construction",
+  "segment": "GC",
+  "angle_used": "Estimator: AI bid in 24h, 13% lower",
+  "subject": "Painting bids in 24 hours for Gardon",
+  "body": "Hi Shane,\n\nGardon's range — MEC, Prairie Mountain CU, Seven Oaks PAC — means your bid book hits a lot of spec types. Most painting subs slow that down with week-long turnarounds and bloated estimator-overhead numbers.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs. Plus Lumia auto-status during the job and pro cleanup at handoff with no surface damage.\n\nWant us added to Gardon's painting bid list?",
+  "cta": "Want us added to Gardon's painting bid list?",
+  "signals_used": "Gardon = ~40 yrs Manitoba/Western Canada; MEC, Prairie Mountain CU, Seven Oaks PAC; COR + Gold Seal.",
+  "needs_review_flags": []
+}

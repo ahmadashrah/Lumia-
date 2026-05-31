@@ -1,0 +1,75 @@
+{
+  "company": "Tractus Projects",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://tractusprojects.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Lisa Fedorchuk",
+      "title": "Project Manager (with explicit estimating responsibilities)",
+      "email": null,
+      "phone": "204-942-6035",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Tractus team page explicitly says Lisa's fortes are 'estimating, project planning, scheduling, procuring' and she sees projects 'from estimating to occupancy' — she is the estimator on her jobs.",
+        "PM-Estimator combined seat = she's the trade-pick decision-maker, not just a number-cruncher.",
+        "Tractus does commercial / retail / restaurant / institutional fit-ups — fast-turn schedules where Ashrah's '5:30 PM daily reports' & 6-day delay forecasting solve a real Lisa pain.",
+        "Located at 835 King Edward — Ahmad's local advantage, easy in-person drop-by."
+      ],
+      "sources": [
+        {"url": "https://tractusprojects.com/team/lisa-fedorchuk/", "claim": "Lisa Fedorchuk PM at Tractus, fortes incl. estimating"},
+        {"url": "https://www.zoominfo.com/p/Lisa-Fedorchuk/3461843170", "claim": "Lisa Fedorchuk at Tractus, email l***@tractusprojects.com"}
+      ],
+      "confidence": "high"
+    },
+    {
+      "name": "Chad Horrill",
+      "title": "Senior Project Manager",
+      "email": null,
+      "phone": "204-942-6035",
+      "linkedin": "https://ca.linkedin.com/in/chad-horrill-676b9484",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Senior PM = bid-list decision authority on bigger Tractus jobs. Likely owns trade procurement on larger commercial fit-ups.",
+        "LinkedIn bio cites 'community engagement' — possible board / charity hook for Ahmad to share connections.",
+        "Tenured at Tractus — relationship-based; cold pitches without warm intro will struggle, so position via shared community angle."
+      ],
+      "sources": [
+        {"url": "https://ca.linkedin.com/in/chad-horrill-676b9484", "claim": "Chad Horrill, Senior PM at Tractus Projects"},
+        {"url": "https://www.zoominfo.com/p/Chad-Horrill/1600542882", "claim": "Chad Horrill, Senior PM, c***@tractusprojects.com"}
+      ],
+      "confidence": "high"
+    },
+    {
+      "name": "Joe Paletta",
+      "title": "Project Manager",
+      "email": null,
+      "phone": "204-942-6035",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Third PM at Tractus — Ahmad should reach all three because each likely owns their own bid lists on different jobs."
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/p/Joe-Paletta/3102253204", "claim": "Joe Paletta, PM at Tractus, j***@tractusprojects.com"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Tractus Projects general line",
+    "title": "Front desk",
+    "rationale": "Their brand promise is 'we always answer the phone' — call 204-942-6035 and ask for any of the three PMs."
+  },
+  "needs_review_flags": [
+    "Email format inferred as firstinitial-or-firstname@tractusprojects.com — verify before sending.",
+    "Tractus = highest-yield single target on the list (3 named PMs with estimating authority + local proximity)."
+  ]
+}

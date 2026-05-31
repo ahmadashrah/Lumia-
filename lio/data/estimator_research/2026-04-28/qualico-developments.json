@@ -1,0 +1,21 @@
+{
+  "company": "Qualico Developments",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.qualico.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Qualico Winnipeg Regional Office",
+    "title": "Regional HQ contact",
+    "rationale": "Qualico is a multi-divisional integrated real-estate firm (homebuilding, multi-family, commercial development, property mgmt). Estimator(s) sit inside specific operating divisions (Broadview Homes, etc.), not at corporate. Better to identify the operating division Ahmad wants to chase first, then research that division's estimator."
+  },
+  "needs_review_flags": [
+    "Qualico is a holding company — estimators live inside operating divisions. Need to choose the right division (e.g. Broadview Homes Winnipeg, Sterling Homes, or Qualico Commercial).",
+    "For commercial painting, the relevant divisions are likely Qualico Properties (commercial) and the multi-family arm — not the single-family homebuilding divisions.",
+    "Phone Winnipeg HQ: (204) 233-2451 to ask which division handles commercial sub-trade procurement."
+  ],
+  "sources": [
+    {"url": "https://www.qualico.com/our-company/locations/winnipeg", "claim": "Qualico Winnipeg regional office at One Dr. David Friesen Drive"},
+    {"url": "https://www.broadviewhomeswpg.com/about-us", "claim": "Broadview Homes Winnipeg is a Qualico company"}
+  ]
+}

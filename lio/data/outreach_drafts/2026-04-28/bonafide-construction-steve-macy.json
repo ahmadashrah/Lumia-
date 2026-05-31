@@ -1,0 +1,17 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.618543",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "bonafide-construction-steve-macy",
+  "to_name": "Steve",
+  "to_email": "steve@bonafidecs.ca",
+  "company": "Bonafide Construction Solutions Ltd",
+  "segment": "GC",
+  "angle_used": "Cold estimator: AI bid 24h, 13% lower",
+  "subject": "24-hour painting bids, 13% lower",
+  "body": "Hi Steve,\n\nQuick intro — Lio at Ashrah Painting in Winnipeg.\n\nYou estimate for Bonafide, so you have seen what most painting subs do to a bid book: a week to come back, the number bloated with estimator overhead. Your PM is asking why your bid is high.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs (we don't carry the overhead). Plus Lumia auto-status during the job and pro cleanup at handoff with no surface damage.\n\nWant us added to Bonafide's painting bid list?",
+  "cta": "Want us added to Bonafide's painting bid list?",
+  "signals_used": "Steve Macy = Estimator at Bonafide. Pitch Lumi directly.",
+  "needs_review_flags": [
+    "Stagger 5+ days from Jeff Herlick (same firm — Bonafide)."
+  ]
+}

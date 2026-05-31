@@ -1,0 +1,18 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.616091",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "tractus-projects-joe-palette",
+  "to_name": "Joe Palette",
+  "to_email": "joe@tractusprojects.com",
+  "company": "Tractus Projects",
+  "segment": "GC",
+  "angle_used": "Pain: punch-list at handoff",
+  "subject": "Painting subs that hand over a punch list",
+  "body": "Hi Joe,\n\nTractus's TI book has a tight trade sequence. The painting sub usually decides whether handoff is clean — or whether your PM walks through dings on doors, scuffs on baseboards, drop cloths to clear.\n\nAshrah Painting includes professional cleaning as part of every job. Zero surface damage on walls, doors, finished trim. Your trade sequence isn't blocked by punch list cleanup.\n\nWant our company resume?",
+  "cta": "Want our company resume?",
+  "signals_used": "Tractus retail/restaurant TI focus.",
+  "needs_review_flags": [
+    "Email guessed at joe@tractusprojects.com — VERIFY.",
+    "Stagger from Chad and Lisa."
+  ]
+}

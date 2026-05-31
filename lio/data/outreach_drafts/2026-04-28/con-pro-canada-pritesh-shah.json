@@ -1,0 +1,17 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.617843",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "con-pro-canada-pritesh-shah",
+  "to_name": "Pritesh Shah",
+  "to_email": "pritesh@conpro.mb.ca",
+  "company": "Con-Pro Industries Canada Ltd.",
+  "segment": "GC",
+  "angle_used": "Estimator: 14-yr tenure / AI bid 24h, 13% lower",
+  "subject": "24-hour painting bids, 13% lower",
+  "body": "Hi Pritesh,\n\n14 years as Chief Estimator at Con-Pro means you've seen every painting sub come, go, and come back with a bloated bid a week late. Starbucks Corydon and East Elmwood LEED Gold caliber doesn't tolerate either.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs. Lumia auto-status during the job. Pro cleaning at handoff with no surface damage.\n\nWant us added to Con-Pro's painting bid list?",
+  "cta": "Want us added to Con-Pro's painting bid list?",
+  "signals_used": "Pritesh Shah = Chief Estimator at Con-Pro since 2012 (~14 yrs). Email pattern @conpro.mb.ca (NOT conprocanada.ca).",
+  "needs_review_flags": [
+    "Email pattern guessed at pritesh@conpro.mb.ca — could be pshah@. VERIFY before send."
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "company": "Contempora Steel Builders",
+  "researched_at": "2026-04-28T16:15:00Z",
+  "website": "https://contemporasteel.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Andrew Coleman",
+      "title": "Director of Pre-Construction, Contempora Steel Builders",
+      "email": "a***@contemporasteel.com (likely andrew@contemporasteel.com or acoleman@contemporasteel.com)",
+      "phone": "204-633-7672 (main)",
+      "linkedin": "https://www.linkedin.com/in/andrew-coleman-30b118140/",
+      "tenure_years_at_company": null,
+      "prior_firms": ["Graham Construction (Project Manager)", "Postma Consulting", "Blackwood Construction"],
+      "education": ["Red River College — BTech", "University of Sydney — Bachelor of Economics"],
+      "personalization_hooks": [
+        "Red River College BTech alum — STRONGEST shared-pipeline angle in this entire batch. Lead with this.",
+        "Ex-Graham Construction PM — Graham is a major Winnipeg GC; Andrew has cross-pollinated relationships across both firms",
+        "Bachelor of Economics from University of Sydney — international background, business-minded; Ahmad's automated reporting + delay-forecasting tools resonate with someone who appreciates data-driven cost/schedule control",
+        "His ZoomInfo profile literally calls out 'cost and schedule management' as his strength — Ahmad's 6-day forecast pitch is purpose-built for this person",
+        "Director-level — runs preconstruction and decides bid list at a 47-year Manitoba builder"
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/andrew-coleman-30b118140/", "claim": "Title, education, prior firms"},
+        {"url": "https://www.zoominfo.com/p/Andrew-Coleman/4191698100", "claim": "Director, Pre-Construction at Contempora; email pattern @contemporasteel.com"},
+        {"url": "https://contemporasteel.com/about/", "claim": "Company since 1978; Manitoba commercial design-build specialists"}
+      ],
+      "confidence": "high"
+    },
+    {
+      "name": "Marc Ouimet",
+      "title": "Construction Estimator, Contempora Steel Builders",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Reports into Andrew Coleman's preconstruction group — the day-to-day estimator who actually works the bid math",
+        "Useful as a parallel/secondary point of contact alongside Andrew",
+        "If Ashrah wants to be on a specific bid, Marc is who actually pulls the sub list together"
+      ],
+      "sources": [
+        {"url": "https://rocketreach.co/contempora-steel-builders-management_b4595ff2fc5d5758", "claim": "Marc Ouimet listed as Construction Estimator"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "George Constantinides",
+    "title": "Owner / Sales Director (President), Contempora Steel Builders",
+    "email": "g***@contemporasteel.com",
+    "rationale": "George owns the company (bought it from founder Russ Edwards in 1997), University of Manitoba Architecture grad (1990), came up the firm: draftsman → designer → estimator → sales/owner. Strong Winnipeg roots — born and raised. He came up THROUGH estimating himself, so he respects the discipline. Mention U of M Architecture if Ahmad has any U of M ties."
+  },
+  "needs_review_flags": [
+    "Confirm exact email format @contemporasteel.com",
+    "Marc Ouimet LinkedIn not surfaced — try direct search"
+  ]
+}

@@ -1,0 +1,4458 @@
+[
+  {
+    "id": "bird-construction-group::jason-miller",
+    "name": "Jason Miller",
+    "first_name": "Jason",
+    "last_name": "Miller",
+    "title": "Estimator, Bird Construction (Winnipeg)",
+    "company": "Bird Construction Group",
+    "company_slug": "bird-construction-group",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "https://www.linkedin.com/in/jason-miller-704440158/",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bird-construction-group-jason-miller.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [
+        "Red River College"
+      ],
+      "hooks": [
+        "Red River College alum — very strong shared-pipeline angle for Ahmad (Ashrah's painters often come through Red River trades programs)",
+        "Estimator at Bird Winnipeg — directly on the buyer profile Ashrah is targeting",
+        "Bird is a publicly traded national GC (TSX: BDT) with active Winnipeg projects across institutional, commercial, industrial",
+        "Mention Ashrah's automated 5:30 PM daily site reports — large GCs like Bird care about subs whose paperwork doesn't slow them down"
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Email pattern at Bird should be confirmed — likely firstname.lastname@bird.ca but verify",
+      "Tenure for both contacts not yet confirmed"
+    ]
+  },
+  {
+    "id": "bird-construction-group::umar-sharif",
+    "name": "Umar Sharif",
+    "first_name": "Umar",
+    "last_name": "Sharif",
+    "title": "Senior Manager, Estimating — Bird Construction (Winnipeg, MB)",
+    "company": "Bird Construction Group",
+    "company_slug": "bird-construction-group",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "https://www.linkedin.com/in/umar-sharif-241b2a3b/",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bird-construction-group-umar-sharif.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Senior Manager of Estimating in Winnipeg — runs the estimating function, decides who's on the bid list",
+        "This is the highest-leverage contact at Bird Winnipeg for a painting sub",
+        "Pitch the 6-day delay forecasting — senior estimators care about subs who flag schedule risk early because that protects their own bid math"
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Email pattern at Bird should be confirmed — likely firstname.lastname@bird.ca but verify",
+      "Tenure for both contacts not yet confirmed"
+    ]
+  },
+  {
+    "id": "bockstael-construction::brad-harder",
+    "name": "Brad Harder",
+    "first_name": "Brad",
+    "last_name": "Harder",
+    "title": "Manager, Preconstruction (formerly Construction Estimator)",
+    "company": "Bockstael Construction Limited",
+    "company_slug": "bockstael-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "https://www.linkedin.com/in/brad-harder-64a8826a/",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bockstael-construction-limited-brad-harder.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [
+        "Kiewit",
+        "SADB",
+        "McMahon Services"
+      ],
+      "education": [],
+      "hooks": [
+        "Former Kiewit — progressed from QC Technician to Estimating Engineer, Lead Electrical Field Engineer, Lead Estimator, Project Engineer. Heavy infrastructure background brought into a 110-year Manitoba commercial builder",
+        "Was Senior Estimator at SADB and Building Services Estimator at McMahon Services prior to Bockstael — values rigorous estimating discipline",
+        "Now leads ALL preconstruction at Bockstael — decides the bid list. Highest-leverage single contact in this list of 30",
+        "Bockstael is 100+ years old, family-owned-feel — pitch Ashrah's structured painter training program as 'long-term reliability' to match their multigenerational reputation",
+        "His Kiewit background means he respects subs that bring data and forecasting — lead with the 6-day delay forecasting tool"
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Email pattern likely brad.harder@bockstael.com but ZoomInfo only shows masked b***@bockstael.com — confirm",
+      "Tenure years at Bockstael not yet pinned — LinkedIn shows progression but exact start year needs confirmation"
+    ]
+  },
+  {
+    "id": "bockstael-construction::dan-bockstael",
+    "name": "Dan Bockstael",
+    "first_name": "Dan",
+    "last_name": "Bockstael",
+    "title": "Owner",
+    "company": "Bockstael Construction Limited",
+    "company_slug": "bockstael-construction",
+    "segment": "GC",
+    "email": "dbockstael@bockstael.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bockstael-construction-dan-bockstael.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Owner at Bockstael. We have worked with Bockstael on past jobs. Mention Ahmad by name."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "Stagger 5+ days from Mario Bento (same firm).",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959792",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "bockstael-construction::mario-bento",
+    "name": "Mario Bento",
+    "first_name": "Mario",
+    "last_name": "Bento",
+    "title": "Estimator",
+    "company": "Bockstael Construction Limited",
+    "company_slug": "bockstael-construction",
+    "segment": "GC",
+    "email": "mbento@bockstael.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bockstael-construction-mario-bento.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "We have worked with Bockstael on past jobs. Mention Ahmad by name. Lead with relationship, then update on Lumi."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959804",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "bonafide-construction-solutions::steve-macy",
+    "name": "Steve Macy",
+    "first_name": "Steve",
+    "last_name": "Macy",
+    "title": "Estimator",
+    "company": "Bonafide Construction Solutions Ltd",
+    "company_slug": "bonafide-construction-solutions",
+    "segment": "GC",
+    "email": "steve@bonafidecs.ca",
+    "phone": "204-781-3162",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Active Client",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": "high",
+      "tone": "cold"
+    },
+    "notes": "Estimator at Bonafide — pitch Lumi directly.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959806",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      },
+      {
+        "date": "2026-05-14T18:53:39.882285",
+        "event": "manual.status_change",
+        "detail": "Status 'Cold' -> 'Active Client'. Bonafide onboarded Ashrah as a vendor — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach",
+      "ACTIVE CLIENT — Bonafide onboarded Ashrah as a vendor. Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "con-pro-canada::pritesh-shah",
+    "name": "Pritesh Shah",
+    "first_name": "Pritesh",
+    "last_name": "Shah",
+    "title": "Chief Estimator, Con-Pro Industries Canada Ltd.",
+    "company": "Con-Pro Canada (Con-Pro Industries Canada Ltd.)",
+    "company_slug": "con-pro-canada",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-233-3717 (main)",
+    "linkedin": "https://www.linkedin.com/in/priteshshahchiefestimator/",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/con-pro-canada-pritesh-shah.json",
+    "personalization": {
+      "tenure_years": 14,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Chief Estimator at Con-Pro since 2012 (~14 years tenure) — deep institutional knowledge, has seen many subs come and go. Reliability and reputation matter to him.",
+        "Title literally calls out 'chief estimator' on his LinkedIn URL slug — he's identity-invested in the role; treat him as the buyer, not a gatekeeper",
+        "15+ years estimating experience, diversified projects across Canada",
+        "Con-Pro has been around since 1969 — institutional Manitoba builder. Pitch Ashrah as a long-term partner, not a one-job sub.",
+        "Lead with the 6-day delay forecast — it's exactly the kind of risk-mitigation tool a Chief Estimator at an old-line firm doesn't have but would value"
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Email domain on Con-Pro is conpro.mb.ca (NOT conprocanada.ca despite the website URL) — verify before sending",
+      "Confirm exact firstname.lastname pattern"
+    ]
+  },
+  {
+    "id": "concord-projects::marc-b",
+    "name": "Marc B",
+    "first_name": "Marc",
+    "last_name": "B",
+    "title": "Estimator",
+    "company": "Concord Projects",
+    "company_slug": "concord-projects",
+    "segment": "GC",
+    "email": "marcb@concordprojects.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/concord-projects-marc-b.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "We have worked with Concord on past jobs. Mention Ahmad by name."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959807",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "concord-projects::nik",
+    "name": "Nik",
+    "first_name": "Nik",
+    "last_name": "",
+    "title": "",
+    "company": "Concord Projects",
+    "company_slug": "concord-projects",
+    "segment": "GC",
+    "email": "Nik@concordprojects.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/concord-projects-nik.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "We have worked with Concord on past jobs. Mention Ahmad by name."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "First name only on the tracker — confirm full name before send. Stagger 5+ days from Marc B.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959808",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "contempora-steel-builders::andrew-coleman",
+    "name": "Andrew Coleman",
+    "first_name": "Andrew",
+    "last_name": "Coleman",
+    "title": "Director of Pre-Construction, Contempora Steel Builders",
+    "company": "Contempora Steel Builders",
+    "company_slug": "contempora-steel-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-633-7672 (main)",
+    "linkedin": "https://www.linkedin.com/in/andrew-coleman-30b118140/",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/contempora-steel-builders-andrew-coleman.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [
+        "Graham Construction (Project Manager)",
+        "Postma Consulting",
+        "Blackwood Construction"
+      ],
+      "education": [
+        "Red River College — BTech",
+        "University of Sydney — Bachelor of Economics"
+      ],
+      "hooks": [
+        "Red River College BTech alum — STRONGEST shared-pipeline angle in this entire batch. Lead with this.",
+        "Ex-Graham Construction PM — Graham is a major Winnipeg GC; Andrew has cross-pollinated relationships across both firms",
+        "Bachelor of Economics from University of Sydney — international background, business-minded; Ahmad's automated reporting + delay-forecasting tools resonate with someone who appreciates data-driven cost/schedule control",
+        "His ZoomInfo profile literally calls out 'cost and schedule management' as his strength — Ahmad's 6-day forecast pitch is purpose-built for this person",
+        "Director-level — runs preconstruction and decides bid list at a 47-year Manitoba builder"
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm exact email format @contemporasteel.com",
+      "Marc Ouimet LinkedIn not surfaced — try direct search"
+    ]
+  },
+  {
+    "id": "graham-construction::greg-richards",
+    "name": "Greg Richards",
+    "first_name": "Greg",
+    "last_name": "Richards",
+    "title": "PM Manager",
+    "company": "Graham Construction",
+    "company_slug": "graham-construction",
+    "segment": "GC",
+    "email": "Greg.Richards@graham.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/graham-construction-greg-richards.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "We have worked with Graham on past jobs. Mention Ahmad by name. Greg is PM-side so lead with Lumia ops over Lumi estimating."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959809",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "graham-construction::liberty-bustos",
+    "name": "Liberty Bustos",
+    "first_name": "Liberty",
+    "last_name": "Bustos",
+    "title": "Estimator",
+    "company": "Graham Construction",
+    "company_slug": "graham-construction",
+    "segment": "GC",
+    "email": "Winnipegbids@graham.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/graham-construction-liberty-bustos.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "We have worked with Graham on past jobs. Mention Ahmad by name."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "Email is a generic Winnipeg-bids alias, not a personal mailbox — Liberty reads it but other estimators may too. Address by name to direct it. Stagger 5+ days from Greg Richards.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959810",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "j5-construction::rucil-evangelista",
+    "name": "Rucil Evangelista",
+    "first_name": "Rucil",
+    "last_name": "Evangelista",
+    "title": "",
+    "company": "J5 Construction",
+    "company_slug": "j5-construction",
+    "segment": "GC",
+    "email": "Rucilj5const@gmail.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/j5-construction-rucil-evangelista.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "We have worked with J5 on past jobs. Mention Ahmad by name."
+      ],
+      "confidence": "high",
+      "tone": "warm"
+    },
+    "notes": "Gmail address — small shop. Personal-style email more appropriate than corporate.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959811",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "pcl-special-projects::ryland-carriere",
+    "name": "Ryland Carriere",
+    "first_name": "Ryland",
+    "last_name": "Carriere",
+    "title": "SP Manager",
+    "company": "PCL Special Projects",
+    "company_slug": "pcl-special-projects",
+    "segment": "GC",
+    "email": "rdcarriere@pcl.com",
+    "phone": "204-509-6887",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/pcl-special-projects-ryland-carriere.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": "high",
+      "tone": "cold"
+    },
+    "notes": "PCL Special Projects = small-format commercial reno book, very fit for Ashrah.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959812",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "stand-tall-contracting::jason-zarrillo",
+    "name": "Jason Zarrillo",
+    "first_name": "Jason",
+    "last_name": "Zarrillo",
+    "title": "CEO (functions as estimator)",
+    "company": "Stand Tall Contracting",
+    "company_slug": "stand-tall-contracting",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "https://ca.linkedin.com/in/jason-zarrillo-aa857196",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/stand-tall-contracting-jason-zarrillo.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Customer reviews specifically cite Jason coming to the site personally to do estimates — he is the bid owner.",
+        "Stand Tall = 'Stand Tall Painting and Contracting Inc.' on BBB — they have an in-house painting capability already, which is BOTH a hurdle (overlap) AND an opening (overflow capacity). Ahmad pitch = 'when your in-house team is booked, we keep your reputation intact.'",
+        "Small commercial / retail fit-up specialist — high frequency of small jobs = recurring sub-trade need.",
+        "COR-certified — safety alignment with Ashrah's training narrative."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Stand Tall has in-house painting — Ashrah pitch must explicitly address overflow / specialized scope, not compete head-on.",
+      "Address: 3635 Eldridge Ave, Winnipeg."
+    ]
+  },
+  {
+    "id": "thomas-design-builders::jeff-miller",
+    "name": "Jeff Miller",
+    "first_name": "Jeff",
+    "last_name": "Miller",
+    "title": "President / Owner (background in construction estimating)",
+    "company": "Thomas Design Builders Ltd",
+    "company_slug": "thomas-design-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-500-1213",
+    "linkedin": "https://ca.linkedin.com/in/jeff-miller-4a1b6827",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/thomas-design-builders-jeff-miller.json",
+    "personalization": {
+      "tenure_years": 24,
+      "prior_firms": [],
+      "education": [
+        "Red River College — Design & Construction Technology Diploma (C.E.T.), 1999"
+      ],
+      "hooks": [
+        "STRONG ANGLE: Jeff is a Red River College Design & Construction Technology grad (1999, C.E.T.). Same Winnipeg trades-college community Ahmad can leverage for shared-alumni open.",
+        "Joined Thomas Design Builders in 2002 — 24 years at the firm. President-track lifer; he values long-term sub relationships, not one-off bids.",
+        "Background explicitly in construction estimating + project management — he reads bids closely. Ashrah's accurate-takeoff pitch lands.",
+        "TDB has been design-build since 1980 — 45+ years of repeat-client commercial work; getting on the bid list is a long-term annuity.",
+        "22-employee shop at 2395 Unit C McGillivray Blvd — small enough that Jeff personally responds."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Jeff Miller is the highest-confidence Red River College alumni angle on this list — Ahmad must use this hook.",
+      "Sean Feeney is also linked to TDB on LinkedIn."
+    ]
+  },
+  {
+    "id": "tractus-projects::jaret-horbatiuk",
+    "name": "Jaret Horbatiuk",
+    "first_name": "Jaret",
+    "last_name": "Horbatiuk",
+    "title": "Owner",
+    "company": "Tractus Projects",
+    "company_slug": "tractus-projects",
+    "segment": "GC",
+    "email": "jaret@tractusprojects.com",
+    "phone": "204-297-8840",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Active Client",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": "before-2026-04-29",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/tractus-projects-jaret-horbatiuk.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": "high",
+      "tone": "cold"
+    },
+    "notes": "Owner at Tractus. Other Tractus contacts already in tracker (Chad, Lisa, Joe). Stagger 5+ days from those.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959814",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      },
+      {
+        "date": "2026-05-14T18:54:54.701314",
+        "event": "manual.status_change",
+        "detail": "Status 'Contacted' -> 'Active Client'. Tractus onboarded Ashrah — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach",
+      "ACTIVE CLIENT — Tractus onboarded Ashrah — partnership now live. Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "valdek-construction::matt-adamiec",
+    "name": "Matt Adamiec",
+    "first_name": "Matt",
+    "last_name": "Adamiec",
+    "title": "Founder / Owner (functions as estimator)",
+    "company": "Valdek Construction Inc",
+    "company_slug": "valdek-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/valdek-construction-matt-adamiec.json",
+    "personalization": {
+      "tenure_years": 12,
+      "prior_firms": [
+        "KGS Group (technologist, structural)"
+      ],
+      "education": [
+        "Red River College — Civil Engineering Diploma (structural focus)"
+      ],
+      "hooks": [
+        "STRONG ANGLE: Matt is a Red River College Civil Engineering Diploma grad — direct shared-alumni hook for Ahmad.",
+        "Prior firm: KGS Group (well-known Winnipeg structural consulting engineer) — Matt has the structural-eng vocabulary and respects accurate takeoffs.",
+        "Grew up in a contracting household with his dad — values relationships and craftsmanship narrative; Ashrah's painter-training story will resonate.",
+        "Founded 2014 (12 years in) — small enough that Matt personally bids every job; he is the entire estimating department.",
+        "Won 'Best of TrustedPros 2020' across 6 categories incl. Painting — they have in-house painting capability; pitch as overflow / specialty (high-end finishes, large commercial scale)."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Valdek is renovation-focused (basements, kitchens, baths, additions) — commercial scope is limited. Lower-priority target unless they're growing into commercial fit-up.",
+      "In-house painting capability noted — frame the pitch as overflow / specialty.",
+      "Address: 1354 Spruce St, Winnipeg."
+    ]
+  },
+  {
+    "id": "winnipeg-building-decorating::dale-frandsen",
+    "name": "Dale Frandsen",
+    "first_name": "Dale",
+    "last_name": "Frandsen",
+    "title": "Senior Estimator",
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "company_slug": "winnipeg-building-decorating",
+    "segment": "GC",
+    "email": "",
+    "phone": "(204) 942-6121",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/winnipeg-building-decorating-dale-frandsen.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Senior Estimator at a 70+ year Winnipeg institution — Dale is the bid-list owner.",
+        "WBD scope = insurance restoration + commercial reno + new construction. Insurance restoration jobs are high-frequency/repeatable painting work — strong fit for Ashrah.",
+        "Email format pgbldg.com / wpgbldg.com — likely dale@wpgbldg.com or dfrandsen@wpgbldg.com (verify).",
+        "WBD founded 1953 by Donald T. MacAngus — heritage-firm gravitas; Ahmad's 'protect your reputation' framing fits their identity."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "WBD is the strongest single target on the list: 3 named estimators, 70-year heritage firm, commercial+insurance restoration scope.",
+      "Email domain confusion: ZoomInfo shows pgbldg.com, RocketReach/website may show wpgbldg.com — verify before sending.",
+      "Address: 1586 Wall St, Winnipeg."
+    ]
+  },
+  {
+    "id": "winnipeg-building-decorating::darci-lee-tessier",
+    "name": "Darci-lee Tessier",
+    "first_name": "Darci-lee",
+    "last_name": "Tessier",
+    "title": "Project Assistant & Estimator",
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "company_slug": "winnipeg-building-decorating",
+    "segment": "GC",
+    "email": "",
+    "phone": "(204) 942-6121",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/winnipeg-building-decorating-darci-lee-tessier.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Junior estimator role — most receptive to new sub relationships.",
+        "Email visible as d***@wpgbldg.com — likely dtessier@wpgbldg.com.",
+        "Often the gatekeeper for incoming bid invitations — befriending her opens the door for Dale and Matthew."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "WBD is the strongest single target on the list: 3 named estimators, 70-year heritage firm, commercial+insurance restoration scope.",
+      "Email domain confusion: ZoomInfo shows pgbldg.com, RocketReach/website may show wpgbldg.com — verify before sending.",
+      "Address: 1586 Wall St, Winnipeg."
+    ]
+  },
+  {
+    "id": "winnipeg-building-decorating::matthew-keys",
+    "name": "Matthew Keys",
+    "first_name": "Matthew",
+    "last_name": "Keys",
+    "title": "Project Managing Estimator",
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "company_slug": "winnipeg-building-decorating",
+    "segment": "GC",
+    "email": "",
+    "phone": "(204) 942-6121",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 1,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/winnipeg-building-decorating-matthew-keys.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "PM-Estimator hybrid = he both bids the work and manages it — once Ashrah is on his short list, repeat work is automatic.",
+        "Email format pgbldg.com — likely mkeys@wpgbldg.com or matthew@wpgbldg.com."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "WBD is the strongest single target on the list: 3 named estimators, 70-year heritage firm, commercial+insurance restoration scope.",
+      "Email domain confusion: ZoomInfo shows pgbldg.com, RocketReach/website may show wpgbldg.com — verify before sending.",
+      "Address: 1586 Wall St, Winnipeg."
+    ]
+  },
+  {
+    "id": "0812-building-solutions::nick-hall",
+    "name": "Nick Hall",
+    "first_name": "Nick",
+    "last_name": "Hall",
+    "title": "",
+    "company": "0812 building solutions",
+    "company_slug": "0812-building-solutions",
+    "segment": "GC",
+    "email": "nhall@0812.ca",
+    "phone": "204-509-9345",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "before-2026-04-29",
+    "next_action": null,
+    "next_action_date": "N/A",
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "light commercial , heavy resdintial",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959816",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "alair-homes::colin-gagnon",
+    "name": "Colin gagnon",
+    "first_name": "Colin",
+    "last_name": "gagnon",
+    "title": "",
+    "company": "Alair Homes",
+    "company_slug": "alair-homes",
+    "segment": "GC",
+    "email": "collin.gagnon@alairhomes.com",
+    "phone": "204-296-2059",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": "April 5th",
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/alair-homes-colin-gagnon.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "Med to small size",
+    "history": [
+      {
+        "date": "2026-05-05T21:06:57.217573",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:06:57.217602",
+        "event": "updated.last_contacted",
+        "detail": "'March 26th' -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:06:57.217610",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:06:57.229546",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803321615.21847.8070630374836588428@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:39.486328",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:39.486343",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:39.491347",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877983789.28924.7069653152364668035@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ash-management-group::mark-uddin",
+    "name": "Mark Uddin",
+    "first_name": "Mark",
+    "last_name": "Uddin",
+    "title": "",
+    "company": "Ash management Group inc",
+    "company_slug": "ash-management-group",
+    "segment": "PM",
+    "email": "markuddin@ashmanagementgroup.com",
+    "phone": "204-982-7968",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": "April 5th",
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/ash-management-group-inc-mark-uddin.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "commercial and redintial",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:06.061107",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:06.061117",
+        "event": "updated.last_contacted",
+        "detail": "'March 26th' -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:06.061121",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:06.066203",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803352505.22005.4817433562187400691@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:43.047989",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:43.048011",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:43.061192",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877984150.28924.13539160895546980280@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ash-management-group::neda-uddin",
+    "name": "Neda Uddin",
+    "first_name": "Neda",
+    "last_name": "Uddin",
+    "title": "",
+    "company": "Ash management Group inc",
+    "company_slug": "ash-management-group",
+    "segment": "PM",
+    "email": "nuddin@ashmanagementgroup.com",
+    "phone": "204-982-7977",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": "April 5th",
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/ash-management-group-inc-neda-uddin.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "commercial and redintial",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:09.130816",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:09.130825",
+        "event": "updated.last_contacted",
+        "detail": "'March 26th' -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:09.130828",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:09.136260",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803352807.22005.4080169857188041279@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:46.791338",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:46.791346",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:46.796149",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877984507.28924.15616935580346763782@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "blue-lake-construction::ronnie-jamilla",
+    "name": "Ronnie Jamilla",
+    "first_name": "Ronnie",
+    "last_name": "Jamilla",
+    "title": "",
+    "company": "Blue lake construction",
+    "company_slug": "blue-lake-construction",
+    "segment": "GC",
+    "email": "ronnie.jamilla@bluelakeconst.com",
+    "phone": "204-698-4967",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/blue-lake-construction-ronnie-jamilla.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:11.949001",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:11.949008",
+        "event": "updated.last_contacted",
+        "detail": "'March 26th' -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:11.949012",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:11.954701",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803353114.22005.12873279054815804589@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:49.936747",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:49.936753",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:49.940136",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877984880.28924.17124398524543335000@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "bobsled-construction::james-melendez",
+    "name": "James Melendez",
+    "first_name": "James",
+    "last_name": "Melendez",
+    "title": "Operations Manager, Bobsled Construction",
+    "company": "Bobsled Construction",
+    "company_slug": "bobsled-construction",
+    "segment": "GC",
+    "email": "james@bob-sled.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bobsled-construction-james-melendez.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "James is the operational lead at Bobsled and the email is publicly listed on their team page — best direct contact. Bobsled is a design-build firm co-owned by Monteyne Architecture (founder/principal Tom Monteyne). They focus on multifamily/niche/tech projects (e.g., Granola Heights multifamily). Office: 194 Sherbrook St, Winnipeg, MB R3C 2B6. Phone: 204-947-3155."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:14.811567",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:14.811576",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:14.811581",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:14.818391",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803353396.22005.3529762119230877010@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:53.086218",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:53.086228",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:53.090382",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877985194.28924.2653861678355447304@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "bobsled-construction::vikneswaran-thirumalai",
+    "name": "Vikneswaran Thirumalai",
+    "first_name": "Vikneswaran",
+    "last_name": "Thirumalai",
+    "title": "",
+    "company": "Bobsled Construction",
+    "company_slug": "bobsled-construction",
+    "segment": "GC",
+    "email": "vik@bob-sled.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bobsled-construction-vikneswaran-thirumalai.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:17.656833",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:17.656843",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:17.656846",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:17.660615",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803353683.22005.9503322597726677291@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:56.242535",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:56.242556",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:56.251948",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877985509.28924.9545414451021490243@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "bree-dan-construction::kevin-burton",
+    "name": "Kevin Burton",
+    "first_name": "Kevin",
+    "last_name": "Burton",
+    "title": "President / General Manager, Bree-Dan Construction Ltd.",
+    "company": "Bree dan construction",
+    "company_slug": "bree-dan-construction",
+    "segment": "GC",
+    "email": "kburton@breedan.ca",
+    "phone": "(204) 661-8501",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bree-dan-construction-kevin-burton.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Family-run firm, no dedicated estimator title surfaced. Kevin runs estimating personally based on size of company and his Carpenter background. Brandan Burton (Executive VP, likely his son or nephew) is the secondary contact."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:20.502027",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:20.502037",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:20.502041",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:20.507757",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803353966.22005.9579991323191573358@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:30:59.795422",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:30:59.795431",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:30:59.799726",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877985825.28924.6436574724430995060@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "cgi-constructors::chris-lacasse",
+    "name": "Chris Lacasse",
+    "first_name": "Chris",
+    "last_name": "Lacasse",
+    "title": "",
+    "company": "CGI Constructors (Century Group Inc.)",
+    "company_slug": "cgi-constructors",
+    "segment": "GC",
+    "email": "chris.lacasse@cgigc.com",
+    "phone": "(431) 478-6567",
+    "linkedin": "connected",
+    "city": "national",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-05",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 1,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/cgi-constructors-chris-lacasse.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:23.440504",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:23.440518",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:23.440523",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:23.446418",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803354251.22005.18088320251632458698@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "cic::nikki-santos",
+    "name": "Nikki Santos",
+    "first_name": "Nikki",
+    "last_name": "Santos",
+    "title": "",
+    "company": "CIC INC",
+    "company_slug": "cic",
+    "segment": "GC",
+    "email": "nikkis@cic-inc.ca",
+    "phone": "204-583-8449",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": "April 5th",
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/cic-inc-nikki-santos.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "heavy construction",
+    "history": [
+      {
+        "date": "2026-05-05T21:13:35.151120",
+        "event": "updated.status",
+        "detail": "'Warm' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:13:35.151129",
+        "event": "updated.last_contacted",
+        "detail": "'March 26th' -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:13:35.151131",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:13:35.155003",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803361434.22034.6418888833343998231@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:02.894964",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:02.894980",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:02.899891",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877986180.28924.8637102629873775823@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "canotech-consultants::graeme-fardoe",
+    "name": "Graeme Fardoe",
+    "first_name": "Graeme",
+    "last_name": "Fardoe",
+    "title": "Managing Partner / Senior Project Manager (estimating role oversight at the partner level)",
+    "company": "Canotech Consultants Ltd",
+    "company_slug": "canotech-consultants",
+    "segment": "GC",
+    "email": "graeme@canotech.net",
+    "phone": "204) 334-0096",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/canotech-consultants-graeme-fardoe.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Third-generation family business — Canotech founded 1988 by Bob and Ted Fardoe (grandfather + father), now Graeme + Alanna Fardoe + Randy Bowles run it. Strong family/legacy angle.",
+        "Project range $500K–$15M — sweet spot for Ashrah-size painting scopes",
+        "Commercial / industrial / institutional GC — diverse paint scope variety",
+        "Office at 544 Prest Ave W (St. James / West Winnipeg) — a small detail that shows local knowledge",
+        "They're actively hiring estimators — they have estimating capacity but it's lean. A reliable sub on-tap reduces their bid-prep load."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:26.266812",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:26.266819",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:26.266822",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:26.272496",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803354545.22005.17201224571920507152@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:06.135731",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:06.135753",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:06.143936",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877986490.28924.17133413790381495994@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": [
+      "Estimator role is being recruited — there may be a current Senior Estimator whose name didn't surface in search; check Canotech LinkedIn employee list manually",
+      "Site canotech.net returns 403 to bots, so team page not directly readable",
+      "Confirm specific dedicated estimator name — Graeme is Managing Partner, not estimator title"
+    ]
+  },
+  {
+    "id": "canotech-consultants::thurasingham-sat-satgunam",
+    "name": "Thurasingham (Sat) Satgunam",
+    "first_name": "Thurasingham",
+    "last_name": "(Sat) Satgunam",
+    "title": "",
+    "company": "Canotech Consultants Ltd",
+    "company_slug": "canotech-consultants",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-334-0096",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "senior estimator",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "contempora-steel-builders::douglas",
+    "name": "Douglas",
+    "first_name": "Douglas",
+    "last_name": "",
+    "title": "",
+    "company": "Contempora Steel Builders",
+    "company_slug": "contempora-steel-builders",
+    "segment": "GC",
+    "email": "douglas@contemporasteel.com",
+    "phone": "(204) 633-7672",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/contempora-steel-douglas.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "estimator",
+    "history": [
+      {
+        "date": "2026-05-05T21:07:00.281137",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:07:00.281147",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:07:00.281151",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:07:00.286659",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803321924.21847.5528637844453467231@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:09.200237",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:09.200257",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:09.204549",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877986815.28924.9126903221874964724@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "contempora-steel-builders::marc-ouimet",
+    "name": "Marc Ouimet",
+    "first_name": "Marc",
+    "last_name": "Ouimet",
+    "title": "Construction Estimator, Contempora Steel Builders",
+    "company": "Contempora Steel Builders",
+    "company_slug": "contempora-steel-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Reports into Andrew Coleman's preconstruction group — the day-to-day estimator who actually works the bid math",
+        "Useful as a parallel/secondary point of contact alongside Andrew",
+        "If Ashrah wants to be on a specific bid, Marc is who actually pulls the sub list together"
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm exact email format @contemporasteel.com",
+      "Marc Ouimet LinkedIn not surfaced — try direct search"
+    ]
+  },
+  {
+    "id": "durango-construction::keith-manary",
+    "name": "Keith Manary",
+    "first_name": "Keith",
+    "last_name": "Manary",
+    "title": "",
+    "company": "Durango Construction",
+    "company_slug": "durango-construction",
+    "segment": "GC",
+    "email": "keith@durangoconstruction.ca",
+    "phone": "204-890-3377",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/durango-construction-keith-manary.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": "high",
+      "tone": "cold"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959819",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "fabca-construction::colin-richards",
+    "name": "Colin Richards",
+    "first_name": "Colin",
+    "last_name": "Richards",
+    "title": "FABCA Construction Ltd — BTCM (likely PM/Estimator role; FABCA contact page lists him as a primary contact)",
+    "company": "FABCA Construction Ltd",
+    "company_slug": "fabca-construction",
+    "segment": "GC",
+    "email": "Colin@fabca.ca",
+    "phone": "(204) 227-4582",
+    "linkedin": "https://ca.linkedin.com/in/colin-richards-4b857a124",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/fabca-colin-richards.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [
+        "BTCM (Bachelor of Technology in Construction Management — Red River College or equivalent)"
+      ],
+      "hooks": [
+        "BTCM credential — likely Red River College Construction Management graduate. STRONG shared-pipeline angle.",
+        "One of three named contacts on FABCA's public contact page — clearly involved in client/sub interactions",
+        "Direct email and direct phone are public — very easy first-touch",
+        "FABCA was a sub on Winnipeg Police HQ (the high-profile project that generated subsequent litigation/inquiry) — be tactful; do not reference the controversy",
+        "Boutique Manitoba commercial GC on Academy Road — Ashrah is geographically convenient as a Winnipeg sub"
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Verify Colin's exact title — 'BTCM' is a credential, not a title; he may be Estimator, PM, or something else",
+      "FABCA has past Winnipeg Police HQ litigation history — DO NOT reference in outreach"
+    ]
+  },
+  {
+    "id": "fabca-construction::fabio-fiorentino",
+    "name": "Fabio Fiorentino",
+    "first_name": "Fabio",
+    "last_name": "Fiorentino",
+    "title": "",
+    "company": "FABCA Construction Ltd",
+    "company_slug": "fabca-construction",
+    "segment": "GC",
+    "email": "Fabio@fabca.ca",
+    "phone": "(204) 470-4846",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/fabca-fabio-fiorentino.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:29.154837",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:29.154845",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:29.154850",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:29.161531",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803354828.22005.16529736543847039235@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:12.452129",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:12.452139",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:12.456174",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877987121.28924.14865925236733779310@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "fabca-construction::greg-fiorentino",
+    "name": "Greg Fiorentino",
+    "first_name": "Greg",
+    "last_name": "Fiorentino",
+    "title": "",
+    "company": "FABCA Construction Ltd",
+    "company_slug": "fabca-construction",
+    "segment": "GC",
+    "email": "Greg@fabca.ca",
+    "phone": "(204) 782-7542",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/fabca-greg-fiorentino.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:31.966232",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:31.966237",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:31.966240",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:31.969753",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803355117.22005.3325360804533422079@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:15.491295",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:15.491322",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:15.499539",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877987446.28924.4210350613185663550@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "gateway-construction-engineering::wayne-fehr",
+    "name": "Wayne Fehr",
+    "first_name": "Wayne",
+    "last_name": "Fehr",
+    "title": "Chief Estimator / Estimating Manager, Gateway Construction & Engineering Ltd.",
+    "company": "Gateway Construction & Engineering Ltd.",
+    "company_slug": "gateway-construction-engineering",
+    "segment": "GC",
+    "email": "wayne@gatewayconstruction.ca",
+    "phone": "204-233-8550 (main)",
+    "linkedin": "https://ca.linkedin.com/in/wayne-fehr-005180145",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/gateway-construction-wayne-fehr.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Chief Estimator AND Estimating Manager — owns the bid list at a 50+ year Manitoba GC",
+        "Gateway since 1973 — institutional builder, deep MB roots; pitch Ashrah's 'protect the client's reputation' framing — that's literally what 50 years of reputation looks like",
+        "Diverse work: commercial, multifamily, institutional, renovations, industrial, bridges — high-frequency paint scope",
+        "Office on Archibald Street (East Winnipeg / Mission Junction)",
+        "Ahmad to mention the structured painter training program — a 50-year firm cares about workforce reliability"
+      ],
+      "confidence": "high"
+    },
+    "notes": "estimator",
+    "history": [
+      {
+        "date": "2026-05-05T21:07:03.229028",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:07:03.229036",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:07:03.229040",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:07:03.234279",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803322229.21847.18009586687778571146@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:18.629425",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:18.629435",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:18.633195",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877987751.28924.3633950478102914227@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": [
+      "Confirm exact email pattern @gatewayconstruction.ca for Wayne (firstname vs first-initial+lastname)"
+    ]
+  },
+  {
+    "id": "harris-holdings::bryan-harris",
+    "name": "Bryan Harris",
+    "first_name": "Bryan",
+    "last_name": "Harris",
+    "title": "",
+    "company": "Harris Holdings Ltd. (Harris Builders)",
+    "company_slug": "harris-holdings",
+    "segment": "GC",
+    "email": "bryan@harrisbuilders.ca",
+    "phone": "(204) 953-1050",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/harris-builders-bryan-harris.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "owner",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:34.843506",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:34.843522",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:34.843527",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:34.849574",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803355397.22005.12267588569971719987@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:21.871650",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:21.871656",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:21.874849",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877988064.28924.972399596799321083@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ironclad-developments::ironclad-developments",
+    "name": "Ironclad Developments Inc.",
+    "first_name": "Ironclad",
+    "last_name": "Developments Inc.",
+    "title": "",
+    "company": "Ironclad Developments Inc.",
+    "company_slug": "ironclad-developments",
+    "segment": "GC",
+    "email": "",
+    "phone": "Ironclad Developments Inc.",
+    "linkedin": "",
+    "city": "national",
+    "tier": 2,
+    "status": "Nurture",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "wayy to big 2026",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "jilmark-construction::john-froese",
+    "name": "John Froese",
+    "first_name": "John",
+    "last_name": "Froese",
+    "title": "",
+    "company": "Jilmark Construction Ltd",
+    "company_slug": "jilmark-construction",
+    "segment": "GC",
+    "email": "john@jilmark.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/jilmark-construction-john-froese.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "owner",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:37.697491",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:37.697499",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:37.697503",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:37.703048",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803355686.22005.1064496337391751411@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:24.947858",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:24.947876",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:24.956536",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877988388.28924.10440564452798448810@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "jilmark-construction::david-regehr-wiens",
+    "name": "David Regehr-Wiens",
+    "first_name": "David",
+    "last_name": "Regehr-Wiens",
+    "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+    "company": "Jilmark Construction Ltd.",
+    "company_slug": "jilmark-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "One of four-person team that handles estimating + site supervision + project admin — wears multiple hats so VALUES tools that reduce admin load (Ashrah's automated daily reports = direct fit)",
+        "Jilmark works heritage buildings, apartments, condos, offices, warehouses, dealerships, churches, schools — wide paint scope variety"
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm exact email format @jilmark.com",
+      "LinkedIn profiles for the four-person estimating team should be located individually for tenure data"
+    ]
+  },
+  {
+    "id": "jilmark-construction::gilles-comte",
+    "name": "Gilles Comte",
+    "first_name": "Gilles",
+    "last_name": "Comte",
+    "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+    "company": "Jilmark Construction Ltd.",
+    "company_slug": "jilmark-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Same multi-role team as David — same pitch applies"
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm exact email format @jilmark.com",
+      "LinkedIn profiles for the four-person estimating team should be located individually for tenure data"
+    ]
+  },
+  {
+    "id": "jilmark-construction::josh-penner",
+    "name": "Josh Penner",
+    "first_name": "Josh",
+    "last_name": "Penner",
+    "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+    "company": "Jilmark Construction Ltd.",
+    "company_slug": "jilmark-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Same multi-role team — likely the youngest, may be most receptive to new tools/tech pitches"
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm exact email format @jilmark.com",
+      "LinkedIn profiles for the four-person estimating team should be located individually for tenure data"
+    ]
+  },
+  {
+    "id": "jilmark-construction::steven-baars",
+    "name": "Steven Baars",
+    "first_name": "Steven",
+    "last_name": "Baars",
+    "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+    "company": "Jilmark Construction Ltd.",
+    "company_slug": "jilmark-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Same multi-role team"
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm exact email format @jilmark.com",
+      "LinkedIn profiles for the four-person estimating team should be located individually for tenure data"
+    ]
+  },
+  {
+    "id": "kenmare-developments::kyle-kostenuk-c-e-t",
+    "name": "Kyle Kostenuk, C.E.T",
+    "first_name": "Kyle",
+    "last_name": "Kostenuk, C.E.T",
+    "title": "President, Kenmare Developments Inc.",
+    "company": "Kenmare Developments Inc",
+    "company_slug": "kenmare-developments",
+    "segment": "GC",
+    "email": "kyle@kenmaredevelopments.com",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/kenmare-developments-kyle-kostenuk.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Kyle is President AND a Certified Engineering Technologist (C.E.T.) — he came up technical, respects estimating discipline, and likely runs the estimating function himself at firm size. Kenmare is involved in significant projects: $18M Dakota Tipi development at The Forks (145-unit, traditional Dakota lands) — major Indigenous-led project with reconciliation framing. Engagement angle: lead with respect for the partnership work + Ashrah's structured painter training (workforce reliability matters when your projects are politically visible)."
+      ],
+      "confidence": "low"
+    },
+    "notes": "owner and presdint",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:40.551377",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:40.551380",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:40.551382",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:40.553939",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803355971.22005.11615796294472999301@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:28.074544",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:28.074552",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:28.078751",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877988696.28924.10560915960822183626@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "lcm::jehad-hareb",
+    "name": "Jehad Hareb",
+    "first_name": "Jehad",
+    "last_name": "Hareb",
+    "title": "",
+    "company": "LCM",
+    "company_slug": "lcm",
+    "segment": "GC",
+    "email": "jehad@lolacon.com",
+    "phone": "204-799-6796",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2025",
+    "next_action": null,
+    "next_action_date": "N/a",
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "commercial and redintial",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959822",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "ld-builders::todd-hamilton",
+    "name": "Todd Hamilton",
+    "first_name": "Todd",
+    "last_name": "Hamilton",
+    "title": "",
+    "company": "Ld builders",
+    "company_slug": "ld-builders",
+    "segment": "GC",
+    "email": "thamilton@ldbuilders.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/ld-builders-todd-hamilton.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:43.538820",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:43.538830",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:43.538835",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:43.552031",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803356256.22005.8874006447982855053@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:31.076783",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:31.076795",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:31.081050",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877989008.28924.15918646832053491049@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "pcl-construction::april-seno",
+    "name": "April Seno",
+    "first_name": "April",
+    "last_name": "Seno",
+    "title": "Junior Estimator",
+    "company": "PCL Construction (Winnipeg)",
+    "company_slug": "pcl-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "https://www.linkedin.com/in/april-seno-88731179/",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": 3,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Joined PCL Winnipeg as Junior Estimator in April 2023 — early-career, more receptive to new sub relationships.",
+        "Junior estimator role means she's likely doing a lot of the qty takeoff and trade-contractor outreach — exactly the seat that decides whether Ashrah gets bid invites for divisional packages.",
+        "PCL Winnipeg has multiple active estimator + senior estimator postings — team is growing; new hires need new sub relationships fast.",
+        "Hook: position Ashrah as 'easy to bid against' (clean takeoff format, fast turnaround on RFIs) — that solves a junior estimator's daily pain."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "April Seno's title is 'Junior' Estimator — she may not be the bid-list decision-maker. Goal: get on her radar so she nominates Ashrah upward.",
+      "Identify and confirm PCL Winnipeg Chief Estimator name in a follow-up pass — likely a Gold Seal CE.",
+      "PCL is the largest GC on this list — high-value target."
+    ]
+  },
+  {
+    "id": "pretium-projects::justin-bova",
+    "name": "Justin Bova",
+    "first_name": "Justin",
+    "last_name": "Bova",
+    "title": "Owner",
+    "company": "Pretium Projects",
+    "company_slug": "pretium-projects",
+    "segment": "GC",
+    "email": "justin@buildvalue.ca",
+    "phone": "204-782-0961",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Active Client",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/pretium-projects-justin-bova.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": "high",
+      "tone": "cold"
+    },
+    "notes": "Domain buildvalue.ca suggests value-engineering positioning.",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959823",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      },
+      {
+        "date": "2026-05-14T18:54:40.300323",
+        "event": "manual.status_change",
+        "detail": "Status 'Cold' -> 'Active Client'. Pretium onboarded Ashrah — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach",
+      "ACTIVE CLIENT — Pretium onboarded Ashrah. Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "red-river-solutions::austin-bailly",
+    "name": "Austin Bailly",
+    "first_name": "Austin",
+    "last_name": "Bailly",
+    "title": "",
+    "company": "Red River solutions",
+    "company_slug": "red-river-solutions",
+    "segment": "GC",
+    "email": "abailly@rrsgp.ca",
+    "phone": "907-242-0432",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/red-river-solutions-austin-bailly.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "Heavy civil",
+    "history": [
+      {
+        "date": "2026-05-05T21:07:06.080991",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:07:06.080998",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:07:06.081003",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:07:06.086443",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803322523.21847.8636097688269820244@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:34.298699",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:34.298709",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:34.306622",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877989308.28924.11233552754198700037@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "regent-construction::ron-schledwitz",
+    "name": "Ron Schledwitz",
+    "first_name": "Ron",
+    "last_name": "Schledwitz",
+    "title": "Project Manager / GSC / Estimator / Safety Coordinator",
+    "company": "Regent Construction Inc",
+    "company_slug": "regent-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-231-3456",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Wears multiple hats (PM + Estimator + GSC + Safety) — he is the bid-list owner at Regent.",
+        "GSC = Gold Seal Certified, a credibility cue Ahmad can match when pitching Ashrah's training / safety angle.",
+        "Regent has been doing commercial/industrial GC since 1987 (25+ years) — Ron has likely seen many painting subs come and go; the 'protect your reputation' pitch lands well.",
+        "Small-team firm at 919 Dugald Rd — Ron is reachable; Ahmad should call (204) 231-3456 and ask for Ron directly."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm Ron Schledwitz's exact email format via RocketReach or a quick call.",
+      "ZoomInfo also lists 'Steve Wasiuta' as President and 'Buck Yates' as Owner — verify hierarchy."
+    ]
+  },
+  {
+    "id": "rempel-builders::frank-ambrosio",
+    "name": "Frank Ambrosio",
+    "first_name": "Frank",
+    "last_name": "Ambrosio",
+    "title": "Estimator & Project Manager",
+    "company": "Rempel Builders",
+    "company_slug": "rempel-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "(204) 227-4662",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Combined Estimator + PM role means Frank owns the bid AND the trade selection — fewer hand-offs, faster yes/no.",
+        "Rempel = energy-efficient residential focus + renovations (kitchens, basements, additions, whole-home) — fit for Ashrah is moderate; targeting their commercial / additions work is the angle.",
+        "Small team — Ahmad can drop by 1386 Loudoun Rd in person or call directly."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Rempel is residential-renovation heavy — lower priority per the original brief; Ahmad flagged this himself.",
+      "Confirm Frank Ambrosio's exact title and email via direct call."
+    ]
+  },
+  {
+    "id": "tractus-projects::chad-horrill",
+    "name": "Chad Horrill",
+    "first_name": "Chad",
+    "last_name": "Horrill",
+    "title": "Senior Project Manager",
+    "company": "Tractus Projects",
+    "company_slug": "tractus-projects",
+    "segment": "GC",
+    "email": "chad@tractusprojects.com",
+    "phone": "204-229-1637",
+    "linkedin": "connected",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2025",
+    "next_action": null,
+    "next_action_date": "MA",
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/tractus-projects-chad-horrill.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Senior PM = bid-list decision authority on bigger Tractus jobs. Likely owns trade procurement on larger commercial fit-ups.",
+        "LinkedIn bio cites 'community engagement' — possible board / charity hook for Ahmad to share connections.",
+        "Tenured at Tractus — relationship-based; cold pitches without warm intro will struggle, so position via shared community angle."
+      ],
+      "confidence": "high"
+    },
+    "notes": "commercia",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959825",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      }
+    ],
+    "needs_review_flags": [
+      "Email format inferred as firstinitial-or-firstname@tractusprojects.com — verify before sending.",
+      "Tractus = highest-yield single target on the list (3 named PMs with estimating authority + local proximity).",
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "tractus-projects::joe-paletta",
+    "name": "Joe Paletta",
+    "first_name": "Joe",
+    "last_name": "Paletta",
+    "title": "Project Manager",
+    "company": "Tractus Projects",
+    "company_slug": "tractus-projects",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-942-6035",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Third PM at Tractus — Ahmad should reach all three because each likely owns their own bid lists on different jobs."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Email format inferred as firstinitial-or-firstname@tractusprojects.com — verify before sending.",
+      "Tractus = highest-yield single target on the list (3 named PMs with estimating authority + local proximity)."
+    ]
+  },
+  {
+    "id": "tractus-projects::joe-palette",
+    "name": "Joe Palette",
+    "first_name": "Joe",
+    "last_name": "Palette",
+    "title": "",
+    "company": "Tractus Projects",
+    "company_slug": "tractus-projects",
+    "segment": "GC",
+    "email": "joe@tractusprojects.com",
+    "phone": "204-293-3946",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "before-2026-04-29",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/tractus-projects-joe-palette.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "commercial",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959826",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "tractus-projects::lisa-fedorchuk",
+    "name": "Lisa Fedorchuk",
+    "first_name": "Lisa",
+    "last_name": "Fedorchuk",
+    "title": "Project Manager (with explicit estimating responsibilities)",
+    "company": "Tractus Projects",
+    "company_slug": "tractus-projects",
+    "segment": "GC",
+    "email": "lisa@tractusprojects.com",
+    "phone": "204-999-3591",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "before-2026-04-29",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/tractus-projects-lisa-fedorchuk.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Tractus team page explicitly says Lisa's fortes are 'estimating, project planning, scheduling, procuring' and she sees projects 'from estimating to occupancy' — she is the estimator on her jobs.",
+        "PM-Estimator combined seat = she's the trade-pick decision-maker, not just a number-cruncher.",
+        "Tractus does commercial / retail / restaurant / institutional fit-ups — fast-turn schedules where Ashrah's '5:30 PM daily reports' & 6-day delay forecasting solve a real Lisa pain.",
+        "Located at 835 King Edward — Ahmad's local advantage, easy in-person drop-by."
+      ],
+      "confidence": "high"
+    },
+    "notes": "commercia",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959827",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      }
+    ],
+    "needs_review_flags": [
+      "Email format inferred as firstinitial-or-firstname@tractusprojects.com — verify before sending.",
+      "Tractus = highest-yield single target on the list (3 named PMs with estimating authority + local proximity).",
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "vulcan-construction::kevin-farkas",
+    "name": "Kevin Farkas",
+    "first_name": "Kevin",
+    "last_name": "Farkas",
+    "title": "Sales Estimator",
+    "company": "Vulcan Construction",
+    "company_slug": "vulcan-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Title 'Sales Estimator' is unusual — combined sales + estimating means Kevin owns both qualifying the project AND pricing it. He IS the front door.",
+        "Vulcan does residential + commercial across MB — get on Kevin's bid list for the commercial / multi-family side.",
+        "LinkedIn page vulcan-construction-winnipeg confirms he is Winnipeg-based.",
+        "Sales-mindset estimator responds well to clear value props — Ashrah's '6-day delay forecasting' is a sellable feature he can pitch upward."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "Confirm Kevin Farkas's email format and exact LinkedIn URL via RocketReach.",
+      "Verify Vulcan's commercial vs residential split — TrustedPros listing suggests both."
+    ]
+  },
+  {
+    "id": "westland-construction::craig-hildebrandt",
+    "name": "Craig Hildebrandt",
+    "first_name": "Craig",
+    "last_name": "Hildebrandt",
+    "title": "Owner",
+    "company": "Westland Construction",
+    "company_slug": "westland-construction",
+    "segment": "GC",
+    "email": "craighildebrandt@westlandltd.net",
+    "phone": "204-612-2218",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Active Client",
+    "sources": [
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-29",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/westland-construction-craig-hildebrandt.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": "high",
+      "tone": "cold"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959828",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      },
+      {
+        "date": "2026-05-14T18:54:54.701330",
+        "event": "manual.status_change",
+        "detail": "Status 'Cold' -> 'Active Client'. Westland onboarded Ashrah — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach",
+      "ACTIVE CLIENT — Westland onboarded Ashrah — partnership now live. Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "westland-construction::emily-mason",
+    "name": "Emily Mason",
+    "first_name": "Emily",
+    "last_name": "Mason",
+    "title": "Estimator",
+    "company": "Westland Construction Ltd.",
+    "company_slug": "westland-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "204-633-6272",
+    "linkedin": "https://www.linkedin.com/in/emily-mason/",
+    "city": "winnipeg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Named estimator at a 40+ year Winnipeg commercial GC with COR certification since 2004 — this is exactly the seat to be on.",
+        "Westland scope = commercial / institutional / industrial new + reno — broad fit for Ashrah's commercial painting offering.",
+        "Westland's published Quality Management System explicitly references estimating-through-completion processes — Emily owns the front of that pipeline.",
+        "Smaller estimating team at a 20-person firm — high impact per relationship.",
+        "Located at Unit 1-475 Dovercourt Dr — Ahmad can drop documents in person."
+      ],
+      "confidence": "medium"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": [
+      "LinkedIn 'Emily Mason' name is common — verify the right Emily Mason via her Winnipeg location and Westland affiliation. Consider phoning 204-633-6272 to confirm she still holds the role.",
+      "Other named Westland staff: Rosario Vassallo (PM), Hubert Verrier (Superintendent), Kevin Curtain (PM), Chris Houghton."
+    ]
+  },
+  {
+    "id": "bonafide-construction::kurtis-wachniak",
+    "name": "Kurtis Wachniak",
+    "first_name": "Kurtis",
+    "last_name": "Wachniak",
+    "title": "",
+    "company": "bonafide construction",
+    "company_slug": "bonafide-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "(204) 661-0117",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Active Client",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-14T18:53:39.882302",
+        "event": "manual.status_change",
+        "detail": "Status 'Cold' -> 'Active Client'. Bonafide onboarded Ashrah as a vendor — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "ACTIVE CLIENT — Bonafide onboarded Ashrah as a vendor. Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "booksteal::katie-moist",
+    "name": "Katie Moist",
+    "first_name": "Katie",
+    "last_name": "Moist",
+    "title": "",
+    "company": "booksteal ltd",
+    "company_slug": "booksteal",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Cold",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "conprocanada::saher-kilda",
+    "name": "Saher kilda",
+    "first_name": "Saher",
+    "last_name": "kilda",
+    "title": "",
+    "company": "conprocanada",
+    "company_slug": "conprocanada",
+    "segment": "GC",
+    "email": "saher@conprocanada.ca",
+    "phone": "204.233.3717",
+    "linkedin": "connected",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/conprocanada-saher-kilda.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "eygption",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:46.396650",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:46.396678",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:46.396683",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:46.403884",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803356556.22005.1133164476346174041@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:37.377505",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:37.377511",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:37.380474",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877989631.28924.8290263635170007675@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "forms-tructures::steve",
+    "name": "steve",
+    "first_name": "steve",
+    "last_name": "",
+    "title": "",
+    "company": "forms tructures",
+    "company_slug": "forms-tructures",
+    "segment": "GC",
+    "email": "sw@formstructuresweastren.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bonafide-construction-steve-macy.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "estimator",
+    "history": [
+      {
+        "date": "2026-05-05T21:06:54.141850",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:06:54.141857",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:06:54.141860",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:06:54.145217",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803321230.21847.2471076393013310543@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:40.547063",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:40.547074",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:40.554004",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877989938.28924.13287775986216789260@ashrahpainting.ca>"
+      }
+    ],
+    "needs_review_flags": []
+  },
+  {
+    "id": "gardon-construction::shane-johnson",
+    "name": "Shane Johnson",
+    "first_name": "Shane",
+    "last_name": "Johnson",
+    "title": "Chief Estimator, Gardon Construction Ltd.",
+    "company": "gardon construction",
+    "company_slug": "gardon-construction",
+    "segment": "GC",
+    "email": "sjohnson@gardonconstruction.com",
+    "phone": "",
+    "linkedin": "https://www.linkedin.com/in/shane-johnson-001a58a1/",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Active Client",
+    "sources": [
+      "bd_tracker_2026-04-28",
+      "estimator_research_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "2026-05-14",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 2,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/gardon-construction-shane-johnson.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [
+        "Associate of Sciences (AS)"
+      ],
+      "hooks": [
+        "Direct email is public (sjohnson@gardonconstruction.com) — easiest first-touch in this entire batch of 30",
+        "Chief Estimator title — runs the bid list at Gardon",
+        "AS degree (sciences background) — values data; Ashrah's 6-day delay forecasting and structured reporting will land",
+        "Gardon is a mid-sized Manitoba commercial GC — reach out with a short note + a one-pager on the daily report system"
+      ],
+      "confidence": "high"
+    },
+    "notes": "Chief Estimator - Pre-Construction",
+    "history": [
+      {
+        "date": "2026-05-05T21:12:49.241485",
+        "event": "updated.status",
+        "detail": "'Cold' -> 'Contacted'"
+      },
+      {
+        "date": "2026-05-05T21:12:49.241489",
+        "event": "updated.last_contacted",
+        "detail": "None -> '2026-05-05'"
+      },
+      {
+        "date": "2026-05-05T21:12:49.241490",
+        "event": "updated.touches_sent",
+        "detail": "0 -> 1"
+      },
+      {
+        "date": "2026-05-05T21:12:49.243984",
+        "event": "send.cold_open",
+        "detail": "Master template send · subject='Protect your reputation and your budgets' · message_id=<177803356841.22005.14671844589233143703@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T12:31:43.889042",
+        "event": "updated.touches_sent",
+        "detail": "1 -> 2"
+      },
+      {
+        "date": "2026-05-14T12:31:43.889050",
+        "event": "updated.last_contacted",
+        "detail": "'2026-05-05' -> '2026-05-14'"
+      },
+      {
+        "date": "2026-05-14T12:31:43.892798",
+        "event": "send.followup",
+        "detail": "Follow-up · subject='Re: Protect your reputation and your budgets' · message_id=<177877990256.28924.11230887389088602907@ashrahpainting.ca>"
+      },
+      {
+        "date": "2026-05-14T18:48:49.506171",
+        "event": "manual.status_change",
+        "detail": "Status 'Contacted' -> 'Active Client'. Gardon added Ashrah to their vendor software — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "Confirm Shane's tenure years",
+      "Identify any junior estimators reporting to Shane",
+      "ACTIVE CLIENT — Gardon added Ashrah to their software (vendor onboarded). Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "iris-construction::alex-rubany",
+    "name": "Alex Rubany",
+    "first_name": "Alex",
+    "last_name": "Rubany",
+    "title": "",
+    "company": "iris construction",
+    "company_slug": "iris-construction",
+    "segment": "GC",
+    "email": "alex.r@irisconstruction.ca",
+    "phone": "",
+    "linkedin": "",
+    "city": "wpg",
+    "tier": 2,
+    "status": "Contacted",
+    "sources": [
+      "bd_tracker_2026-04-28"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": "before-2026-04-29",
+    "next_action": null,
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [],
+      "confidence": null
+    },
+    "notes": "vp",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959830",
+        "event": "manual.exclude",
+        "detail": "Marked as already contacted by Ahmad personally"
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad reached out personally before 2026-04-29; do not queue for Lio outreach"
+    ]
+  },
+  {
+    "id": "aecon-group::sean-huang",
+    "name": "Sean Huang",
+    "first_name": "Sean",
+    "last_name": "Huang",
+    "title": "Aecon Construction Group employee — Winnipeg-based",
+    "company": "Aecon Group",
+    "company_slug": "aecon-group",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Identified on LinkedIn as Winnipeg-based Aecon employee; only public name confirmed in Winnipeg. Aecon's Winnipeg presence is heavy civil/transmission utilities (lower fit for commercial painting). Aecon has active Sr. Estimator, Transmission and Jr. Estimator postings in Winnipeg — phone the office and ask for the Winnipeg estimating department."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "alair-homes-winnipeg::warren-koop",
+    "name": "Warren Koop",
+    "first_name": "Warren",
+    "last_name": "Koop",
+    "title": "Owner / Principal, Alair Homes Winnipeg",
+    "company": "Alair Homes Winnipeg",
+    "company_slug": "alair-homes-winnipeg",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Alair Winnipeg is a franchise owned by Warren Koop. He is the decision-maker for trade selection. Alair primarily does custom homes and renovations — lighter commercial fit, but high-end residential paint scopes are a real opportunity. Warren is a third-generation Manitoba builder, grew up on job sites with his father, and is involved with Habitat for Humanity (community/charity hook for Ahmad). Started Alair Manitoba in 2015. Office: 126 Cordova St, Winnipeg, MB R3N 1A1."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "blue-lake-construction::raul-gonzales",
+    "name": "Raul Gonzales",
+    "first_name": "Raul",
+    "last_name": "Gonzales",
+    "title": "President, Blue Lake Construction & Consulting Engineers Corp.",
+    "company": "Blue Lake Construction",
+    "company_slug": "blue-lake-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Small-to-mid GC; Raul is the decision-maker. Per BBB, Blue Lake handles new builds (residential, commercial, industrial), renovations, design-build, and assists with permits + initial cost estimates — likely Raul does estimating personally given firm size. Best play: phone the office, ask for Raul, lead with a 2-line value prop on automated daily reports (small GCs hate paperwork)."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "bonafide-construction-solutions::jeff-herlick",
+    "name": "Jeff Herlick",
+    "first_name": "Jeff",
+    "last_name": "Herlick",
+    "title": "President / Owner (likely current — son of founder)",
+    "company": "Bonafide Construction Solutions Ltd",
+    "company_slug": "bonafide-construction-solutions",
+    "segment": "GC",
+    "email": "jeff@bonafidecs.ca",
+    "phone": "204-229-3122",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Active Client",
+    "sources": [
+      "estimator_research_2026-04-28_fallback",
+      "manual_contacts_2026-04-29"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": "lio/data/outreach_drafts/2026-04-28/bonafide-construction-jeff-herlick.json",
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Bonafide was founded in 1995 by Ralph Herlick. Jeff Herlick has been with the company 20+ years, started as a general labourer and worked up — likely runs it now. George Trudeau also has experience there with construction PM, contract mgmt, cost analysis (could be the estimating-side contact). Office: 225 Gunn Rd, Winnipeg, MB R2C 2Z2. Phone: 204-661-0117. Specializes in commercial renovations — solid fit for paint."
+      ],
+      "confidence": "high"
+    },
+    "notes": "",
+    "history": [
+      {
+        "date": "2026-05-05T21:01:03.959832",
+        "event": "manual.reserve",
+        "detail": "Reserved for Ahmad personal outreach"
+      },
+      {
+        "date": "2026-05-14T18:53:39.882305",
+        "event": "manual.status_change",
+        "detail": "Status 'Cold' -> 'Active Client'. Bonafide onboarded Ashrah as a vendor — partnership now live."
+      }
+    ],
+    "needs_review_flags": [
+      "AHMAD PERSONAL — Ahmad handling personally; do not queue for Lio outreach",
+      "ACTIVE CLIENT — Bonafide onboarded Ashrah as a vendor. Do not queue for Lio outreach."
+    ]
+  },
+  {
+    "id": "cgi-constructors-century-group::chris-lacasse",
+    "name": "Chris Lacasse",
+    "first_name": "Chris",
+    "last_name": "Lacasse",
+    "title": "Area Manager, Prairies — CGI Constructors (Winnipeg)",
+    "company": "CGI Constructors / Century Group",
+    "company_slug": "cgi-constructors-century-group",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Chris is the Prairies Area Manager based out of Winnipeg, came up through estimating (started his career as an Estimator), 25+ years experience. He runs the Winnipeg office and decides who's on the bid list. Best single contact at CGI Winnipeg. Office: 7-45 Beghin Avenue, Winnipeg, MB R2J 4B9, phone (431) 478-6567."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "cic::rudy-penner",
+    "name": "Rudy Penner",
+    "first_name": "Rudy",
+    "last_name": "Penner",
+    "title": "President, CIC Inc.",
+    "company": "CIC Inc.",
+    "company_slug": "cic",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Small (~10 employees, ~$1.9M revenue) GC; Rudy is the principal. CIC has an Estimator/Project Manager combined role per their team structure. With the size, the President is likely involved in bid decisions directly. CIC specializes in restaurant + commercial GC with 30+ years history — high-frequency repeat-paint work (chain rollouts). Office: 865 Wall St, Winnipeg, MB R3G 2T9. Phone: 204-988-2199."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "davian-construction::ian-a-balcain",
+    "name": "Ian A. Balcain",
+    "first_name": "Ian",
+    "last_name": "A. Balcain",
+    "title": "President / Owner, Davian Construction Ltd",
+    "company": "Davian Construction Ltd",
+    "company_slug": "davian-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Small commercial+residential reno/repair GC at 740 Logan Ave, Winnipeg. Ian is the President per BBB. Sasan Dorniani is listed as Project Manager — likely also handles estimating given firm size. Phone the office, ask for Ian or Sasan. Davian has BBB Accreditation and 20+ years history."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "graham-construction-engineering::stephane-gagnon",
+    "name": "Stephane Gagnon",
+    "first_name": "Stephane",
+    "last_name": "Gagnon",
+    "title": "Graham Construction (Winnipeg-area; LinkedIn signals Winnipeg involvement)",
+    "company": "Graham Construction & Engineering Inc. (Winnipeg)",
+    "company_slug": "graham-construction-engineering",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "No specific Winnipeg estimator name surfaced in public search. Graham is a major employee-owned national GC. Their Winnipeg office: 126 Commerce Dr, Winnipeg, MB R3P 0Z6, phone 204-897-4600. RECOMMENDED: Phone the Winnipeg office and ask for the Buildings preconstruction lead. Also: Andrew Coleman (now at Contempora Steel Builders, see contempora-steel-builders.json) is a former Graham PM — Ahmad could ask Andrew for a warm intro to the Graham Winnipeg estimating team."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "harris-holdings-harris-builders::bryan-harris",
+    "name": "Bryan Harris",
+    "first_name": "Bryan",
+    "last_name": "Harris",
+    "title": "President / Owner, Harris Builders (Harris Holdings Ltd)",
+    "company": "Harris Holdings / Harris Builders",
+    "company_slug": "harris-holdings-harris-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Family-run business since 1950 (75 years). Bryan is the principal. Specializes in residential single-family new construction + renovations — light commercial fit. Office: 4-2090 Corydon Avenue, Winnipeg. Phone the office and ask for Bryan. Position Ashrah as a residential-finish-quality painter if pursuing."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "harwood-design-builders::wayne-sage",
+    "name": "Wayne Sage",
+    "first_name": "Wayne",
+    "last_name": "Sage",
+    "title": "Owner, Harwood Design Builders",
+    "company": "Harwood Design Builders",
+    "company_slug": "harwood-design-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Three principals: Wayne Sage (owner), Jeff Halstead and Trevor Bjarnarson (co-owners managing day-to-day). Harwood is residential reno-focused (high-end Winnipeg renovations). Light commercial fit. If Ashrah pursues high-end residential paint, Harwood is a strong candidate; otherwise medium fit. Phone the office; ask for Jeff or Trevor (operational decision-makers)."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "hedman-construction::david-hedman",
+    "name": "David Hedman",
+    "first_name": "David",
+    "last_name": "Hedman",
+    "title": "Owner, Hedman Construction Ltd.",
+    "company": "Hedman Construction Ltd.",
+    "company_slug": "hedman-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Commercial GC since 1997 (~28 years). David is the owner — likely runs estimating personally. Hedman explicitly markets 'quick, accurate budget estimates' for property managers / leasing agents — they value speed in the bid process, which means they value subs that turn around bids fast. Office: 557 Marion St, Saint Boniface. Graham Wiebe was listed as a contact on a city contractor document — possible secondary contact."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ironclad-developments::ryan-van-damme",
+    "name": "Ryan Van Damme",
+    "first_name": "Ryan",
+    "last_name": "Van Damme",
+    "title": "CEO, Ironclad Developments Inc.",
+    "company": "Ironclad Developments Inc.",
+    "company_slug": "ironclad-developments",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Ironclad is a Winnipeg-HQ multi-family developer (since 2014, ~$160M revenue, 94 employees) with national presence. They're VERTICALLY INTEGRATED — own land acquisition through construction through property management. They're also actively HIRING a Senior Estimator right now to support multifamily construction. RECOMMENDED ANGLE: pitch to Ryan or Kevin Dumontier (also surfaced in search). Multi-family residential = MASSIVE recurring paint scope (turnover painting between tenants). This is one of the strongest fit + opportunity targets in the entire batch."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ld-builders::larry-dyck",
+    "name": "Larry Dyck",
+    "first_name": "Larry",
+    "last_name": "Dyck",
+    "title": "Founder / President",
+    "company": "LD Builders",
+    "company_slug": "ld-builders",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Founder of LD Builders for 45+ years; no public estimator listed. Phone (204) 334-7628 to ask for estimating department. Todd Hamilton is also referenced as leadership."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ledcor-construction::leighton-engen",
+    "name": "Leighton Engen",
+    "first_name": "Leighton",
+    "last_name": "Engen",
+    "title": "Ledcor (Winnipeg-area, role unclear)",
+    "company": "Ledcor Construction (Winnipeg office)",
+    "company_slug": "ledcor-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "LinkedIn search surfaced Leighton Engen as a Ledcor employee, but role and exact location not confirmed. Active job posting for Senior Estimator, ICI Construction in Winnipeg suggests team is being built / replaced — strong timing signal."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "maple-leaf-construction::erin-fitzpatrick",
+    "name": "Erin Fitzpatrick",
+    "first_name": "Erin",
+    "last_name": "Fitzpatrick",
+    "title": "Vice President",
+    "company": "Maple Leaf Construction Ltd.",
+    "company_slug": "maple-leaf-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Listed as VP and on Board of Directors. Family-run firm — Fitzpatrick name is on multiple board seats (Blake, Jack, Garrett Fitzpatrick). Maple Leaf is heavy civil/paving (777 Erin St) and lower fit for a commercial paint sub, but Ahmad can ask about commercial buildings work / commercial development arm."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "mint-construction::mint-construction-main-contact",
+    "name": "Mint Construction main contact",
+    "first_name": "Mint",
+    "last_name": "Construction main contact",
+    "title": "via website contact form",
+    "company": "Mint Construction (Winnipeg)",
+    "company_slug": "mint-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Winnipeg Mint Construction at 301-1661 Portage Ave is a small commercial/residential GC. No public estimator named. Note: separate company 'MiNT Construction LLC' (Utah) and 'MINT Projects' (Calgary) exist — do not confuse them."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ob1-contracting::michael-o-brien",
+    "name": "Michael O'Brien",
+    "first_name": "Michael",
+    "last_name": "O'Brien",
+    "title": "Owner",
+    "company": "OB1 Contracting Ltd.",
+    "company_slug": "ob1-contracting",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "OB1 = pavement restoration / utility cut services contractor. Lower fit for interior commercial painting (their work is asphalt/road), but Peter Deduke and Kadeem Hossain are LinkedIn-associated employees if needed."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "oswald-construction::graeme-macmillan",
+    "name": "Graeme MacMillan",
+    "first_name": "Graeme",
+    "last_name": "MacMillan",
+    "title": "Oswald Construction Ltd (role unconfirmed)",
+    "company": "Oswald Construction Ltd",
+    "company_slug": "oswald-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Public LinkedIn profile associated with Oswald. Company is 11-50 employees, founded 1954, focused on turnkey residential — limited commercial painting fit but worth a touch."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "qualico-developments::qualico-winnipeg-regional-office",
+    "name": "Qualico Winnipeg Regional Office",
+    "first_name": "Qualico",
+    "last_name": "Winnipeg Regional Office",
+    "title": "Regional HQ contact",
+    "company": "Qualico Developments",
+    "company_slug": "qualico-developments",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Qualico is a multi-divisional integrated real-estate firm (homebuilding, multi-family, commercial development, property mgmt). Estimator(s) sit inside specific operating divisions (Broadview Homes, etc.), not at corporate. Better to identify the operating division Ahmad wants to chase first, then research that division's estimator."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "ridgix-building-solutions::ryan-ridge",
+    "name": "Ryan Ridge",
+    "first_name": "Ryan",
+    "last_name": "Ridge",
+    "title": "CEO / Commercial Project Manager",
+    "company": "Ridgix Building Solutions Inc",
+    "company_slug": "ridgix-building-solutions",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "Founder/CEO and runs commercial PM in a small (~12-yr-old) framing+GC firm — he is functionally the estimator. Direct outreach to Ryan is the play."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "snr-construction::colin-boisjoli-p-eng-mba",
+    "name": "Colin Boisjoli, P.Eng., MBA",
+    "first_name": "Colin",
+    "last_name": "Boisjoli, P.Eng., MBA",
+    "title": "Vice President, Construction",
+    "company": "SNR Construction Ltd.",
+    "company_slug": "snr-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "VP Construction — direct decision-maker on subcontractor relationships. SNR is currently HIRING an estimator, so the VP is functionally also gatekeeping bids until the seat is filled."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  },
+  {
+    "id": "winnpro-construction::bert-krahn",
+    "name": "Bert Krahn",
+    "first_name": "Bert",
+    "last_name": "Krahn",
+    "title": "President",
+    "company": "WinnPro Construction Ltd.",
+    "company_slug": "winnpro-construction",
+    "segment": "GC",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "city": "winnipeg",
+    "tier": 3,
+    "status": "Cold",
+    "sources": [
+      "estimator_research_2026-04-28_fallback"
+    ],
+    "first_added": "2026-04-28",
+    "last_contacted": null,
+    "next_action": "Phone outreach to identify estimator",
+    "next_action_date": null,
+    "touches_sent": 0,
+    "draft_email_path": null,
+    "personalization": {
+      "tenure_years": null,
+      "prior_firms": [],
+      "education": [],
+      "hooks": [
+        "First-generation owner of a 15+ year commercial GC. In a firm this size, Bert is functionally the lead estimator. Barbara Krahn is listed as Partner. Landon Krahn (LinkedIn-associated, likely family) is also at WinnPro."
+      ],
+      "confidence": "low"
+    },
+    "notes": "",
+    "history": [],
+    "needs_review_flags": []
+  }
+]

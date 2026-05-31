@@ -1,0 +1,39 @@
+{
+  "company": "Stand Tall Contracting",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.standtallinc.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Jason Zarrillo",
+      "title": "CEO (functions as estimator)",
+      "email": null,
+      "phone": null,
+      "linkedin": "https://ca.linkedin.com/in/jason-zarrillo-aa857196",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Customer reviews specifically cite Jason coming to the site personally to do estimates — he is the bid owner.",
+        "Stand Tall = 'Stand Tall Painting and Contracting Inc.' on BBB — they have an in-house painting capability already, which is BOTH a hurdle (overlap) AND an opening (overflow capacity). Ahmad pitch = 'when your in-house team is booked, we keep your reputation intact.'",
+        "Small commercial / retail fit-up specialist — high frequency of small jobs = recurring sub-trade need.",
+        "COR-certified — safety alignment with Ashrah's training narrative."
+      ],
+      "sources": [
+        {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/home-renovation/stand-tall-painting-and-contracting-inc-0057-62726", "claim": "Stand Tall Painting and Contracting Inc. BBB listing — in-house painting capability"},
+        {"url": "https://ca.linkedin.com/in/jason-zarrillo-aa857196", "claim": "Jason Zarrillo, CEO Stand Tall"},
+        {"url": "https://www.standtallinc.com/commercial/commercial-projects/", "claim": "Commercial fit-up and retail maintenance scope; COR-certified"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Gilliane Delequis",
+    "title": "Office Manager",
+    "rationale": "Office Manager is the gatekeeper for inbound sub inquiries — get on her good side first."
+  },
+  "needs_review_flags": [
+    "Stand Tall has in-house painting — Ashrah pitch must explicitly address overflow / specialized scope, not compete head-on.",
+    "Address: 3635 Eldridge Ave, Winnipeg."
+  ]
+}

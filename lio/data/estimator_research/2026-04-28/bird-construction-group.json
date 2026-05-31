@@ -1,0 +1,57 @@
+{
+  "company": "Bird Construction Group",
+  "researched_at": "2026-04-28T16:00:00Z",
+  "website": "https://www.bird.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Jason Miller",
+      "title": "Estimator, Bird Construction (Winnipeg)",
+      "email": null,
+      "phone": null,
+      "linkedin": "https://www.linkedin.com/in/jason-miller-704440158/",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": ["Red River College"],
+      "personalization_hooks": [
+        "Red River College alum — very strong shared-pipeline angle for Ahmad (Ashrah's painters often come through Red River trades programs)",
+        "Estimator at Bird Winnipeg — directly on the buyer profile Ashrah is targeting",
+        "Bird is a publicly traded national GC (TSX: BDT) with active Winnipeg projects across institutional, commercial, industrial",
+        "Mention Ashrah's automated 5:30 PM daily site reports — large GCs like Bird care about subs whose paperwork doesn't slow them down"
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/jason-miller-704440158/", "claim": "Title and Winnipeg location"},
+        {"url": "https://ca.linkedin.com/jobs/bird-construction-jobs-winnipeg-mb", "claim": "Bird actively hiring in Winnipeg"}
+      ],
+      "confidence": "high"
+    },
+    {
+      "name": "Umar Sharif",
+      "title": "Senior Manager, Estimating — Bird Construction (Winnipeg, MB)",
+      "email": null,
+      "phone": null,
+      "linkedin": "https://www.linkedin.com/in/umar-sharif-241b2a3b/",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Senior Manager of Estimating in Winnipeg — runs the estimating function, decides who's on the bid list",
+        "This is the highest-leverage contact at Bird Winnipeg for a painting sub",
+        "Pitch the 6-day delay forecasting — senior estimators care about subs who flag schedule risk early because that protects their own bid math"
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/umar-sharif-241b2a3b/", "claim": "Title 'Snr. Manager, Estimating' at Bird Construction"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Bird Construction Winnipeg office",
+    "title": "Reception",
+    "rationale": "Bird's Winnipeg office can route to estimating; both Jason Miller and Umar Sharif are public on LinkedIn and reachable via InMail or by guessing firstname.lastname@bird.ca pattern."
+  },
+  "needs_review_flags": [
+    "Email pattern at Bird should be confirmed — likely firstname.lastname@bird.ca but verify",
+    "Tenure for both contacts not yet confirmed"
+  ]
+}

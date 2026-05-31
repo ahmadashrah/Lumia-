@@ -1,0 +1,32 @@
+{
+  "company": "Ironclad Developments Inc.",
+  "researched_at": "2026-04-28T16:25:00Z",
+  "website": "https://www.ironcladdevelopments.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Ryan Van Damme",
+    "title": "CEO, Ironclad Developments Inc.",
+    "linkedin_alt": "https://www.linkedin.com/in/kevindumontier/",
+    "rationale": "Ironclad is a Winnipeg-HQ multi-family developer (since 2014, ~$160M revenue, 94 employees) with national presence. They're VERTICALLY INTEGRATED — own land acquisition through construction through property management. They're also actively HIRING a Senior Estimator right now to support multifamily construction. RECOMMENDED ANGLE: pitch to Ryan or Kevin Dumontier (also surfaced in search). Multi-family residential = MASSIVE recurring paint scope (turnover painting between tenants). This is one of the strongest fit + opportunity targets in the entire batch."
+  },
+  "needs_review_flags": [
+    "Senior Estimator role currently OPEN at Ironclad — once filled, that person will be the right buyer",
+    "Worth Ahmad watching their LinkedIn for the new estimator hire announcement",
+    "Identify the current Construction Director who's hiring the estimator — that's the interim buyer"
+  ],
+  "personalization_hooks": [
+    "MULTI-FAMILY VOLUME PLAY — Ironclad's $160M revenue + 94 employees + active development pipeline = recurring turnover paint work AND new-build paint scopes",
+    "Vertically integrated (land → build → manage) — they keep work in-house with trusted subs once relationship is established",
+    "National scale with Winnipeg HQ — Ahmad gets multi-province potential",
+    "Currently hiring Senior Estimator — Ahmad could literally be the first sub to introduce themselves to that person on day one",
+    "Recent reconciliation project: $18M Dakota Tipi development — partnership angle on Indigenous-led projects (worth flagging if Ahmad has any related capacity)"
+  ],
+  "sources": [
+    {"url": "https://www.ironcladdevelopments.ca/", "claim": "Multi-family Winnipeg HQ developer, vertically integrated"},
+    {"url": "https://www.zoominfo.com/c/ironclad-properties/369169458", "claim": "Revenue $159.8M, 94 employees, CEO Ryan Van Damme"},
+    {"url": "https://www.linkedin.com/in/kevindumontier/", "claim": "Kevin Dumontier — Ironclad Developments Inc."},
+    {"url": "https://renx.ca/ironclad-launch-winnipeg-multires-project-during-pandemic", "claim": "Active multifamily development pipeline"},
+    {"url": "https://www.portageonline.com/articles/reconciliation-in-action-dakota-tipis-18m-development-marks-first-of-many-projects-in-portage-area", "claim": "$18M Dakota Tipi project"}
+  ]
+}

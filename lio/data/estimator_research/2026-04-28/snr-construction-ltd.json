@@ -1,0 +1,24 @@
+{
+  "company": "SNR Construction Ltd.",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://snrconstruction.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Colin Boisjoli, P.Eng., MBA",
+    "title": "Vice President, Construction",
+    "rationale": "VP Construction — direct decision-maker on subcontractor relationships. SNR is currently HIRING an estimator, so the VP is functionally also gatekeeping bids until the seat is filled."
+  },
+  "needs_review_flags": [
+    "STRONG TIMING SIGNAL: SNR is actively hiring an Estimator (snrconstruction.ca/were-hiring/). Ahmad should reach out NOW — Colin is in 'I need bids and I have no estimator' mode.",
+    "SNR is the construction arm of Shindico Realty (large MB commercial real-estate firm) — getting on SNR's bid list = recurring multi-year work.",
+    "Pitch angle: 'I noticed you're looking for an estimator — here's a sub partner who can hand you accurate numbers in 48 hrs while you fill that seat.'",
+    "Confirm Colin's email format via RocketReach; LinkedIn URL: https://www.linkedin.com/in/colin-boisjoli/"
+  ],
+  "sources": [
+    {"url": "https://snrconstruction.ca/about-us/", "claim": "SNR Construction is wholly owned by Shindico Realty"},
+    {"url": "https://snrconstruction.ca/were-hiring/", "claim": "SNR is actively hiring an Estimator"},
+    {"url": "https://www.linkedin.com/in/colin-boisjoli/", "claim": "Colin Boisjoli LinkedIn — VP Construction at SNR"},
+    {"url": "https://shindico.com/index.php/component/content/article/new-construction-company-winnipeg-snrconstruction", "claim": "SNR is Shindico's construction arm"}
+  ]
+}

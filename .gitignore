@@ -8,3 +8,8 @@ __pycache__/
 *.save
 lumia_employee_log.xlsx
 .env
+.env.*
+.DS_Store
+.claude/
+logs/
+*.log

@@ -1,0 +1,41 @@
+{
+  "company": "FABCA Construction Ltd",
+  "researched_at": "2026-04-28T16:15:00Z",
+  "website": "https://fabca.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Colin Richards",
+      "title": "FABCA Construction Ltd — BTCM (likely PM/Estimator role; FABCA contact page lists him as a primary contact)",
+      "email": "Colin@fabca.ca",
+      "phone": "(204) 227-4582",
+      "linkedin": "https://ca.linkedin.com/in/colin-richards-4b857a124",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": ["BTCM (Bachelor of Technology in Construction Management — Red River College or equivalent)"],
+      "personalization_hooks": [
+        "BTCM credential — likely Red River College Construction Management graduate. STRONG shared-pipeline angle.",
+        "One of three named contacts on FABCA's public contact page — clearly involved in client/sub interactions",
+        "Direct email and direct phone are public — very easy first-touch",
+        "FABCA was a sub on Winnipeg Police HQ (the high-profile project that generated subsequent litigation/inquiry) — be tactful; do not reference the controversy",
+        "Boutique Manitoba commercial GC on Academy Road — Ashrah is geographically convenient as a Winnipeg sub"
+      ],
+      "sources": [
+        {"url": "https://fabca.ca/contact/", "claim": "Direct email and phone for Colin Richards"},
+        {"url": "https://ca.linkedin.com/in/colin-richards-4b857a124", "claim": "LinkedIn — Fabca Construction"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Greg Fiorentino, P.Eng.",
+    "title": "President, FABCA Construction Ltd",
+    "email": "Greg@fabca.ca",
+    "phone": "(204) 782-7542",
+    "rationale": "Greg is the company President and a P.Eng. — engineering rigor and risk management are values he respects. Ashrah's 6-day delay forecasting will resonate. Fabio Fiorentino (BBA, BTCM) is also on the contact page (Fabio@fabca.ca / 204-470-4846) — likely a younger family member."
+  },
+  "needs_review_flags": [
+    "Verify Colin's exact title — 'BTCM' is a credential, not a title; he may be Estimator, PM, or something else",
+    "FABCA has past Winnipeg Police HQ litigation history — DO NOT reference in outreach"
+  ]
+}

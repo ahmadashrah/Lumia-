@@ -1,0 +1,22 @@
+{
+  "company": "WinnPro Construction Ltd.",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.winnproconstruction.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Bert Krahn",
+    "title": "President",
+    "rationale": "First-generation owner of a 15+ year commercial GC. In a firm this size, Bert is functionally the lead estimator. Barbara Krahn is listed as Partner. Landon Krahn (LinkedIn-associated, likely family) is also at WinnPro."
+  },
+  "needs_review_flags": [
+    "Family-run shop — 'Krahn' surname pattern suggests succession in progress; Landon Krahn (LinkedIn) may be the next-gen estimator-in-training; worth a direct LinkedIn message.",
+    "Phone: 1-204-989-5941; Email: info@winnpro.ca; Address: Unit A - 48 Speers Rd, Winnipeg.",
+    "WinnPro scope = food industries, industrial, retail, commercial offices — strong fit for Ashrah."
+  ],
+  "sources": [
+    {"url": "https://www.winnproconstruction.ca/", "claim": "WinnPro Construction commercial scope and contact info"},
+    {"url": "https://ca.linkedin.com/in/landon-krahn-7865a29", "claim": "Landon Krahn LinkedIn, WinnPro Construction"},
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/building-materials/winnpro-construction-ltd-0057-23089", "claim": "Bert Krahn President, Barbara Krahn Partner"}
+  ]
+}

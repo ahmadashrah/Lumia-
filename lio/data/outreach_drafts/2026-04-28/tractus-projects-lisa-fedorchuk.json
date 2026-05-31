@@ -1,0 +1,18 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.616008",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "tractus-projects-lisa-fedorchuk",
+  "to_name": "Lisa Fedorchuk",
+  "to_email": "lisa@tractusprojects.com",
+  "company": "Tractus Projects",
+  "segment": "GC",
+  "angle_used": "Estimator: AI bid in 24h, 13% lower",
+  "subject": "24-hour painting bids for your TI sequence",
+  "body": "Hi Lisa,\n\nTractus's team page calls out estimating, scheduling, and procurement as your fortes — you handle the bid AND the schedule. Slow painting subs hurt you on both ends.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs (we don't carry the overhead). Plus Lumia auto-status during execution and 6-day delay forecasting so you don't get surprised.\n\nWorth adding us to your painting bid list?",
+  "cta": "Worth adding us to your painting bid list?",
+  "signals_used": "Tractus TI portfolio (Planet Fitness, McDonald's, La Roca). Lisa's team-page bio explicitly cites estimating.",
+  "needs_review_flags": [
+    "Email guessed at lisa@tractusprojects.com (not in tracker). VERIFY before send.",
+    "Three Tractus contacts — stagger sends across 7+ days."
+  ]
+}

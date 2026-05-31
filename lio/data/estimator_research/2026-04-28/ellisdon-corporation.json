@@ -1,0 +1,25 @@
+{
+  "company": "EllisDon Corporation (Winnipeg office)",
+  "researched_at": "2026-04-28T16:15:00Z",
+  "website": "https://www.ellisdon.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": null,
+    "title": "EllisDon Winnipeg office — Estimating department",
+    "rationale": "EllisDon is a national GC; Winnipeg presence exists (e.g., active Concrete & Formwork PM job posting in Winnipeg) but no specific Winnipeg-based estimator surfaced in public search. Their Winnipeg estimating likely runs through regional structure tied to Calgary/Toronto. RECOMMENDED: Phone EllisDon Winnipeg office; ask for the local estimating lead. Also try direct LinkedIn search for 'EllisDon Winnipeg' employees with estimator title."
+  },
+  "needs_review_flags": [
+    "EllisDon Winnipeg office contact details should be confirmed — office address not surfaced directly",
+    "Manual LinkedIn search by location ('Winnipeg' + 'EllisDon') needed to find specific estimator names",
+    "EllisDon has lots of named estimators company-wide but none clearly tied to Winnipeg in search results — Doug MacArthur, Nathira Saour, Tanner Fedorchuk are EllisDon estimators but locations not Winnipeg-confirmed"
+  ],
+  "personalization_hooks": [
+    "EllisDon is one of the biggest GCs in Canada — getting on their bid list opens national opportunities, not just Winnipeg",
+    "Lead with the automation pitch (5:30 PM auto-reports, 6-day delay forecast) — large GCs are the ones who care most about subs that integrate cleanly with their PM systems"
+  ],
+  "sources": [
+    {"url": "https://www.ellisdon.com/", "claim": "EllisDon corporate site"},
+    {"url": "https://theorg.com/org/ellisdon-corporation/org-chart/richard-whyte", "claim": "Richard Whyte — SVP Preconstruction & Estimating, Civil Division (national, not Winnipeg-specific)"}
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "company": "Harwood Design Builders",
+  "researched_at": "2026-04-28T16:25:00Z",
+  "website": "https://harwoodbuilders.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Wayne Sage",
+    "title": "Owner, Harwood Design Builders",
+    "email": "wayne@harwoodbuilders.com (likely)",
+    "rationale": "Three principals: Wayne Sage (owner), Jeff Halstead and Trevor Bjarnarson (co-owners managing day-to-day). Harwood is residential reno-focused (high-end Winnipeg renovations). Light commercial fit. If Ashrah pursues high-end residential paint, Harwood is a strong candidate; otherwise medium fit. Phone the office; ask for Jeff or Trevor (operational decision-makers)."
+  },
+  "needs_review_flags": [
+    "Harwood is residential reno-focused — different fit than commercial GC pursuit",
+    "Co-owners Jeff Halstead and Trevor Bjarnarson run operations; they're better day-to-day contacts than Wayne",
+    "Confirm exact email pattern @harwoodbuilders.com"
+  ],
+  "personalization_hooks": [
+    "Three-owner partnership model — pitch a multi-decision-maker firm with the 'protect your reputation' angle (renovations live or die on finish quality)",
+    "High-end Winnipeg residential reno — post-job professional cleaning and zero-callback paint quality are differentiators",
+    "Manitoba Home Builders Association member"
+  ],
+  "sources": [
+    {"url": "https://www.zoominfo.com/p/Wayne-Sage/1236579630", "claim": "Wayne Sage Owner, email pattern @harwoodbuilders.com"},
+    {"url": "https://harwoodbuilders.com/", "claim": "Company website / Winnipeg renovations focus"},
+    {"url": "https://www.homebuilders.mb.ca/members/harwood-design-builders-ltd/", "claim": "MHBA member"}
+  ]
+}

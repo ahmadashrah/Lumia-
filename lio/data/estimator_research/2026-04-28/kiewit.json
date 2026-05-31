@@ -1,0 +1,22 @@
+{
+  "company": "Kiewit (Winnipeg regional office)",
+  "researched_at": "2026-04-28T16:25:00Z",
+  "website": "https://www.kiewit.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": null,
+    "title": "Kiewit Winnipeg Regional Office — Western Canada District",
+    "rationale": "Kiewit's Winnipeg presence is HEAVY CIVIL / INFRASTRUCTURE — utilities, transmission, transportation. NOT vertical commercial buildings. They have an active Senior Estimator - Infrastructure (Winnipeg) job posting. This is a LOW FIT for a commercial painting subcontractor. Kiewit will not bid out commercial paint scopes from their Winnipeg office in any meaningful volume. Recommend deprioritizing or removing from list. Adam Cleveland is the company-wide Chief Estimator (Director, National Preconstruction) but is not Winnipeg-based or a relevant target for Ashrah."
+  },
+  "needs_review_flags": [
+    "Kiewit Winnipeg = heavy civil/infrastructure — LOW FIT for commercial painting",
+    "RECOMMEND removing from Ashrah's commercial-painting target list",
+    "Note for memory: Brad Harder at Bockstael is ex-Kiewit — that's the more leveraged Kiewit-related angle"
+  ],
+  "personalization_hooks": [],
+  "sources": [
+    {"url": "https://kiewitcareers.kiewit.com/job/Winnipeg-Senior-Estimator-Infrastructure-(Winnipeg)-MB/1234176100/", "claim": "Senior Estimator Infrastructure Winnipeg posting; civil/infrastructure focus"},
+    {"url": "https://www.zoominfo.com/p/Adam-Cleveland/2190881692", "claim": "Adam Cleveland Director National Preconstruction & Chief Estimator (national, not Winnipeg)"}
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "company": "Gateway Construction & Engineering Ltd.",
+  "researched_at": "2026-04-28T16:20:00Z",
+  "website": "https://gatewayconstruction.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Wayne Fehr",
+      "title": "Chief Estimator / Estimating Manager, Gateway Construction & Engineering Ltd.",
+      "email": "wayne (pattern)@gatewayconstruction.ca (likely wfehr@gatewayconstruction.ca or wayne@gatewayconstruction.ca)",
+      "phone": "204-233-8550 (main)",
+      "linkedin": "https://ca.linkedin.com/in/wayne-fehr-005180145",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Chief Estimator AND Estimating Manager — owns the bid list at a 50+ year Manitoba GC",
+        "Gateway since 1973 — institutional builder, deep MB roots; pitch Ashrah's 'protect the client's reputation' framing — that's literally what 50 years of reputation looks like",
+        "Diverse work: commercial, multifamily, institutional, renovations, industrial, bridges — high-frequency paint scope",
+        "Office on Archibald Street (East Winnipeg / Mission Junction)",
+        "Ahmad to mention the structured painter training program — a 50-year firm cares about workforce reliability"
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/p/Wayne-Fehr/-1082342783", "claim": "Chief Estimator at Gateway Construction & Engineering"},
+        {"url": "https://ca.linkedin.com/in/wayne-fehr-005180145", "claim": "LinkedIn — Gateway Construction and Engineering Ltd"},
+        {"url": "https://gatewayconstruction.ca/our-team/", "claim": "Team page lists him"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Jacques Gauthier",
+    "title": "Senior Project Manager, Gateway Construction & Engineering",
+    "rationale": "If Wayne unavailable, Jacques is a Senior PM contact at Gateway. General office: general@gatewayconstruction.ca / 204-233-8550."
+  },
+  "needs_review_flags": [
+    "Confirm exact email pattern @gatewayconstruction.ca for Wayne (firstname vs first-initial+lastname)"
+  ]
+}

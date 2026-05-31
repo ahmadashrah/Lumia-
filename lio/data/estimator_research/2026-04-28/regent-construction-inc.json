@@ -1,0 +1,38 @@
+{
+  "company": "Regent Construction Inc",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "http://www.regentconstruction.ca/",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Ron Schledwitz",
+      "title": "Project Manager / GSC / Estimator / Safety Coordinator",
+      "email": null,
+      "phone": "204-231-3456",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Wears multiple hats (PM + Estimator + GSC + Safety) — he is the bid-list owner at Regent.",
+        "GSC = Gold Seal Certified, a credibility cue Ahmad can match when pitching Ashrah's training / safety angle.",
+        "Regent has been doing commercial/industrial GC since 1987 (25+ years) — Ron has likely seen many painting subs come and go; the 'protect your reputation' pitch lands well.",
+        "Small-team firm at 919 Dugald Rd — Ron is reachable; Ahmad should call (204) 231-3456 and ask for Ron directly."
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/c/regent-construction-ltd/358389137", "claim": "Ron Schledwitz role at Regent Construction"},
+        {"url": "http://www.regentconstruction.ca/", "claim": "Regent Construction commercial since 1987"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Darlene Clark",
+    "title": "Vice President",
+    "rationale": "VP and represents the company with architects, engineers, owners — strong fallback if Ron is unreachable."
+  },
+  "needs_review_flags": [
+    "Confirm Ron Schledwitz's exact email format via RocketReach or a quick call.",
+    "ZoomInfo also lists 'Steve Wasiuta' as President and 'Buck Yates' as Owner — verify hierarchy."
+  ]
+}

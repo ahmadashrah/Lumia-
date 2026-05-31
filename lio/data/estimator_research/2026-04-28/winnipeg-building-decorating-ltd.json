@@ -1,0 +1,76 @@
+{
+  "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://wbdmb.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Dale Frandsen",
+      "title": "Senior Estimator",
+      "email": null,
+      "phone": "(204) 942-6121",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Senior Estimator at a 70+ year Winnipeg institution — Dale is the bid-list owner.",
+        "WBD scope = insurance restoration + commercial reno + new construction. Insurance restoration jobs are high-frequency/repeatable painting work — strong fit for Ashrah.",
+        "Email format pgbldg.com / wpgbldg.com — likely dale@wpgbldg.com or dfrandsen@wpgbldg.com (verify).",
+        "WBD founded 1953 by Donald T. MacAngus — heritage-firm gravitas; Ahmad's 'protect your reputation' framing fits their identity."
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/p/Dale-Frandsen/942515555", "claim": "Dale Frandsen, Senior Estimator, Winnipeg Building & Decorating, email format ****@pgbldg.com"},
+        {"url": "https://wbdmb.ca/about/", "claim": "WBD founded 1953 by Donald T. MacAngus; commercial reno + insurance restoration + new construction"}
+      ],
+      "confidence": "high"
+    },
+    {
+      "name": "Matthew Keys",
+      "title": "Project Managing Estimator",
+      "email": null,
+      "phone": "(204) 942-6121",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "PM-Estimator hybrid = he both bids the work and manages it — once Ashrah is on his short list, repeat work is automatic.",
+        "Email format pgbldg.com — likely mkeys@wpgbldg.com or matthew@wpgbldg.com."
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/p/Matthew-Keys/2422123396", "claim": "Matthew Keys, Project Managing Estimator at WBD, email format ****@pgbldg.com"}
+      ],
+      "confidence": "high"
+    },
+    {
+      "name": "Darci-lee Tessier",
+      "title": "Project Assistant & Estimator",
+      "email": null,
+      "phone": "(204) 942-6121",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Junior estimator role — most receptive to new sub relationships.",
+        "Email visible as d***@wpgbldg.com — likely dtessier@wpgbldg.com.",
+        "Often the gatekeeper for incoming bid invitations — befriending her opens the door for Dale and Matthew."
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/p/Darci-lee-Tessier/11347994650", "claim": "Darci-lee Tessier, Project Assistant & Estimator at WBD, email d***@wpgbldg.com"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "WBD main line",
+    "title": "(204) 942-6121",
+    "rationale": "70-year-old firm with 3 named estimators — direct approach via the published estimator names is the best path."
+  },
+  "needs_review_flags": [
+    "WBD is the strongest single target on the list: 3 named estimators, 70-year heritage firm, commercial+insurance restoration scope.",
+    "Email domain confusion: ZoomInfo shows pgbldg.com, RocketReach/website may show wpgbldg.com — verify before sending.",
+    "Address: 1586 Wall St, Winnipeg."
+  ]
+}

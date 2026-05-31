@@ -1,0 +1,18 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.618169",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "winnipeg-building-decorating-dale-frandsen",
+  "to_name": "Dale Frandsen",
+  "to_email": "",
+  "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+  "segment": "GC",
+  "angle_used": "Estimator: AI bid 24h, 13% lower",
+  "subject": "24-hour painting bids for your bid book",
+  "body": "Hi Dale,\n\nWBD's 70-year run means you bid a LOT of insurance restoration and commercial reno. The painting line item is usually where bids come back slow and bloated — not your problem to fix, but it slows your whole bid book.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs. Lumia auto-status on the job. Pro cleaning at handoff with no surface damage.\n\nWorth adding us to WBD's painting bid list?",
+  "cta": "Worth adding us to WBD's painting bid list?",
+  "signals_used": "Dale Frandsen = Senior Estimator at WBD (70+ yrs Winnipeg). Email pattern likely @wbdmb.ca or @pgbldg.com / @wpgbldg.com.",
+  "needs_review_flags": [
+    "Email domain unclear — research surfaced @pgbldg.com / @wpgbldg.com pattern in addition to wbdmb.ca. VERIFY before send.",
+    "Three WBD estimators — stagger sends (Dale first as senior)."
+  ]
+}

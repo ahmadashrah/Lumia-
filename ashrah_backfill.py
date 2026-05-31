@@ -47,7 +47,7 @@ ZOHO_EMAIL        = os.getenv("ZOHO_EMAIL",         "ops@ashrahpainting.com")
 ZOHO_PASSWORD     = os.getenv("ZOHO_PASSWORD",      "")   # Zoho app password
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY",  "")
 
-MODEL = "claude-opus-4-6"
+MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-7")
 
 # ---------------------------------------------------------------------------
 # DATA MODELS

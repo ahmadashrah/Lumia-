@@ -1,0 +1,25 @@
+{
+  "company": "Blue Lake Construction",
+  "researched_at": "2026-04-28T16:05:00Z",
+  "website": "https://bluelakeconst.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Raul Gonzales",
+    "title": "President, Blue Lake Construction & Consulting Engineers Corp.",
+    "rationale": "Small-to-mid GC; Raul is the decision-maker. Per BBB, Blue Lake handles new builds (residential, commercial, industrial), renovations, design-build, and assists with permits + initial cost estimates — likely Raul does estimating personally given firm size. Best play: phone the office, ask for Raul, lead with a 2-line value prop on automated daily reports (small GCs hate paperwork)."
+  },
+  "needs_review_flags": [
+    "No dedicated estimator surfaced; firm is small enough that the President likely handles estimating",
+    "Phone the company directly — no public email for Raul"
+  ],
+  "personalization_hooks": [
+    "Small/owner-led GC — fast decision-maker, no committee",
+    "Pitch the 5:30 PM automated daily report as a 'pretend you have admin staff' angle",
+    "Cross-sector (commercial, industrial, residential) — variety of paint scopes possible"
+  ],
+  "sources": [
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/building-and-construction/blue-lake-construction-consulting-engineers-corp-0057-65818", "claim": "Raul Gonzales is President"},
+    {"url": "https://www.bluelakeconst.com/", "claim": "Company website / services scope"}
+  ]
+}

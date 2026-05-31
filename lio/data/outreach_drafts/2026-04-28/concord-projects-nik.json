@@ -1,0 +1,18 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.619003",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "concord-projects-nik",
+  "to_name": "Nik",
+  "to_email": "Nik@concordprojects.com",
+  "company": "Concord Projects",
+  "segment": "GC",
+  "angle_used": "Warm: relationship + Lumi/Lumia update",
+  "subject": "Reconnecting — Ashrah Painting",
+  "body": "Hi Nik,\n\nLio at Ashrah Painting — Ahmad asked me to reach out. We've worked with Concord on past jobs and he wanted to keep us on your radar.\n\nQuick update: Lumi (our AI estimator) now returns 95%-detailed bids in 24 hours, at least 13% lower than human-estimated subs. Plus Lumia auto-status during execution and pro cleanup at handoff.\n\nWorth grabbing coffee sometime?",
+  "cta": "Worth grabbing coffee sometime?",
+  "signals_used": "Nik = first name only on tracker. Past relationship.",
+  "needs_review_flags": [
+    "First name only — confirm full name before send.",
+    "Stagger 5+ days from Marc B (same firm — Concord)."
+  ]
+}

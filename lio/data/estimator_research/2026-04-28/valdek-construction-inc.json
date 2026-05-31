@@ -1,0 +1,39 @@
+{
+  "company": "Valdek Construction Inc",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://valdekconstruction.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Matt Adamiec",
+      "title": "Founder / Owner (functions as estimator)",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "tenure_years_at_company": 12,
+      "prior_firms": ["KGS Group (technologist, structural)"],
+      "education": ["Red River College — Civil Engineering Diploma (structural focus)"],
+      "personalization_hooks": [
+        "STRONG ANGLE: Matt is a Red River College Civil Engineering Diploma grad — direct shared-alumni hook for Ahmad.",
+        "Prior firm: KGS Group (well-known Winnipeg structural consulting engineer) — Matt has the structural-eng vocabulary and respects accurate takeoffs.",
+        "Grew up in a contracting household with his dad — values relationships and craftsmanship narrative; Ashrah's painter-training story will resonate.",
+        "Founded 2014 (12 years in) — small enough that Matt personally bids every job; he is the entire estimating department.",
+        "Won 'Best of TrustedPros 2020' across 6 categories incl. Painting — they have in-house painting capability; pitch as overflow / specialty (high-end finishes, large commercial scale)."
+      ],
+      "sources": [
+        {"url": "https://valdekconstruction.com/about-us/", "claim": "Matt Adamiec, RRC Civil Engineering grad, prior at KGS Group, founded Valdek 2014"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Valdek main line via website",
+    "title": "Contact form",
+    "rationale": "Single-owner shop — Matt is the only relevant contact. Use website contact form or LinkedIn search by name."
+  },
+  "needs_review_flags": [
+    "Valdek is renovation-focused (basements, kitchens, baths, additions) — commercial scope is limited. Lower-priority target unless they're growing into commercial fit-up.",
+    "In-house painting capability noted — frame the pitch as overflow / specialty.",
+    "Address: 1354 Spruce St, Winnipeg."
+  ]
+}

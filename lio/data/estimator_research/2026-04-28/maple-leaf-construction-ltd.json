@@ -1,0 +1,22 @@
+{
+  "company": "Maple Leaf Construction Ltd.",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://mapleleafconstruction.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Erin Fitzpatrick",
+    "title": "Vice President",
+    "rationale": "Listed as VP and on Board of Directors. Family-run firm — Fitzpatrick name is on multiple board seats (Blake, Jack, Garrett Fitzpatrick). Maple Leaf is heavy civil/paving (777 Erin St) and lower fit for a commercial paint sub, but Ahmad can ask about commercial buildings work / commercial development arm."
+  },
+  "needs_review_flags": [
+    "Maple Leaf Construction is primarily heavy civil / asphalt / paving — fit for commercial painting sub is limited but they do commercial development.",
+    "Currently posted: Project Manager & Estimator role — signal that estimating capacity is being built.",
+    "No publicly named individual estimator. Phone (204) 783-7091 and ask for estimating dept."
+  ],
+  "sources": [
+    {"url": "https://mapleleafconstruction.mb.ca/our-company/management-team/", "claim": "Board includes Erin Fitzpatrick, Barry Brown, Blake Fitzpatrick, Jack Fitzpatrick, Kevin Brown, Garrett Fitzpatrick"},
+    {"url": "https://www.zoominfo.com/p/Erin-Fitzpatrick/1098648142", "claim": "Erin Fitzpatrick listed as VP at Maple Leaf Construction"},
+    {"url": "https://rocketreach.co/maple-leaf-construction-ltd-profile_b4473ab5faee6c20", "claim": "Company profile incl. employee directory"}
+  ]
+}

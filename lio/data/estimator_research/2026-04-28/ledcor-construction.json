@@ -1,0 +1,21 @@
+{
+  "company": "Ledcor Construction (Winnipeg office)",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.ledcor.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Leighton Engen",
+    "title": "Ledcor (Winnipeg-area, role unclear)",
+    "rationale": "LinkedIn search surfaced Leighton Engen as a Ledcor employee, but role and exact location not confirmed. Active job posting for Senior Estimator, ICI Construction in Winnipeg suggests team is being built / replaced — strong timing signal."
+  },
+  "needs_review_flags": [
+    "Active Ledcor Senior Estimator ICI posting in Winnipeg — Ahmad should monitor and reach out the moment a hire is announced on LinkedIn.",
+    "Ledcor is a national firm; estimating chains can be matrixed. Consider reaching out via Ledcor's Buildings District Manager in Winnipeg.",
+    "No publicly named current Winnipeg estimator surfaced."
+  ],
+  "sources": [
+    {"url": "https://jobs.ledcor.com/jobs/16762396-senior-estimator-ici-construction", "claim": "Active Senior Estimator ICI Construction posting in Winnipeg, MB"},
+    {"url": "https://www.jobs.ca/job/ac5c9376-9576-490e-952e-fb5d820d0959", "claim": "Senior Estimator Building Construction posting at Ledcor Winnipeg"}
+  ]
+}

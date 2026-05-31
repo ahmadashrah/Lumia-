@@ -1,0 +1,39 @@
+{
+  "company": "PCL Construction (Winnipeg)",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.pcl.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "April Seno",
+      "title": "Junior Estimator",
+      "email": null,
+      "phone": null,
+      "linkedin": "https://www.linkedin.com/in/april-seno-88731179/",
+      "tenure_years_at_company": 3,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Joined PCL Winnipeg as Junior Estimator in April 2023 — early-career, more receptive to new sub relationships.",
+        "Junior estimator role means she's likely doing a lot of the qty takeoff and trade-contractor outreach — exactly the seat that decides whether Ashrah gets bid invites for divisional packages.",
+        "PCL Winnipeg has multiple active estimator + senior estimator postings — team is growing; new hires need new sub relationships fast.",
+        "Hook: position Ashrah as 'easy to bid against' (clean takeoff format, fast turnaround on RFIs) — that solves a junior estimator's daily pain."
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/april-seno-88731179/", "claim": "April Seno listed as Junior Estimator at PCL Construction, Winnipeg, since April 2023"},
+        {"url": "https://careers.pcl.com/job/Winnipeg-Estimator-MB/1287560400/", "claim": "Active PCL Winnipeg Estimator posting"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Kelly Wallace",
+    "title": "Vice President and District Manager — PCL",
+    "rationale": "VP/DM is the senior decision-maker locally. If estimator path doesn't open the door, a 'hello from a fellow Winnipeg owner' note to district leadership can route Ahmad to the estimating chief."
+  },
+  "needs_review_flags": [
+    "April Seno's title is 'Junior' Estimator — she may not be the bid-list decision-maker. Goal: get on her radar so she nominates Ashrah upward.",
+    "Identify and confirm PCL Winnipeg Chief Estimator name in a follow-up pass — likely a Gold Seal CE.",
+    "PCL is the largest GC on this list — high-value target."
+  ]
+}

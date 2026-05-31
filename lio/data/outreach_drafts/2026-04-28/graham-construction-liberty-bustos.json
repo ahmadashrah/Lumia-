@@ -1,0 +1,18 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.619163",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "graham-construction-liberty-bustos",
+  "to_name": "Liberty",
+  "to_email": "Winnipegbids@graham.ca",
+  "company": "Graham Construction",
+  "segment": "GC",
+  "angle_used": "Warm estimator: relationship + Lumi pitch",
+  "subject": "Reconnecting — Ashrah Painting",
+  "body": "Hi Liberty,\n\nLio at Ashrah Painting — Ahmad asked me to reach out. We've worked with Graham on past jobs and he wanted us to stay top of mind on your bid list.\n\nWhat's new on our side: Lumi (our AI estimator) returns 95%-detailed bids in 24 hours, at least 13% lower than human-estimated subs (we don't carry that overhead). Lumia auto-status during the job. Pro cleaning at handoff with no surface damage.\n\nIf you have commercial paint scope coming up, I'd love to be back on the bid list.",
+  "cta": "I'd love to be back on the bid list.",
+  "signals_used": "Liberty Bustos = Estimator at Graham, reads Winnipegbids@ alias.",
+  "needs_review_flags": [
+    "Email is a generic Winnipeg-bids alias — multiple estimators may read it. Address by name to direct it.",
+    "Stagger 5+ days from Greg Richards (same firm)."
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "company": "OB1 Contracting Ltd.",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": null,
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Michael O'Brien",
+    "title": "Owner",
+    "rationale": "OB1 = pavement restoration / utility cut services contractor. Lower fit for interior commercial painting (their work is asphalt/road), but Peter Deduke and Kadeem Hossain are LinkedIn-associated employees if needed."
+  },
+  "needs_review_flags": [
+    "OB1's primary services are pavement restoration / utility cuts — limited fit for commercial painting sub.",
+    "Lower priority for the BD push; consider de-prioritizing.",
+    "Phone: 204-880-8113"
+  ],
+  "sources": [
+    {"url": "https://411smartsearch.ca/businesses/ob-1-contracting-ltd/", "claim": "OB1 Contracting profile and phone"},
+    {"url": "https://ca.linkedin.com/in/peter-deduke-087065ba", "claim": "Peter Deduke, OB1 Contracting LinkedIn"},
+    {"url": "https://ca.linkedin.com/in/kadeem-hossain-2bb35810b", "claim": "Kadeem Hossain, OB1 Contracting Road Construction"}
+  ]
+}

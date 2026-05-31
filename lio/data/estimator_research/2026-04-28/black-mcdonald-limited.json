@@ -1,0 +1,21 @@
+{
+  "company": "Black & McDonald Limited",
+  "researched_at": "2026-04-28T16:00:00Z",
+  "website": "https://blackandmcdonald.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": null,
+    "title": "Black & McDonald Midwest office, Winnipeg (Unit 6 - 60 Dunlop Avenue)",
+    "rationale": "Black & McDonald is primarily a multi-trade contractor (electrical, mechanical, utilities) — paint is not a typical scope. Their Winnipeg office is at Unit 6 - 60 Dunlop Avenue. Lower fit for Ashrah, but they do operate as a GC on facility maintenance contracts. Phone the Midwest office; ask for facilities/PM department. Skip estimator angle — pursue them only if Ashrah wants industrial maintenance painting work."
+  },
+  "needs_review_flags": [
+    "Black & McDonald Winnipeg is utilities-focused — lower fit for commercial painting",
+    "Lower priority — recommend deprioritizing in favour of higher-fit GCs",
+    "If pursued, target should be facilities/maintenance lead, not estimator"
+  ],
+  "sources": [
+    {"url": "https://ca.indeed.com/cmp/Black-&-McDonald-Limited/reviews?fcountry=CA&floc=Winnipeg,+MB", "claim": "Black & McDonald has Winnipeg presence"},
+    {"url": "https://www.linkedin.com/in/davidbedeau/", "claim": "David Bedeau — Senior Estimator Western Utilities Region (location not confirmed Winnipeg)"}
+  ]
+}

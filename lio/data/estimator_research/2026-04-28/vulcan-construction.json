@@ -1,0 +1,37 @@
+{
+  "company": "Vulcan Construction",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://vulcanconstruction.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Kevin Farkas",
+      "title": "Sales Estimator",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Title 'Sales Estimator' is unusual — combined sales + estimating means Kevin owns both qualifying the project AND pricing it. He IS the front door.",
+        "Vulcan does residential + commercial across MB — get on Kevin's bid list for the commercial / multi-family side.",
+        "LinkedIn page vulcan-construction-winnipeg confirms he is Winnipeg-based.",
+        "Sales-mindset estimator responds well to clear value props — Ashrah's '6-day delay forecasting' is a sellable feature he can pitch upward."
+      ],
+      "sources": [
+        {"url": "https://ca.linkedin.com/company/vulcan-construction-winnipeg", "claim": "Vulcan Construction Winnipeg LinkedIn — Kevin Farkas listed as Sales Estimator"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Vulcan Construction main line",
+    "title": "via website",
+    "rationale": "Reach via vulcanconstruction.ca contact form if Kevin's direct line isn't surfaced."
+  },
+  "needs_review_flags": [
+    "Confirm Kevin Farkas's email format and exact LinkedIn URL via RocketReach.",
+    "Verify Vulcan's commercial vs residential split — TrustedPros listing suggests both."
+  ]
+}

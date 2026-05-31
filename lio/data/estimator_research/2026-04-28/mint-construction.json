@@ -1,0 +1,21 @@
+{
+  "company": "Mint Construction (Winnipeg)",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://mint-construction.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Mint Construction main contact",
+    "title": "via website contact form",
+    "rationale": "Winnipeg Mint Construction at 301-1661 Portage Ave is a small commercial/residential GC. No public estimator named. Note: separate company 'MiNT Construction LLC' (Utah) and 'MINT Projects' (Calgary) exist — do not confuse them."
+  },
+  "needs_review_flags": [
+    "Multiple companies share the 'Mint' name — confirm Winnipeg-based entity before outreach.",
+    "Winnipeg Mint = small commercial/residential GC; estimator likely is the owner.",
+    "Recommend website contact form as cold-outreach channel; phone fallback."
+  ],
+  "sources": [
+    {"url": "https://mint-construction.ca/", "claim": "Mint Construction Winnipeg website — commercial & residential contractor"},
+    {"url": "https://mint-construction.ca/contact/", "claim": "Contact page for Winnipeg-based Mint Construction"}
+  ]
+}

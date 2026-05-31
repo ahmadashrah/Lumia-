@@ -1,0 +1,41 @@
+{
+  "company": "Bockstael Construction Limited",
+  "researched_at": "2026-04-28T16:05:00Z",
+  "website": "https://bockstael.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Brad Harder",
+      "title": "Manager, Preconstruction (formerly Construction Estimator)",
+      "email": null,
+      "phone": null,
+      "linkedin": "https://www.linkedin.com/in/brad-harder-64a8826a/",
+      "tenure_years_at_company": null,
+      "prior_firms": ["Kiewit", "SADB", "McMahon Services"],
+      "education": [],
+      "personalization_hooks": [
+        "Former Kiewit — progressed from QC Technician to Estimating Engineer, Lead Electrical Field Engineer, Lead Estimator, Project Engineer. Heavy infrastructure background brought into a 110-year Manitoba commercial builder",
+        "Was Senior Estimator at SADB and Building Services Estimator at McMahon Services prior to Bockstael — values rigorous estimating discipline",
+        "Now leads ALL preconstruction at Bockstael — decides the bid list. Highest-leverage single contact in this list of 30",
+        "Bockstael is 100+ years old, family-owned-feel — pitch Ashrah's structured painter training program as 'long-term reliability' to match their multigenerational reputation",
+        "His Kiewit background means he respects subs that bring data and forecasting — lead with the 6-day delay forecasting tool"
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/brad-harder-64a8826a/", "claim": "Title and tenure progression"},
+        {"url": "https://rocketreach.co/brad-harder-email_26191286", "claim": "Preconstruction Manager title at Bockstael"},
+        {"url": "https://theorg.com/org/bockstael-construction/org-chart/brad-harder", "claim": "Construction Estimator → Manager, Preconstruction"},
+        {"url": "https://www.zoominfo.com/p/Bradley-Harder/3997527555", "claim": "Email pattern b***@bockstael.com (likely brad.harder@bockstael.com)"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Bockstael office",
+    "title": "Reception / Estimating",
+    "rationale": "Bockstael also has a posted Estimator job (https://bockstael.com/bockstael_careers/estimator/) — they may have additional junior estimators reporting to Brad. If Brad isn't reachable, ask reception for the estimating department."
+  },
+  "needs_review_flags": [
+    "Email pattern likely brad.harder@bockstael.com but ZoomInfo only shows masked b***@bockstael.com — confirm",
+    "Tenure years at Bockstael not yet pinned — LinkedIn shows progression but exact start year needs confirmation"
+  ]
+}

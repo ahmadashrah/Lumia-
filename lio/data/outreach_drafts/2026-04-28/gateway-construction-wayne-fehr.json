@@ -1,0 +1,15 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.617183",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "gateway-construction-wayne-fehr",
+  "to_name": "Wayne Fehr",
+  "to_email": "wayne@gatewayconstruction.ca",
+  "company": "Gateway Construction & Engineering",
+  "segment": "GC",
+  "angle_used": "Estimator: AI bid in 24h, 13% lower",
+  "subject": "Painting bids in 24 hours for Gateway",
+  "body": "Hi Wayne,\n\n50 years at Gateway means you've bid a lot of multifamily, institutional, and commercial. Painting subs bidding slow and bloated don't help your numbers — or your bid book.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs (we don't carry that overhead). Plus Lumia auto-status during the job and pro cleaning at handoff with no surface damage.\n\nWorth adding us to Gateway's painting bid list?",
+  "cta": "Worth adding us to Gateway's painting bid list?",
+  "signals_used": "Gateway = 50 years, 434 Archibald St., commercial/multifamily/institutional.",
+  "needs_review_flags": []
+}

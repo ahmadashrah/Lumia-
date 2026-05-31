@@ -1,0 +1,28 @@
+{
+  "company": "Alair Homes Winnipeg",
+  "researched_at": "2026-04-28T16:05:00Z",
+  "website": "https://alairhomes.com/winnipeg/",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Warren Koop",
+    "title": "Owner / Principal, Alair Homes Winnipeg",
+    "rationale": "Alair Winnipeg is a franchise owned by Warren Koop. He is the decision-maker for trade selection. Alair primarily does custom homes and renovations — lighter commercial fit, but high-end residential paint scopes are a real opportunity. Warren is a third-generation Manitoba builder, grew up on job sites with his father, and is involved with Habitat for Humanity (community/charity hook for Ahmad). Started Alair Manitoba in 2015. Office: 126 Cordova St, Winnipeg, MB R3N 1A1."
+  },
+  "needs_review_flags": [
+    "Alair is residential/reno-focused — different fit than commercial GC; consider only if Ashrah pursues high-end residential paint",
+    "No separate estimator role surfaced; Warren is the buyer"
+  ],
+  "personalization_hooks": [
+    "Third-generation Manitoba home builder — strong shared-Manitoba-roots angle",
+    "Habitat for Humanity involvement (per Alair team page bio) — community connection if Ahmad has any Habitat ties",
+    "Started Alair Manitoba franchise from scratch in 2015 — entrepreneur-to-entrepreneur framing works",
+    "Office is in St. James (Cordova St)"
+  ],
+  "sources": [
+    {"url": "https://alairhomes.com/winnipeg/meet-the-team/", "claim": "Warren Koop is Owner/Principal of Alair Homes Winnipeg"},
+    {"url": "https://ca.linkedin.com/in/warren-koop-91a07b109", "claim": "Warren Koop LinkedIn — Alair Homes Winnipeg"},
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/home-builders/alair-homes-winnipeg-0057-65215", "claim": "Started 25/2/2015, located 126 Cordova St"},
+    {"url": "https://www.homebuilders.mb.ca/members/alair-homes-winnipeg/", "claim": "Manitoba Home Builders Association member"}
+  ]
+}

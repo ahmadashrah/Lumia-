@@ -1,0 +1,26 @@
+{
+  "company": "Harris Holdings / Harris Builders",
+  "researched_at": "2026-04-28T16:20:00Z",
+  "website": "https://harrisbuilders.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Bryan Harris",
+    "title": "President / Owner, Harris Builders (Harris Holdings Ltd)",
+    "rationale": "Family-run business since 1950 (75 years). Bryan is the principal. Specializes in residential single-family new construction + renovations — light commercial fit. Office: 4-2090 Corydon Avenue, Winnipeg. Phone the office and ask for Bryan. Position Ashrah as a residential-finish-quality painter if pursuing."
+  },
+  "needs_review_flags": [
+    "Harris is residential-focused, not commercial GC — lower fit for Ashrah's commercial pitch",
+    "If Ashrah pursues high-end residential, this becomes a good fit; otherwise deprioritize",
+    "Estimating handled by owner directly given firm size"
+  ],
+  "personalization_hooks": [
+    "75 years in business, since 1950 — third-generation Manitoba builder vibes; legacy/community angle",
+    "Corydon Ave office (River Heights / Crescentwood) — South Winnipeg upscale residential focus",
+    "Ahmad's post-job professional cleaning will appeal — residential clients live in the space"
+  ],
+  "sources": [
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/general-contractor/harris-builders-0057-32173", "claim": "Bryan Harris President; since 1950"},
+    {"url": "https://www.dnb.com/business-directory/company-profiles.harris_holdings_ltd.b5f24ab7401cffed8f11abf0037e6172.html", "claim": "Harris Holdings Ltd company profile"}
+  ]
+}

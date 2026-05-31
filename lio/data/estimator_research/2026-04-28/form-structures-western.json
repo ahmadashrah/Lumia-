@@ -1,0 +1,19 @@
+{
+  "company": "Form Structures Western",
+  "researched_at": "2026-04-28T16:20:00Z",
+  "website": null,
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": null,
+    "title": null,
+    "rationale": "Could not locate this company. Tracker has typo 'formstructuresweastren.ca'; tried 'formstructureswestern.ca' and various search permutations — no public listing found. May be defunct, may operate under a different legal name, or may be very small/obscure. Recommend Ashrah confirm the name with whoever sourced it. Possible adjacent firms: Westland Construction Ltd., Western Construction Services, Wiebe's Steel Structures."
+  },
+  "needs_review_flags": [
+    "Company name unverified — possibly typo, possibly defunct",
+    "RECOMMEND: Ahmad to confirm or remove from target list",
+    "If keeping, search MB corporate registry by name"
+  ],
+  "personalization_hooks": [],
+  "sources": []
+}

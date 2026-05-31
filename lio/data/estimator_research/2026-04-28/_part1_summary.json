@@ -1,0 +1,94 @@
+{
+  "researched_at": "2026-04-28T16:30:00Z",
+  "part": 1,
+  "companies_total": 30,
+  "estimators_named": 9,
+  "fallback_only": 21,
+  "results": [
+    {"company": "Aecon Group", "estimator_name": null, "confidence": null, "fit_note": "Winnipeg = utilities/transmission, low fit for commercial paint"},
+    {"company": "Akribia Framing", "estimator_name": null, "confidence": null, "fit_note": "Framing sub themselves, peer/partner not GC-buyer"},
+    {"company": "Alair Homes Winnipeg", "estimator_name": null, "confidence": null, "fit_note": "Owner Warren Koop is buyer; residential/reno"},
+    {"company": "Bird Construction Group", "estimator_name": "Jason Miller (Estimator) + Umar Sharif (Sr. Mgr Estimating)", "confidence": "high", "fit_note": "Strong fit; Jason is Red River College alum"},
+    {"company": "Black & McDonald Limited", "estimator_name": null, "confidence": null, "fit_note": "Winnipeg = utilities, low fit"},
+    {"company": "Blue Lake Construction", "estimator_name": null, "confidence": null, "fit_note": "President Raul Gonzales is buyer"},
+    {"company": "Bobsled Construction", "estimator_name": null, "confidence": null, "fit_note": "Operations Mgr James Melendez (james@bob-sled.ca) is direct contact"},
+    {"company": "Bockstael Construction Limited", "estimator_name": "Brad Harder", "confidence": "high", "fit_note": "Manager Preconstruction; ex-Kiewit; HIGHEST-LEVERAGE TARGET"},
+    {"company": "Bonafide Construction", "estimator_name": null, "confidence": null, "fit_note": "Family-run; Jeff Herlick + George Trudeau"},
+    {"company": "Bree-Dan Construction Ltd.", "estimator_name": null, "confidence": null, "fit_note": "Owner Kevin Burton (Red River College Carpenter) handles estimating"},
+    {"company": "Canotech Consultants Ltd", "estimator_name": "Graeme Fardoe (Managing Partner / Sr PM)", "confidence": "medium", "fit_note": "Third-gen family firm; $500K-$15M project range fits Ashrah"},
+    {"company": "CGI Constructors / Century Group", "estimator_name": null, "confidence": null, "fit_note": "Chris Lacasse is Prairies Area Manager (ex-estimator)"},
+    {"company": "CIC Inc.", "estimator_name": null, "confidence": null, "fit_note": "President Rudy Penner; restaurant + commercial niche"},
+    {"company": "Con-Pro Canada", "estimator_name": "Pritesh Shah (Chief Estimator)", "confidence": "high", "fit_note": "14 yrs tenure; email @conpro.mb.ca"},
+    {"company": "Contempora Steel Builders", "estimator_name": "Andrew Coleman (Dir Pre-Construction) + Marc Ouimet (Estimator)", "confidence": "high", "fit_note": "Andrew = Red River College BTech, ex-Graham PM; STRONG personalization"},
+    {"company": "Davian Construction Ltd", "estimator_name": null, "confidence": null, "fit_note": "President Ian Balcain; PM Sasan Dorniani"},
+    {"company": "EllisDon Corporation", "estimator_name": null, "confidence": null, "fit_note": "No Winnipeg-specific estimator surfaced; phone office"},
+    {"company": "Ellmar Construction", "estimator_name": null, "confidence": null, "fit_note": "Civil/sitework — NOT a vertical GC; recommend removing"},
+    {"company": "FABCA Construction Ltd", "estimator_name": "Colin Richards (BTCM)", "confidence": "high", "fit_note": "Direct email Colin@fabca.ca and phone public"},
+    {"company": "Form Structures Western", "estimator_name": null, "confidence": null, "fit_note": "Could not locate company; possible typo or defunct"},
+    {"company": "Gardon Construction Ltd.", "estimator_name": "Shane Johnson (Chief Estimator)", "confidence": "high", "fit_note": "Direct email sjohnson@gardonconstruction.com"},
+    {"company": "Gateway Construction & Engineering Ltd.", "estimator_name": "Wayne Fehr (Chief Estimator)", "confidence": "high", "fit_note": "50-year MB GC; commercial/multifamily/institutional"},
+    {"company": "Graham Construction", "estimator_name": null, "confidence": null, "fit_note": "No Winnipeg estimator surfaced; warm intro via Andrew Coleman (ex-Graham PM, now Contempora)"},
+    {"company": "Harris Holdings / Harris Builders", "estimator_name": null, "confidence": null, "fit_note": "75-year residential family firm; President Bryan Harris"},
+    {"company": "Harwood Design Builders", "estimator_name": null, "confidence": null, "fit_note": "Wayne Sage owner; residential reno focus"},
+    {"company": "Hedman Construction", "estimator_name": null, "confidence": null, "fit_note": "Owner David Hedman; markets fast estimating"},
+    {"company": "Ironclad Developments Inc.", "estimator_name": null, "confidence": null, "fit_note": "CEO Ryan Van Damme; HIGH-VOLUME multi-family; Sr Estimator role currently OPEN"},
+    {"company": "Jilmark Construction Ltd.", "estimator_name": "David Regehr-Wiens, Gilles Comte, Josh Penner, Steven Baars (multi-role estimating team)", "confidence": "medium", "fit_note": "Founder John Froese still active; broad commercial scope"},
+    {"company": "Kenmare Developments Inc.", "estimator_name": null, "confidence": null, "fit_note": "President Kyle Kostenuk C.E.T.; Dakota Tipi $18M Forks project"},
+    {"company": "Kiewit", "estimator_name": null, "confidence": null, "fit_note": "Heavy civil — LOW FIT, recommend removing"}
+  ],
+  "top_5_highest_confidence": [
+    {
+      "rank": 1,
+      "company": "Bockstael Construction Limited",
+      "estimator": "Brad Harder",
+      "title": "Manager, Preconstruction",
+      "strongest_hook": "Ex-Kiewit (came up the full ladder QC Tech → Estimating Engineer → Lead Estimator → Project Engineer); now runs all preconstruction at a 110-year MB family-feel builder. Lead with the 6-day delay forecast — it's purpose-built for someone with his data-driven background."
+    },
+    {
+      "rank": 2,
+      "company": "Contempora Steel Builders",
+      "estimator": "Andrew Coleman",
+      "title": "Director of Pre-Construction",
+      "strongest_hook": "Red River College BTech alum AND ex-Graham Construction PM. ZoomInfo profile literally calls out 'cost and schedule management' as his strength. Lead with Red River alumni angle, then pitch the delay forecast."
+    },
+    {
+      "rank": 3,
+      "company": "Con-Pro Canada",
+      "estimator": "Pritesh Shah",
+      "title": "Chief Estimator",
+      "strongest_hook": "14 years tenure (since 2012) at a 1969-founded MB GC. LinkedIn URL slug includes 'chiefestimator' — identity-invested in the role. Email pattern @conpro.mb.ca (NOT @conprocanada.ca despite website)."
+    },
+    {
+      "rank": 4,
+      "company": "Bird Construction Group",
+      "estimator": "Jason Miller + Umar Sharif",
+      "title": "Estimator + Senior Manager Estimating",
+      "strongest_hook": "Jason Miller is Red River College alum (Winnipeg). Umar Sharif runs estimating for Bird Winnipeg. Two-prong outreach: Red River shared-pipeline angle for Jason, Senior Manager strategic pitch for Umar."
+    },
+    {
+      "rank": 5,
+      "company": "Gardon Construction Ltd. + Gateway Construction & Engineering Ltd. (tie)",
+      "estimator": "Shane Johnson (Gardon) + Wayne Fehr (Gateway)",
+      "title": "Chief Estimator (both)",
+      "strongest_hook": "Gardon: direct email sjohnson@gardonconstruction.com publicly listed — no friction first-touch. Gateway: 50-year MB institutional builder, broad scope (commercial/multifamily/institutional/industrial); Wayne owns both Chief Estimator AND Estimating Manager titles."
+    }
+  ],
+  "additional_high_value_finds": [
+    "FABCA Construction — Colin Richards has direct email Colin@fabca.ca and direct phone (204) 227-4582",
+    "Ironclad Developments — currently HIRING Senior Estimator; once filled, that's a brand-new buyer to be first to introduce to. Also $160M revenue multi-family with national pipeline = recurring volume.",
+    "Bobsled Construction — Operations Manager email james@bob-sled.ca is public",
+    "Bree-Dan Construction — Owner Kevin Burton is a Red River College Carpenter graduate (strong shared-trades angle)"
+  ],
+  "low_fit_recommend_removing": [
+    "Aecon Group (utilities/transmission)",
+    "Black & McDonald (utilities)",
+    "Ellmar Construction (civil/sitework, not vertical GC)",
+    "Kiewit (heavy civil)"
+  ],
+  "needs_followup": [
+    "Form Structures Western — company name unverified; possible typo or defunct",
+    "EllisDon Winnipeg — manual LinkedIn employee search needed, filtered by Winnipeg location",
+    "Graham Construction Winnipeg — warm intro via Andrew Coleman (Contempora, ex-Graham) is the play",
+    "Email pattern verification needed for: Bockstael, Con-Pro (verify @conpro.mb.ca), Gateway, FABCA"
+  ]
+}

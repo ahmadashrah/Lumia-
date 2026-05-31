@@ -1,0 +1,25 @@
+{
+  "company": "Ellmar Construction Inc.",
+  "researched_at": "2026-04-28T16:15:00Z",
+  "website": "https://ellmar.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": null,
+    "title": null,
+    "rationale": "Phone 204-284-0358. Ellmar specializes in concrete & asphalt, excavation & grading, snow removal — civil/site-prep, NOT vertical building. They are a civil sub themselves, not a commercial GC. LOW FIT for Ashrah's commercial painting services. Recommend deprioritizing."
+  },
+  "needs_review_flags": [
+    "Ellmar is civil/sitework, NOT a vertical GC — likely no painting scope",
+    "Recommend removing from Ashrah's target list",
+    "If kept, only as a peer/referral relationship"
+  ],
+  "personalization_hooks": [
+    "Concrete/asphalt/excavation focus — peer subcontractor, not a buyer of paint"
+  ],
+  "sources": [
+    {"url": "https://ellmar.ca/", "claim": "Services: concrete & asphalt, excavation & grading, snow removal"},
+    {"url": "https://canada247.info/explore/manitoba/winnipeg/south_river_heights/ellmar-construction-inc-204-284-0358.html", "claim": "Phone 204-284-0358, address 1345 Taylor Ave"},
+    {"url": "https://winnipegconstruction.ca/membership/directory/page/16/", "claim": "WCA member"}
+  ]
+}

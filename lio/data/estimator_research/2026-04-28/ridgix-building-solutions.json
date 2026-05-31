@@ -1,0 +1,21 @@
+{
+  "company": "Ridgix Building Solutions Inc",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://ridgix.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Ryan Ridge",
+    "title": "CEO / Commercial Project Manager",
+    "rationale": "Founder/CEO and runs commercial PM in a small (~12-yr-old) framing+GC firm — he is functionally the estimator. Direct outreach to Ryan is the play."
+  },
+  "needs_review_flags": [
+    "Ridgix is primarily a commercial framing sub that has expanded into GC — they bid commercial multi-family (apartments, condos, lofts) and offices in MB/SK/ON.",
+    "As a framer-turned-GC, Ridgix knows the sub-trade pain — Ashrah's '5:30 PM daily reports' angle resonates strongly with frame-then-paint sequencing.",
+    "Started 2012; Ryan Ridge has scaled it personally — community angle is strong."
+  ],
+  "sources": [
+    {"url": "https://ridgix.com/about-us/", "claim": "Ryan Ridge listed as CEO / Commercial PM, founded 2012"},
+    {"url": "https://ridgix.com/commercial-framing-winnipeg-manitoba/", "claim": "Ridgix commercial scope — multi-family, office, MB/SK/ON"}
+  ]
+}

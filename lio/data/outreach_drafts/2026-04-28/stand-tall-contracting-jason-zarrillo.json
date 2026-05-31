@@ -1,0 +1,17 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.617974",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "stand-tall-contracting-jason-zarrillo",
+  "to_name": "Jason Zarrillo",
+  "to_email": "",
+  "company": "Stand Tall Contracting",
+  "segment": "GC",
+  "angle_used": "CEO/Estimator: AI bid 24h, 13% lower",
+  "subject": "Painting bids in 24 hours for your jobs",
+  "body": "Hi Jason,\n\nStand Tall's portfolio — Manitoba Hydro office reno, Best Buy, Southeast Collegiate, IKEA maintenance — covers commercial fit-up that bleeds money fast when a painting sub goes dark. And you handle estimating yourself, so every slow sub bid is hours off your week.\n\nLumi (our AI estimating agent) returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs. Lumia auto-status during the job. Pro cleaning at handoff with no surface damage.\n\nWant us on your next painting bid?",
+  "cta": "Want us on your next painting bid?",
+  "signals_used": "Jason Zarrillo = CEO of Stand Tall Contracting, customer reviews confirm he personally site-estimates.",
+  "needs_review_flags": [
+    "No public email — start with LinkedIn message."
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "company": "Thomas Design Builders Ltd",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://thomasdesignbuilders.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Jeff Miller",
+      "title": "President / Owner (background in construction estimating)",
+      "email": null,
+      "phone": "204-500-1213",
+      "linkedin": "https://ca.linkedin.com/in/jeff-miller-4a1b6827",
+      "tenure_years_at_company": 24,
+      "prior_firms": [],
+      "education": ["Red River College — Design & Construction Technology Diploma (C.E.T.), 1999"],
+      "personalization_hooks": [
+        "STRONG ANGLE: Jeff is a Red River College Design & Construction Technology grad (1999, C.E.T.). Same Winnipeg trades-college community Ahmad can leverage for shared-alumni open.",
+        "Joined Thomas Design Builders in 2002 — 24 years at the firm. President-track lifer; he values long-term sub relationships, not one-off bids.",
+        "Background explicitly in construction estimating + project management — he reads bids closely. Ashrah's accurate-takeoff pitch lands.",
+        "TDB has been design-build since 1980 — 45+ years of repeat-client commercial work; getting on the bid list is a long-term annuity.",
+        "22-employee shop at 2395 Unit C McGillivray Blvd — small enough that Jeff personally responds."
+      ],
+      "sources": [
+        {"url": "https://thomasdesignbuilders.ca/about/", "claim": "Jeff Miller graduated Red River College 1999 with Design & Construction Technology Diploma C.E.T.; joined TDB 2002"},
+        {"url": "https://ca.linkedin.com/in/jeff-miller-4a1b6827", "claim": "Jeff Miller LinkedIn — Owner/President Thomas Design Builders Ltd."}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Stephanie Borchardt",
+    "title": "Thomas Design Builders Ltd",
+    "rationale": "LinkedIn-associated employee, role unconfirmed — fallback if Jeff doesn't respond."
+  },
+  "needs_review_flags": [
+    "Jeff Miller is the highest-confidence Red River College alumni angle on this list — Ahmad must use this hook.",
+    "Sean Feeney is also linked to TDB on LinkedIn."
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "company": "Kenmare Developments Inc.",
+  "researched_at": "2026-04-28T16:25:00Z",
+  "website": "https://kenmaredevelopments.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Kyle Kostenuk, C.E.T.",
+    "title": "President, Kenmare Developments Inc.",
+    "linkedin": "https://www.linkedin.com/in/kyle-kostenuk-c-e-t-2990a612a/",
+    "rationale": "Kyle is President AND a Certified Engineering Technologist (C.E.T.) — he came up technical, respects estimating discipline, and likely runs the estimating function himself at firm size. Kenmare is involved in significant projects: $18M Dakota Tipi development at The Forks (145-unit, traditional Dakota lands) — major Indigenous-led project with reconciliation framing. Engagement angle: lead with respect for the partnership work + Ashrah's structured painter training (workforce reliability matters when your projects are politically visible)."
+  },
+  "needs_review_flags": [
+    "No dedicated estimator surfaced — Kyle likely handles or oversees directly",
+    "Confirm whether Kenmare keeps construction in-house or partners with a GC"
+  ],
+  "personalization_hooks": [
+    "Kyle is C.E.T. (Certified Engineering Technologist) — values data and technical rigour. Lead with the 6-day delay forecast pitch.",
+    "DAKOTA TIPI / FORKS PROJECT ($18M, 145 units, reconciliation framing) — major upcoming work; ask Kyle directly about painting subcontracting on this one",
+    "Kenmare is small enough that the President is reachable directly via LinkedIn",
+    "If Ahmad has any Indigenous community connections or has worked Indigenous-led projects, lead with that"
+  ],
+  "sources": [
+    {"url": "https://www.linkedin.com/in/kyle-kostenuk-c-e-t-2990a612a/", "claim": "Kyle Kostenuk C.E.T. — Kenmare Developments"},
+    {"url": "https://www.zoominfo.com/p/Kyle-Kostenuk/12505497283", "claim": "President at Kenmare Developments"},
+    {"url": "https://www.portageonline.com/articles/reconciliation-in-action-dakota-tipis-18m-development-marks-first-of-many-projects-in-portage-area", "claim": "Dakota Tipi $18M project, Forks 145-unit development"}
+  ]
+}

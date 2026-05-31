@@ -1,0 +1,37 @@
+{
+  "company": "Rempel Builders",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.rempelbuilders.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Frank Ambrosio",
+      "title": "Estimator & Project Manager",
+      "email": null,
+      "phone": "(204) 227-4662",
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Combined Estimator + PM role means Frank owns the bid AND the trade selection — fewer hand-offs, faster yes/no.",
+        "Rempel = energy-efficient residential focus + renovations (kitchens, basements, additions, whole-home) — fit for Ashrah is moderate; targeting their commercial / additions work is the angle.",
+        "Small team — Ahmad can drop by 1386 Loudoun Rd in person or call directly."
+      ],
+      "sources": [
+        {"url": "https://www.rempelbuilders.ca/", "claim": "Rempel Builders address (1386 Loudoun Road) and phone"},
+        {"url": "https://rocketreach.co/rempel-builders-profile_b7e42cadc071c061", "claim": "Frank Ambrosio referenced as Estimator & PM at Rempel Builders"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Ivan Plett",
+    "title": "Rempel Builders (LinkedIn-associated)",
+    "rationale": "Backup contact identified via LinkedIn search."
+  },
+  "needs_review_flags": [
+    "Rempel is residential-renovation heavy — lower priority per the original brief; Ahmad flagged this himself.",
+    "Confirm Frank Ambrosio's exact title and email via direct call."
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "part": 2,
+  "range": "L-Z",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "totals": {
+    "companies_researched": 20,
+    "estimators_named": 11,
+    "companies_with_named_estimator": 8,
+    "companies_with_only_fallback_contact": 12
+  },
+  "results": [
+    {"company": "LD Builders", "estimator_name": null, "confidence": "low", "fallback": "Larry Dyck (Founder/President)"},
+    {"company": "Ledcor Construction (Winnipeg)", "estimator_name": null, "confidence": "low", "fallback": "Active Senior Estimator ICI posting — monitor for new hire"},
+    {"company": "Maple Leaf Construction Ltd.", "estimator_name": null, "confidence": "low", "fallback": "Erin Fitzpatrick (VP)"},
+    {"company": "Mint Construction", "estimator_name": null, "confidence": "low", "fallback": "Website contact form"},
+    {"company": "OB1 Contracting Ltd.", "estimator_name": null, "confidence": "low", "fallback": "Michael O'Brien (Owner)"},
+    {"company": "Oswald Construction Ltd", "estimator_name": null, "confidence": "low", "fallback": "Graeme MacMillan"},
+    {"company": "PCL Construction (Winnipeg)", "estimator_name": "April Seno", "confidence": "medium", "fallback": "Kelly Wallace (VP/DM)"},
+    {"company": "Qualico Developments", "estimator_name": null, "confidence": "low", "fallback": "Choose operating division first; Winnipeg HQ (204) 233-2451"},
+    {"company": "Regent Construction Inc", "estimator_name": "Ron Schledwitz", "confidence": "medium", "fallback": "Darlene Clark (VP)"},
+    {"company": "Rempel Builders", "estimator_name": "Frank Ambrosio", "confidence": "medium", "fallback": "Ivan Plett"},
+    {"company": "Ridgix Building Solutions Inc", "estimator_name": null, "confidence": "low", "fallback": "Ryan Ridge (CEO/Commercial PM)"},
+    {"company": "SNR Construction Ltd.", "estimator_name": null, "confidence": "low", "fallback": "Colin Boisjoli (VP Construction) — actively hiring estimator NOW"},
+    {"company": "Stand Tall Contracting", "estimator_name": "Jason Zarrillo", "confidence": "high", "fallback": "Gilliane Delequis (Office Manager)"},
+    {"company": "Thomas Design Builders Ltd", "estimator_name": "Jeff Miller", "confidence": "high", "fallback": "Stephanie Borchardt"},
+    {"company": "Tractus Projects", "estimator_name": "Lisa Fedorchuk + Chad Horrill + Joe Paletta", "confidence": "high", "fallback": "Tractus front desk 204-942-6035"},
+    {"company": "Valdek Construction Inc", "estimator_name": "Matt Adamiec", "confidence": "high", "fallback": "Website contact form"},
+    {"company": "Vulcan Construction", "estimator_name": "Kevin Farkas", "confidence": "medium", "fallback": "Vulcan main contact form"},
+    {"company": "Westland Construction Ltd.", "estimator_name": "Emily Mason", "confidence": "medium", "fallback": "Peter Grose (President/CEO)"},
+    {"company": "Winnipeg Building & Decorating Ltd. (WBD)", "estimator_name": "Dale Frandsen + Matthew Keys + Darci-lee Tessier", "confidence": "high", "fallback": "(204) 942-6121"},
+    {"company": "WinnPro Construction Ltd.", "estimator_name": null, "confidence": "low", "fallback": "Bert Krahn (President); Landon Krahn (LinkedIn)"}
+  ],
+  "top_5_highest_confidence": [
+    {
+      "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+      "estimator_name": "Dale Frandsen (Senior Estimator) + Matthew Keys + Darci-lee Tessier",
+      "strongest_hook": "70+ year Winnipeg heritage firm with 3 named estimators incl. a Senior Estimator and a Project Managing Estimator; insurance restoration + commercial reno scope = high-frequency repeat painting work. Email format ****@pgbldg.com or wpgbldg.com — verify and send all three."
+    },
+    {
+      "company": "Thomas Design Builders Ltd",
+      "estimator_name": "Jeff Miller (President / former estimator)",
+      "strongest_hook": "Red River College Design & Construction Technology grad (1999, C.E.T.) — direct shared-alumni hook for Ahmad. 24 years at TDB, design-build firm since 1980, 22 employees — Jeff personally responds and values long-term sub relationships."
+    },
+    {
+      "company": "Tractus Projects",
+      "estimator_name": "Lisa Fedorchuk (PM with explicit estimating role) + Chad Horrill (Sr PM) + Joe Paletta (PM)",
+      "strongest_hook": "Tractus team page explicitly lists 'estimating' as Lisa's forte; she sees projects 'from estimating to occupancy.' Three named PMs at 835 King Edward Winnipeg = local proximity + multiple bid-list owners = highest-yield single target."
+    },
+    {
+      "company": "Valdek Construction Inc",
+      "estimator_name": "Matt Adamiec (Founder/Owner)",
+      "strongest_hook": "Red River College Civil Engineering Diploma grad (structural focus); prior at KGS Group (Winnipeg structural eng consultancy). Trades-household upbringing — the painter-training and craftsmanship narrative will land. Single-owner shop = he is the entire estimating department."
+    },
+    {
+      "company": "Stand Tall Contracting",
+      "estimator_name": "Jason Zarrillo (CEO, functions as estimator)",
+      "strongest_hook": "Customer reviews specifically cite Jason coming to the site personally to estimate. They have in-house painting capability — pitch as overflow / specialty / large commercial scale. COR-certified — safety alignment with Ashrah's training pitch."
+    }
+  ],
+  "timing_signals_to_act_on_first": [
+    "SNR Construction is actively hiring an estimator RIGHT NOW (snrconstruction.ca/were-hiring). Reach Colin Boisjoli (VP Construction) this week — he has bids and no estimator. Pitch: 'sub partner who can hand you accurate numbers in 48 hrs while you fill that seat.'",
+    "Ledcor Winnipeg has an active Senior Estimator ICI Construction posting — monitor and send a hello as soon as a hire is announced on LinkedIn.",
+    "PCL Winnipeg has multiple Estimator and Senior Estimator postings — team is growing, new hires will need new sub relationships fast."
+  ],
+  "dead_ends": [
+    "LD Builders — no public estimator surfaced; phone fallback only.",
+    "Maple Leaf Construction — heavy civil/paving scope; limited fit.",
+    "Mint Construction (Winnipeg) — small shop; brand-name confusion with Utah and Calgary firms.",
+    "OB1 Contracting — pavement restoration scope; lowest fit.",
+    "Oswald Construction — turnkey residential scope; moderate fit.",
+    "Qualico Developments — holding company; estimators sit in operating divisions, need to choose target division first.",
+    "WinnPro Construction — no public estimator; family-run, founder Bert Krahn is the de facto bid owner."
+  ]
+}

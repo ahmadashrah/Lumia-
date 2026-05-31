@@ -1,0 +1,40 @@
+{
+  "company": "Con-Pro Canada (Con-Pro Industries Canada Ltd.)",
+  "researched_at": "2026-04-28T16:10:00Z",
+  "website": "https://conprocanada.ca",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Pritesh Shah",
+      "title": "Chief Estimator, Con-Pro Industries Canada Ltd.",
+      "email": "p***@conpro.mb.ca (likely pritesh@conpro.mb.ca or pshah@conpro.mb.ca)",
+      "phone": "204-233-3717 (main)",
+      "linkedin": "https://www.linkedin.com/in/priteshshahchiefestimator/",
+      "tenure_years_at_company": 14,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Chief Estimator at Con-Pro since 2012 (~14 years tenure) — deep institutional knowledge, has seen many subs come and go. Reliability and reputation matter to him.",
+        "Title literally calls out 'chief estimator' on his LinkedIn URL slug — he's identity-invested in the role; treat him as the buyer, not a gatekeeper",
+        "15+ years estimating experience, diversified projects across Canada",
+        "Con-Pro has been around since 1969 — institutional Manitoba builder. Pitch Ashrah as a long-term partner, not a one-job sub.",
+        "Lead with the 6-day delay forecast — it's exactly the kind of risk-mitigation tool a Chief Estimator at an old-line firm doesn't have but would value"
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/priteshshahchiefestimator/", "claim": "Title and tenure since 2012"},
+        {"url": "https://www.zoominfo.com/p/Pritesh-Shah/9574933731", "claim": "Chief Estimator at Con-Pro, email pattern @conpro.mb.ca"},
+        {"url": "https://conprocanada.ca/about-us/", "claim": "Company history since 1969"}
+      ],
+      "confidence": "high"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Donald Snodgrass",
+    "title": "President, Con-Pro Industries Canada Ltd.",
+    "rationale": "President — 50+ years experience, focused on mentorship. If Pritesh isn't responsive, escalating to Don is reasonable. VP Christine Snodgrass (ex-estimator/PM) is also a viable contact and his daughter or wife — family business signal."
+  },
+  "needs_review_flags": [
+    "Email domain on Con-Pro is conpro.mb.ca (NOT conprocanada.ca despite the website URL) — verify before sending",
+    "Confirm exact firstname.lastname pattern"
+  ]
+}

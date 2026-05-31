@@ -1,0 +1,39 @@
+{
+  "company": "Westland Construction Ltd.",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": "https://www.westlandconstructionltd.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Emily Mason",
+      "title": "Estimator",
+      "email": null,
+      "phone": "204-633-6272",
+      "linkedin": "https://www.linkedin.com/in/emily-mason/",
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Named estimator at a 40+ year Winnipeg commercial GC with COR certification since 2004 — this is exactly the seat to be on.",
+        "Westland scope = commercial / institutional / industrial new + reno — broad fit for Ashrah's commercial painting offering.",
+        "Westland's published Quality Management System explicitly references estimating-through-completion processes — Emily owns the front of that pipeline.",
+        "Smaller estimating team at a 20-person firm — high impact per relationship.",
+        "Located at Unit 1-475 Dovercourt Dr — Ahmad can drop documents in person."
+      ],
+      "sources": [
+        {"url": "https://www.linkedin.com/in/emily-mason/", "claim": "Emily Mason listed as Estimator at WESTLAND CONSTRUCTION, INC. on LinkedIn"},
+        {"url": "https://www.westlandconstructionltd.com/our-company", "claim": "Westland founded 1979, COR-certified since 2004, ~20 employees"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Peter Grose",
+    "title": "President / CEO",
+    "rationale": "President of Westland Construction Ltd. Reasonable warm-fallback if Emily doesn't engage."
+  },
+  "needs_review_flags": [
+    "LinkedIn 'Emily Mason' name is common — verify the right Emily Mason via her Winnipeg location and Westland affiliation. Consider phoning 204-633-6272 to confirm she still holds the role.",
+    "Other named Westland staff: Rosario Vassallo (PM), Hubert Verrier (Superintendent), Kevin Curtain (PM), Chris Houghton."
+  ]
+}

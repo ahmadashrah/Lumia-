@@ -1,0 +1,73 @@
+{
+  "company": "Jilmark Construction Ltd.",
+  "researched_at": "2026-04-28T16:25:00Z",
+  "website": "https://jilmark.com",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "David Regehr-Wiens",
+      "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "One of four-person team that handles estimating + site supervision + project admin — wears multiple hats so VALUES tools that reduce admin load (Ashrah's automated daily reports = direct fit)",
+        "Jilmark works heritage buildings, apartments, condos, offices, warehouses, dealerships, churches, schools — wide paint scope variety"
+      ],
+      "sources": [
+        {"url": "https://www.jilmark.com/our-team", "claim": "Estimating team listing"},
+        {"url": "https://www.theconstructionsource.ca/2022/02/03/jilmark-construction/", "claim": "Multi-role team description"}
+      ],
+      "confidence": "medium"
+    },
+    {
+      "name": "Gilles Comte",
+      "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "personalization_hooks": ["Same multi-role team as David — same pitch applies"],
+      "sources": [
+        {"url": "https://www.jilmark.com/our-team", "claim": "Estimating team listing"}
+      ],
+      "confidence": "medium"
+    },
+    {
+      "name": "Josh Penner",
+      "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "personalization_hooks": ["Same multi-role team — likely the youngest, may be most receptive to new tools/tech pitches"],
+      "sources": [
+        {"url": "https://www.jilmark.com/our-team", "claim": "Estimating team listing"}
+      ],
+      "confidence": "medium"
+    },
+    {
+      "name": "Steven Baars",
+      "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+      "email": null,
+      "phone": null,
+      "linkedin": null,
+      "personalization_hooks": ["Same multi-role team"],
+      "sources": [
+        {"url": "https://www.jilmark.com/our-team", "claim": "Estimating team listing"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "John Froese",
+    "title": "Owner / Founder, Jilmark Construction Ltd.",
+    "linkedin": "https://www.linkedin.com/in/john-froese-832b994b/",
+    "rationale": "John is the founder — 35+ years construction experience, founded Jilmark in 2001 after 26 years in commercial construction. He's still hands-on (attends regular site meetings). Strong multi-decade Winnipeg roots. Specialty in apartments and condominiums = high-volume paint scope. Personal involvement angle: ask him how he got started; he'll respect a founder-to-founder approach from Ahmad."
+  },
+  "needs_review_flags": [
+    "Confirm exact email format @jilmark.com",
+    "LinkedIn profiles for the four-person estimating team should be located individually for tenure data"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "company": "Aecon Group",
+  "researched_at": "2026-04-28T16:00:00Z",
+  "website": "https://www.aecon.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Sean Huang",
+    "title": "Aecon Construction Group employee — Winnipeg-based",
+    "rationale": "Identified on LinkedIn as Winnipeg-based Aecon employee; only public name confirmed in Winnipeg. Aecon's Winnipeg presence is heavy civil/transmission utilities (lower fit for commercial painting). Aecon has active Sr. Estimator, Transmission and Jr. Estimator postings in Winnipeg — phone the office and ask for the Winnipeg estimating department."
+  },
+  "needs_review_flags": [
+    "Aecon Winnipeg is utilities/transmission-focused, not vertical commercial — likely lower fit for Ashrah's painting services",
+    "No named estimator surfaced in public search; recommend phoning the Winnipeg office and asking estimating department",
+    "Manual LinkedIn lookup likely needed to identify the actual Winnipeg estimator(s)"
+  ],
+  "sources": [
+    {"url": "https://jobs.aecon.com/job/Winnipeg-Sr_-Estimator,-Transmission-MB/580722717/", "claim": "Aecon has Senior Estimator role in Winnipeg (Transmission)"},
+    {"url": "https://jobs.aecon.com/job/Winnipeg-Jr_-Estimator-MB/593042417/", "claim": "Junior Estimator posting in Winnipeg"},
+    {"url": "https://www.linkedin.com/in/sean-huang-04700443/", "claim": "Sean Huang — Aecon Construction Group, Winnipeg-based"}
+  ]
+}

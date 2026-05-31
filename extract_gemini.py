@@ -19,7 +19,7 @@ from google.genai import types
 import pdf_utils
 from prompts import SYSTEM_PROMPT, CRITIC_INSTRUCTIONS, RECROP_INSTRUCTIONS, QUADRANT_INSTRUCTIONS, MERGE_INSTRUCTIONS
 
-MODEL = "gemini-2.5-pro"
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 MAX_TOKENS = 64000
 
 

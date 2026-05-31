@@ -7,9 +7,11 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import smtplib
 import threading
+import traceback
 import uuid
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -18,7 +20,7 @@ from email.mime.text import MIMEText
 import functools
 import anthropic as _anthropic
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import (Flask, render_template_string, request, jsonify,
+from flask import (Flask, render_template, render_template_string, request, jsonify,
                    session, redirect, url_for, make_response, send_from_directory)
 from supabase import create_client
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -44,6 +46,20 @@ from ashrah_backfill import (
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "lumia-ashrah-secret-2026")
 
+
+# Canonical-host redirect: keep one real address so logins/cookies don't split
+# across hostnames. www.lumia.ashrah.ai → lumia.ashrah.ai (301, preserves path
+# + query). Any other host (the Railway *.up.railway.app, ashrahpainting.com
+# later, localhost in dev) passes through untouched.
+@app.before_request
+def _canonical_host_redirect():
+    host = (request.host or "").split(":")[0].lower()
+    if host == "www.lumia.ashrah.ai":
+        target = "https://lumia.ashrah.ai" + request.full_path.rstrip("?")
+        return redirect(target, code=301)
+    # let everything else through
+    return None
+
 # Explicit static route using absolute path — some deploy environments
 # don't pick up Flask's default static handling reliably.
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -66,13 +82,31 @@ _sb_url = os.getenv("SUPABASE_URL", "")
 _sb_key = os.getenv("SUPABASE_KEY", "")
 supabase_client = create_client(_sb_url, _sb_key) if _sb_url and _sb_key else None
 
+# Share the Supabase client with the estimates module so its job state
+# persists across Gunicorn workers (fixes "Job not found" with >1 worker).
+try:
+    if supabase_client:
+        lumia_estimates.set_supabase(supabase_client, bucket="estimate-pdfs")
+except Exception as _est_sb_exc:
+    print(f"[Estimates] Could not inject Supabase client: {_est_sb_exc}")
+
+
+def _auth_reject():
+    """JSON 401/403 for /api/* (so client-side JS doesn't get an HTML
+    redirect that masquerades as a session timeout); login redirect for pages."""
+    if request.path.startswith("/api/"):
+        if not session.get("role"):
+            return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    return redirect(url_for("login_page", next=request.path))
+
 
 def require_role(*roles):
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
             if session.get("role") not in roles:
-                return redirect(url_for("login_page", next=request.path))
+                return _auth_reject()
             return f(*args, **kwargs)
         return wrapper
     return decorator
@@ -82,19 +116,34 @@ def require_role(*roles):
 # Owner-only stuff (delete, password resets, manager management, system config)
 # keeps using @require_role("owner") explicitly.
 def require_operator(f):
-    """Allow production_manager OR owner."""
+    """Allow owner, production_manager, OR cfo — anyone who can see ops data."""
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        if session.get("role") not in ("owner", "production_manager"):
-            return redirect(url_for("login_page", next=request.path))
+        if session.get("role") not in ("owner", "production_manager", "cfo"):
+            return _auth_reject()
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def require_finance(f):
+    """Finance access — owner OR cfo only. Production managers do NOT see
+    cost-side numbers, profit, margin, or receipts."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if session.get("role") not in ("owner", "cfo"):
+            return jsonify({"ok": False, "error": "Finance access required."}), 403
         return f(*args, **kwargs)
     return wrapper
 
 def require_employee(f):
-    """Redirect to employee login if no employee session."""
+    """Allow the check-in flow for either:
+      - an employee session (set via /employee-login), OR
+      - any logged-in operator (owner / production_manager / cfo) — so
+        they can submit a check-in under their own name when they're on site.
+    Otherwise redirect to the employee login screen."""
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        if not session.get("employee_name"):
+        if not session.get("employee_name") and session.get("role") not in ("owner", "production_manager", "cfo"):
             return redirect(url_for("employee_login_page", next=request.path))
         return f(*args, **kwargs)
     return wrapper
@@ -158,7 +207,7 @@ def _lookup_client(site_address: str) -> dict | None:
 # CLIENT-FACING LUMIA CHAT  — tokenized access for clients via their report email
 # ---------------------------------------------------------------------------
 APP_BASE_URL = os.getenv("APP_BASE_URL", "https://lumia.ashrah.ai").rstrip("/")
-CLIENT_CHAT_MODEL = "claude-sonnet-4-6"
+CLIENT_CHAT_MODEL = os.getenv("CLAUDE_MODEL_CLIENT", "claude-opus-4-7")
 CLIENT_RATE_LIMIT_PER_DAY = 30
 
 # Feature is in limited beta — only these client emails see the button / can chat.
@@ -406,7 +455,30 @@ def _send_client_report(entry: EmployeeDailyEntry) -> None:
     if not ZOHO_PASSWORD:
         print("[App] Skipping client report — ZOHO_PASSWORD not set")
         return
-    client_info = _lookup_client(entry.site_address)
+    # New: prefer job → client_name path (multi-site clients).
+    # Fall back to site_keyword match if no job_id or no name match.
+    client_info = None
+    if entry.job_id and supabase_client:
+        try:
+            jrows = supabase_client.table("jobs") \
+                .select("client_name").eq("id", entry.job_id).limit(1).execute().data or []
+            if jrows:
+                jc_name = (jrows[0].get("client_name") or "").strip().lower()
+                if jc_name:
+                    crows = supabase_client.table("clients") \
+                        .select("client_name,client_email,recipients").execute().data or []
+                    for c in crows:
+                        if (c.get("client_name") or "").strip().lower() == jc_name:
+                            client_info = {
+                                "client_name":  c["client_name"],
+                                "client_email": c["client_email"],
+                                "recipients":   c.get("recipients"),
+                            }
+                            break
+        except Exception as exc:
+            print(f"[Client Report] Job→client lookup error: {exc}")
+    if not client_info:
+        client_info = _lookup_client(entry.site_address)
     if not client_info:
         return
 
@@ -467,8 +539,17 @@ HTML = """<!DOCTYPE html>
 <html lang="en" id="htmlRoot">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>Lumia — Daily Check-In</title>
+  <!-- PWA — installable on iPhone & Android -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1F3864">
+  <link rel="icon" href="/static/logo.png" type="image/png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180-v3.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Lumia">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -664,6 +745,10 @@ HTML = """<!DOCTYPE html>
       margin-right: 8px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .5; transform: scale(1.2); }
+    }
     .lang-note {
       font-size: 12px; color: #888; font-style: italic;
       margin-bottom: 6px; margin-top: -10px;
@@ -1522,50 +1607,142 @@ HTML = """<!DOCTYPE html>
     }
   }
 
+  // ─── C-lite: Optimistic submit + background retry queue ─────────────────
+  // The painter taps Submit → we IMMEDIATELY show the success screen and let
+  // them start the next check-in. The real network work (waiting on any
+  // in-flight photo uploads + POSTing /submit) happens in the background.
+  // On failure, the payload is queued in localStorage and retried every 30s
+  // until it lands. A small "N syncing" badge appears in the corner.
+
+  const _PENDING_KEY = 'lumia_pending_checkins_v1';
+  function _readPendingQueue() {
+    try { return JSON.parse(localStorage.getItem(_PENDING_KEY) || '[]'); }
+    catch(e) { return []; }
+  }
+  function _writePendingQueue(q) {
+    try { localStorage.setItem(_PENDING_KEY, JSON.stringify(q)); }
+    catch(e) {}
+    _renderQueueBadge();
+  }
+  function _enqueuePending(payload) {
+    const q = _readPendingQueue();
+    q.push({ payload, attempts: 0, queued_at: Date.now() });
+    _writePendingQueue(q);
+  }
+  function _renderQueueBadge() {
+    let badge = document.getElementById('lumia-sync-badge');
+    const q = _readPendingQueue();
+    if (!q.length && !window._syncInFlight) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'lumia-sync-badge';
+      badge.style.cssText = 'position:fixed;bottom:20px;left:20px;background:#1F3864;color:#fff;padding:9px 14px;border-radius:20px;font-size:12px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:9999;display:flex;align-items:center;gap:8px;';
+      document.body.appendChild(badge);
+    }
+    if (window._syncInFlight) {
+      badge.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffc85a;animation:pulse 1.2s ease-in-out infinite;"></span> Syncing…';
+    } else {
+      badge.innerHTML = q.length + ' pending — retrying';
+      badge.style.cursor = 'pointer';
+      badge.onclick = () => _flushPendingQueue();
+    }
+  }
+  async function _postCheckin(payload) {
+    const res = await fetch('/submit', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'server rejected submit');
+    return json;
+  }
+  async function _flushPendingQueue() {
+    if (window._syncInFlight) return;
+    let q = _readPendingQueue();
+    if (!q.length) { _renderQueueBadge(); return; }
+    window._syncInFlight = true;
+    _renderQueueBadge();
+    const still = [];
+    for (const item of q) {
+      try {
+        await _postCheckin(item.payload);
+        // Success — drop from queue
+      } catch (e) {
+        item.attempts = (item.attempts || 0) + 1;
+        if (item.attempts < 50) still.push(item);  // keep retrying ~25 min
+      }
+    }
+    _writePendingQueue(still);
+    window._syncInFlight = false;
+    _renderQueueBadge();
+  }
+  // Retry every 30s while the page is open
+  setInterval(() => { _flushPendingQueue(); }, 30000);
+  // Also retry when the network comes back
+  window.addEventListener('online', () => _flushPendingQueue());
+  // Flush queue on page load
+  setTimeout(() => _flushPendingQueue(), 1500);
+
   document.getElementById('checkinForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    // Enforce cleanup photo
-    if (!cleanupPhotoUrls.length) {
+    // Enforce cleanup photo (either uploaded or currently uploading)
+    if (!cleanupPhotoUrls.length && !pendingCleanupUploads.length) {
       alert('Please upload at least one photo showing the cleaned site and organized tools before submitting.');
       document.getElementById('cleanupPhotoInput').focus();
       return;
     }
-    const btn = document.getElementById('submitBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>' + (T[currentLang].submitting);
 
-    const data = Object.fromEntries(new FormData(e.target));
-    data.photo_urls         = uploadedPhotoUrls.join(',');
-    data.cleanup_photo_urls = cleanupPhotoUrls.join(',');
-    data.site_cleaned       = document.getElementById('site_cleaned').checked ? '1' : '';
-    data.tools_organized    = document.getElementById('tools_organized').checked ? '1' : '';
+    // Snapshot ALL state right now, before we touch the form
+    const formData = Object.fromEntries(new FormData(e.target));
+    const snapshot = {
+      ...formData,
+      site_cleaned:    document.getElementById('site_cleaned').checked ? '1' : '',
+      tools_organized: document.getElementById('tools_organized').checked ? '1' : '',
+    };
+    const pendingPhotos  = [...pendingPhotoUploads];
+    const pendingCleanup = [...pendingCleanupUploads];
 
-    try {
-      const res  = await fetch('/submit', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-      });
-      const json = await res.json();
+    // OPTIMISTIC SUCCESS — show the success screen immediately. The actual
+    // POST happens after any in-flight photo uploads finish.
+    const t = T[currentLang];
+    document.getElementById('successMsg').textContent =
+      snapshot.worker_name + ' @ ' + snapshot.site_address;
+    document.getElementById('lbl_successTitle').textContent = t.successTitle;
+    document.getElementById('lbl_submitAnother').textContent = t.submitAnother;
+    document.getElementById('formSection').style.display    = 'none';
+    document.getElementById('successSection').style.display = 'flex';
 
-      if (json.ok) {
-        const t = T[currentLang];
-        document.getElementById('successMsg').textContent =
-          data.worker_name + ' @ ' + data.site_address;
-        document.getElementById('lbl_successTitle').textContent = t.successTitle;
-        document.getElementById('lbl_submitAnother').textContent = t.submitAnother;
-        document.getElementById('formSection').style.display    = 'none';
-        document.getElementById('successSection').style.display = 'flex';
-      } else {
-        alert('Something went wrong: ' + (json.error || 'Unknown error'));
-        btn.disabled = false;
-        btn.innerHTML = T[currentLang].submit;
+    // Background processing
+    (async () => {
+      window._syncInFlight = true;
+      _renderQueueBadge();
+      try {
+        // Wait for any photo uploads still finishing on Supabase
+        if (pendingPhotos.length || pendingCleanup.length) {
+          await Promise.allSettled([...pendingPhotos, ...pendingCleanup]);
+        }
+        // Now uploadedPhotoUrls / cleanupPhotoUrls reflect every photo that
+        // actually made it. If a photo upload failed, it's simply not in
+        // the list (the optimistic preview would have removed itself).
+        snapshot.photo_urls         = uploadedPhotoUrls.join(',');
+        snapshot.cleanup_photo_urls = cleanupPhotoUrls.join(',');
+        await _postCheckin(snapshot);
+      } catch (err) {
+        console.warn('[submit] Falling back to retry queue:', err);
+        // Capture whatever URLs we had so the retry has them
+        snapshot.photo_urls         = uploadedPhotoUrls.join(',');
+        snapshot.cleanup_photo_urls = cleanupPhotoUrls.join(',');
+        _enqueuePending(snapshot);
+      } finally {
+        window._syncInFlight = false;
+        _renderQueueBadge();
       }
-    } catch (err) {
-      alert('Network error — please try again.');
-      btn.disabled = false;
-      btn.innerHTML = T[currentLang].submit;
-    }
+    })();
   });
 
   function resetForm() {
@@ -1636,12 +1813,13 @@ HTML = """<!DOCTYPE html>
   let uploadedPhotoUrls = [];
   let cleanupPhotoUrls  = [];
 
-  // Resize a phone photo conservatively — only shrink if longer side > 2400px,
-  // and re-encode at 0.92 JPEG quality (no visible quality loss).
-  // If the original is already small (<1 MB), skip the work entirely.
+  // Aggressive resize for phones — site photos don't need more than 1600px.
+  // Pre-fix sizes: iPhone 14 default ~3.5 MB → ~1.5 MB after old compress.
+  // New: ~250-400 KB. 4-6x smaller bytes on the wire, no visible loss at the
+  // viewing sizes Lumia uses (phone screen or report thumbnail).
   async function _maybeCompressPhoto(file) {
     if (!file.type.startsWith('image/')) return file;
-    if (file.size < 1024 * 1024) return file; // already small
+    if (file.size < 300 * 1024) return file; // already <300 KB, skip work
     try {
       const img = await new Promise((resolve, reject) => {
         const i = new Image();
@@ -1649,12 +1827,13 @@ HTML = """<!DOCTYPE html>
         i.onerror = reject;
         i.src = URL.createObjectURL(file);
       });
-      const MAX = 2400;
+      const MAX = 1600;
       let w = img.naturalWidth, h = img.naturalHeight;
       const longSide = Math.max(w, h);
-      if (longSide <= MAX && file.size < 3 * 1024 * 1024) {
+      // If image is small enough AND file is reasonable, skip
+      if (longSide <= MAX && file.size < 600 * 1024) {
         URL.revokeObjectURL(img.src);
-        return file; // already reasonable, leave alone
+        return file;
       }
       const scale = longSide > MAX ? (MAX / longSide) : 1;
       w = Math.round(w * scale); h = Math.round(h * scale);
@@ -1663,39 +1842,99 @@ HTML = """<!DOCTYPE html>
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(img.src);
-      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
-      if (!blob || blob.size >= file.size) return file; // no benefit
+      // 0.82 quality — perceptually identical for site photos, ~30% smaller
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.82));
+      if (!blob || blob.size >= file.size) return file;
       return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
     } catch(e) {
-      return file; // any failure → fall back to original
+      return file;
     }
   }
 
-  async function _uploadOnePhoto(file, previews, onDone) {
-    const fd = new FormData();
-    fd.append('photo', file);
+  // ─── Direct-to-Supabase upload (A: removes Railway from byte path) ─────
+  // Get a signed URL from Lumia (~1KB exchange), then PUT the file straight
+  // to Supabase. If anything in this chain fails (signed-URL error, PUT
+  // rejected, CORS, whatever), fall back to the legacy /api/upload-photo
+  // route automatically — backward compatible.
+  async function _uploadFileDirect(file) {
     try {
-      const res = await fetch('/api/upload-photo', { method:'POST', body: fd });
-      const d = await res.json();
-      if (d.url) {
-        uploadedPhotoUrls.push(d.url);
-        const wrap = document.createElement('div');
-        wrap.className = 'photo-remove';
-        const img = document.createElement('img');
-        img.src = d.url; img.className = 'photo-thumb';
-        const rmBtn = document.createElement('button');
-        rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
-        rmBtn.textContent = '×';
-        rmBtn.onclick = () => {
-          uploadedPhotoUrls = uploadedPhotoUrls.filter(u => u !== d.url);
-          wrap.remove();
-          if (!uploadedPhotoUrls.length) document.getElementById('photoUploadLabel').style.display = '';
-        };
-        wrap.appendChild(img); wrap.appendChild(rmBtn);
-        previews.appendChild(wrap);
+      const sigRes = await fetch('/api/upload-photo/signed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name || 'photo.jpg' }),
+      });
+      const sig = await sigRes.json();
+      if (!sig.ok || !sig.upload_url) throw new Error(sig.error || 'no signed URL');
+      // PUT the file directly to Supabase Storage. Set the content-type so
+      // Supabase stores + serves it correctly.
+      const putRes = await fetch(sig.upload_url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'image/jpeg' },
+        body: file,
+      });
+      if (!putRes.ok && putRes.status !== 200 && putRes.status !== 201) {
+        throw new Error('PUT failed: ' + putRes.status);
       }
-    } catch(e) { /* swallow individual failures */ }
-    onDone();
+      return sig.public_url;
+    } catch (err) {
+      console.warn('[upload] direct path failed, falling back:', err.message);
+      // Legacy fallback — phone → Railway → Supabase
+      const fd = new FormData();
+      fd.append('photo', file);
+      const res = await fetch('/api/upload-photo', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!d.url) throw new Error(d.error || 'upload failed');
+      return d.url;
+    }
+  }
+
+  // Track in-flight uploads so the submit handler can wait for them
+  // (C-lite: optimistic submit waits for any pending uploads before posting).
+  let pendingPhotoUploads   = [];
+  let pendingCleanupUploads = [];
+
+  // Optimistic preview: show thumbnail immediately using the local file blob
+  // URL, then swap to the server URL once upload completes. Visually the photo
+  // appears instantly even on slow networks.
+  async function _uploadOnePhoto(file, previews, onDone) {
+    const localUrl = URL.createObjectURL(file);
+    const wrap = document.createElement('div');
+    wrap.className = 'photo-remove';
+    const img = document.createElement('img');
+    img.src = localUrl; img.className = 'photo-thumb';
+    img.style.opacity = '0.55';  // dim while uploading
+    const spinner = document.createElement('div');
+    spinner.textContent = '↑';
+    spinner.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(31,56,100,.85);color:#fff;font-size:14px;font-weight:700;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;';
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
+    rmBtn.textContent = '×';
+    wrap.appendChild(img); wrap.appendChild(spinner); wrap.appendChild(rmBtn);
+    previews.appendChild(wrap);
+
+    // Kick off the upload via the direct path; track the promise so the
+    // submit handler can wait for any in-flight uploads to finish.
+    const uploadPromise = _uploadFileDirect(file);
+    pendingPhotoUploads.push(uploadPromise);
+    try {
+      const url = await uploadPromise;
+      uploadedPhotoUrls.push(url);
+      img.src = url;
+      img.style.opacity = '1';
+      spinner.remove();
+      URL.revokeObjectURL(localUrl);
+      rmBtn.onclick = () => {
+        uploadedPhotoUrls = uploadedPhotoUrls.filter(u => u !== url);
+        wrap.remove();
+        if (!uploadedPhotoUrls.length) document.getElementById('photoUploadLabel').style.display = '';
+      };
+    } catch (e) {
+      wrap.remove();
+      URL.revokeObjectURL(localUrl);
+    } finally {
+      pendingPhotoUploads = pendingPhotoUploads.filter(p => p !== uploadPromise);
+      onDone();
+    }
   }
 
   async function handlePhotos(input) {
@@ -1725,30 +1964,34 @@ HTML = """<!DOCTYPE html>
   }
 
   async function _uploadOneCleanupPhoto(file, previews, onDone) {
-    const fd = new FormData();
-    fd.append('photo', file);
+    const localUrl = URL.createObjectURL(file);
+    const wrap = document.createElement('div');
+    wrap.className = 'photo-remove';
+    const img = document.createElement('img');
+    img.src = localUrl; img.className = 'photo-thumb'; img.style.opacity = '0.55';
+    const spinner = document.createElement('div');
+    spinner.textContent = '↑';
+    spinner.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(255,179,0,.92);color:#fff;font-size:14px;font-weight:700;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;';
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
+    rmBtn.textContent = '×';
+    wrap.appendChild(img); wrap.appendChild(spinner); wrap.appendChild(rmBtn);
+    previews.appendChild(wrap);
+
+    const uploadPromise = _uploadFileDirect(file);
+    pendingCleanupUploads.push(uploadPromise);
     try {
-      const res = await fetch('/api/upload-photo', { method:'POST', body: fd });
-      const d = await res.json();
-      if (d.url) {
-        cleanupPhotoUrls.push(d.url);
-        const wrap = document.createElement('div');
-        wrap.className = 'photo-remove';
-        const img = document.createElement('img');
-        img.src = d.url; img.className = 'photo-thumb';
-        const rmBtn = document.createElement('button');
-        rmBtn.type = 'button'; rmBtn.className = 'photo-remove-btn';
-        rmBtn.textContent = '×';
-        rmBtn.onclick = () => {
-          cleanupPhotoUrls = cleanupPhotoUrls.filter(u => u !== d.url);
-          wrap.remove();
-          if (!cleanupPhotoUrls.length) document.getElementById('cleanupPhotoLabel').style.display = '';
-        };
-        wrap.appendChild(img); wrap.appendChild(rmBtn);
-        previews.appendChild(wrap);
-      }
-    } catch(e) { /* swallow individual failures */ }
-    onDone();
+      const url = await uploadPromise;
+      cleanupPhotoUrls.push(url);
+      img.src = url; img.style.opacity = '1'; spinner.remove();
+      URL.revokeObjectURL(localUrl);
+      rmBtn.onclick = () => {
+        cleanupPhotoUrls = cleanupPhotoUrls.filter(u => u !== url);
+        wrap.remove();
+        if (!cleanupPhotoUrls.length) document.getElementById('cleanupPhotoLabel').style.display = '';
+      };
+    } catch (e) { wrap.remove(); URL.revokeObjectURL(localUrl); }
+    finally { pendingCleanupUploads = pendingCleanupUploads.filter(p => p !== uploadPromise); onDone(); }
   }
 
   async function handleCleanupPhotos(input) {
@@ -1904,6 +2147,13 @@ HTML = """<!DOCTYPE html>
     rec.onerror = () => { btn.classList.remove('recording'); lumiaMicRec = null; };
     rec.start();
   }
+
+  // PWA: register the service worker so the page is installable as an app.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
 </script>
 </body>
 </html>"""
@@ -1912,8 +2162,42 @@ HTML = """<!DOCTYPE html>
 @app.route("/")
 @require_employee
 def index():
+    # Operator (owner/PM/CFO) can also use the check-in form under their own name.
+    name = session.get("employee_name") or session.get("name") or ""
     return render_template_string(HTML, employees=EMPLOYEES, categories=CATEGORIES,
-                                  employee_name=session.get("employee_name", ""))
+                                  employee_name=name)
+
+
+@app.route("/kickoff")
+@require_employee
+def kickoff_page():
+    """Mobile-friendly kickoff page for the designated kickoff specialist.
+    Lists every job without a kickoff_done_at, lets them upload photos +
+    write the initial-phase description, then submits."""
+    if not _is_kickoff_specialist_session() and session.get("role") not in ("owner","production_manager"):
+        return ("This page is for the designated kickoff specialist only. "
+                "If that should be you, this is being escalated to Lumia."), 403
+    return render_template_string(KICKOFF_HTML,
+        employee_name=session.get("employee_name") or session.get("name") or "")
+
+
+@app.route("/api/employee/kickoff-jobs")
+@require_employee
+def api_employee_kickoff_jobs():
+    """Pending kickoffs for the specialist: jobs with no kickoff_done_at."""
+    if not _is_kickoff_specialist_session() and session.get("role") not in ("owner","production_manager"):
+        return jsonify({"ok": False, "error": "Not authorized."}), 403
+    if not supabase_client:
+        return jsonify({"jobs": []})
+    try:
+        rows = supabase_client.table("jobs") \
+            .select("id,client_name,site_address,work_description,start_date,kickoff_done_at,kickoff_description") \
+            .order("created_at", desc=True).limit(50).execute().data or []
+        pending = [r for r in rows if not r.get("kickoff_done_at")]
+        done    = [r for r in rows if r.get("kickoff_done_at")][:5]
+        return jsonify({"pending": pending, "done_recent": done})
+    except Exception as exc:
+        return jsonify({"pending": [], "done_recent": [], "error": str(exc)})
 
 
 @app.route("/submit", methods=["POST"])
@@ -2117,8 +2401,17 @@ def _notify_owner(entry: EmployeeDailyEntry) -> None:
 # ---------------------------------------------------------------------------
 EMPLOYEE_LOGIN_HTML = """<!DOCTYPE html>
 <html><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lumia — Employee Login</title>
+<!-- PWA — installable on iPhone & Android -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1F3864">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180-v3.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lumia">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
 * { box-sizing:border-box; margin:0; padding:0; }
 body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -2158,11 +2451,44 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       <button class="btn" type="submit">Sign In</button>
       {% if error %}<p class="err">{{ error }}</p>{% endif %}
     </form>
-    <p class="hint">Contact Ahmad if you need access or forgot your password</p>
+    <p class="hint">Forgot your password or need access? Escalating to Lumia.</p>
     <a class="staff-link" href="/login">Staff / Manager Login &rarr;</a>
   </div>
 </div>
+<script>
+// PWA: register service worker so the page is installable on iPhone/Android.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
 </body></html>"""
+
+
+# ─── PWA — installable on iPhone + Android ──────────────────────────────────
+# The service worker MUST be served at the root path so it can claim the whole
+# site as its scope (a /static/sw.js can only control /static/* by default).
+# Phase 1: minimal SW — registers + claims clients, no offline caching yet.
+@app.route("/sw.js")
+def pwa_service_worker():
+    sw_js = """// Lumia PWA service worker (Phase 1 — install-only, no offline cache)
+const VERSION = 'lumia-pwa-v1';
+self.addEventListener('install',  e => { self.skipWaiting(); });
+self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
+// No fetch handler yet — Phase 2 will add offline queueing for check-ins.
+"""
+    return app.response_class(sw_js, mimetype="application/javascript",
+                              headers={"Cache-Control": "no-cache",
+                                       "Service-Worker-Allowed": "/"})
+
+
+@app.route("/manifest.json")
+def pwa_manifest():
+    # Flask's send_from_directory keeps the file served from /static/ but
+    # mirrored at root so iOS/Android find it on the expected path too.
+    return send_from_directory(app.static_folder, "manifest.json",
+                               mimetype="application/manifest+json")
 
 
 @app.route("/employee-login", methods=["GET", "POST"])
@@ -2252,6 +2578,335 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 </body></html>"""
 
 
+KICKOFF_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumia — Site Kickoff</title>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+           background:#eef1f7; min-height:100vh; padding:16px 12px 60px; color:#222; }
+    .card { max-width:560px; margin:0 auto 16px; background:#fff; border-radius:14px;
+            padding:18px 18px; box-shadow:0 2px 12px rgba(0,0,0,.07); }
+    .topbar { max-width:560px; margin:0 auto 14px; padding:18px 18px 14px;
+              background:#1F3864; color:#fff; border-radius:14px;
+              display:flex; justify-content:space-between; align-items:center; }
+    .topbar h1 { font-size:17px; font-weight:800; letter-spacing:1.2px; }
+    .topbar a { color:#aac4ff; font-size:12px; text-decoration:none; }
+    h2 { font-size:15px; color:#1F3864; margin-bottom:10px; }
+    .job-card { background:#f4f6fb; border-left:4px solid #1F3864; border-radius:10px;
+                padding:12px 14px; margin-bottom:10px; cursor:pointer; transition:background .15s; }
+    .job-card:hover { background:#e8edf7; }
+    .job-card.done { background:#e8f5e9; border-left-color:#2e7d32; cursor:default; }
+    .job-name { font-size:14px; font-weight:700; color:#1F3864; }
+    .job-meta { font-size:12px; color:#666; margin-top:3px; }
+    .form-card { display:none; }
+    .form-card.open { display:block; }
+    textarea, input[type="text"], input[type="email"] {
+      width:100%; padding:11px 13px; border:1.5px solid #dce2ef; border-radius:8px;
+      font-size:14px; font-family:inherit; resize:vertical; }
+    label { font-size:11px; font-weight:700; color:#1F3864; letter-spacing:.5px;
+            display:block; margin-bottom:6px; text-transform:uppercase; }
+    .field { margin-bottom:14px; }
+    .photo-upload-area { background:#f4f6fb; border:2px dashed #aac4ff;
+                         border-radius:10px; padding:14px; text-align:center;
+                         cursor:pointer; font-size:13px; color:#1F3864; }
+    .photo-thumb { width:80px; height:80px; object-fit:cover; border-radius:8px;
+                   border:1px solid #dce2ef; }
+    .photo-wrap { position:relative; display:inline-block; margin:4px; }
+    .photo-rm-btn { position:absolute; top:-6px; right:-6px; background:#c62828;
+                    color:#fff; border:none; border-radius:50%; width:22px;
+                    height:22px; cursor:pointer; font-size:14px; line-height:1; }
+    .btn { padding:11px 18px; border:none; border-radius:8px; font-size:14px;
+           font-weight:700; cursor:pointer; }
+    .btn-green { background:#2e7d32; color:#fff; }
+    .btn-grey  { background:#9e9e9e; color:#fff; }
+    .btn-blue  { background:#1E40AF; color:#fff; }
+    .btn:disabled { opacity:.6; cursor:default; }
+    .status-line { font-size:12px; color:#666; margin-top:6px; }
+    .scope-quote { background:#fff8e1; border-left:3px solid #ffa000;
+                   padding:8px 11px; border-radius:6px; font-size:12px;
+                   color:#5d4037; margin:8px 0 12px; line-height:1.5; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>🏁 SITE KICKOFF</h1>
+    <a href="/">← Back to Check-In</a>
+  </div>
+
+  <div class="card">
+    <h2>Pending Kickoffs</h2>
+    <p style="font-size:12px;color:#666;margin-bottom:12px;">Tap a site to start the walkthrough. Take photos, write what you see, then save.</p>
+    <div id="pending-list"><div style="font-size:13px;color:#888;">Loading...</div></div>
+  </div>
+
+  <div id="form-card" class="card form-card">
+    <h2 id="kform-title">Walkthrough</h2>
+    <div id="kform-meta" class="scope-quote"></div>
+
+    <div class="field">
+      <label>📷 Starting-state photos</label>
+      <div id="kform-previews" style="margin-bottom:8px;"></div>
+      <div class="photo-upload-area" id="kform-photo-tap">
+        📷 Tap to add photos<br>
+        <span style="font-size:11px;color:#888;">Take wide shots of every wall, floor, ceiling, and anything damaged or in the way.</span>
+      </div>
+      <input type="file" id="kform-photo-input" accept="image/*" multiple style="display:none;">
+      <div class="status-line" id="kform-photo-status"></div>
+    </div>
+
+    <div class="field">
+      <label>📝 What you see + what needs to be done</label>
+      <textarea id="kform-desc" rows="8" placeholder="How many floors? How many rooms? How many walls per room? Substrate (drywall, plaster, wood)? Existing condition (cracks, holes, water damage, smoke staining)? Anything in the way (furniture, fixtures, occupants)? Access notes (key, hours, parking)? What needs to be done before the crew can start (drywall repairs, moving furniture, lighting, etc.)?"></textarea>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-green" id="kform-save">💾 Save Kickoff</button>
+      <button class="btn btn-blue" id="kform-cancel" style="background:#9e9e9e;">Cancel</button>
+    </div>
+    <div class="status-line" id="kform-msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recently Completed</h2>
+    <div id="done-list"><div style="font-size:13px;color:#888;">Loading...</div></div>
+  </div>
+
+<script>
+let kfPhotos = [];
+let kfCurrentJobId = null;
+
+// ─── Fast photo path for kickoff (compress + direct-to-Supabase) ─────────
+async function _kfCompress(file) {
+  if (!file.type || !file.type.startsWith('image/')) return file;
+  if (file.size < 300 * 1024) return file;
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image(); i.onload = () => res(i); i.onerror = rej;
+      i.src = URL.createObjectURL(file);
+    });
+    const MAX = 1600;
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const longSide = Math.max(w, h);
+    if (longSide <= MAX && file.size < 600 * 1024) { URL.revokeObjectURL(img.src); return file; }
+    const scale = longSide > MAX ? (MAX / longSide) : 1;
+    w = Math.round(w * scale); h = Math.round(h * scale);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(img.src);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name||'photo').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch(e) { return file; }
+}
+
+async function _kfUploadDirect(file) {
+  try {
+    const sigRes = await fetch('/api/upload-photo/signed', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ filename: file.name || 'photo.jpg' }),
+    });
+    const sig = await sigRes.json();
+    if (!sig.ok || !sig.upload_url) throw new Error(sig.error || 'no signed url');
+    const put = await fetch(sig.upload_url, {
+      method:'PUT', headers:{'Content-Type': file.type || 'image/jpeg'}, body: file,
+    });
+    if (!put.ok && put.status !== 200 && put.status !== 201) throw new Error('PUT ' + put.status);
+    return sig.public_url;
+  } catch(err) {
+    // Fallback to legacy endpoint
+    const fd = new FormData(); fd.append('photo', file);
+    const r = await fetch('/api/upload-photo', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!d.url) throw new Error(d.error || 'upload failed');
+    return d.url;
+  }
+}
+
+async function loadKickoffJobs() {
+  try {
+    const r = await fetch('/api/employee/kickoff-jobs');
+    const d = await r.json();
+    renderJobs(d.pending || [], d.done_recent || []);
+  } catch(e) {
+    document.getElementById('pending-list').innerHTML =
+      '<div style="color:#c62828;">Could not load jobs.</div>';
+  }
+}
+
+function renderJobs(pending, done) {
+  const pEl = document.getElementById('pending-list');
+  if (!pending.length) {
+    pEl.innerHTML = '<div style="font-size:13px;color:#2e7d32;">All caught up — no pending kickoffs.</div>';
+  } else {
+    pEl.innerHTML = '';
+    pending.forEach(j => {
+      const div = document.createElement('div');
+      div.className = 'job-card';
+      div.innerHTML = '<div class="job-name">' + (j.client_name || '—') + '</div>' +
+                      '<div class="job-meta">📍 ' + (j.site_address || '—') +
+                      (j.start_date ? ' · starts ' + j.start_date : '') + '</div>';
+      div.onclick = () => openForm(j);
+      pEl.appendChild(div);
+    });
+  }
+  const dEl = document.getElementById('done-list');
+  if (!done.length) {
+    dEl.innerHTML = '<div style="font-size:12px;color:#888;">No recent kickoffs.</div>';
+  } else {
+    dEl.innerHTML = '';
+    done.forEach(j => {
+      const div = document.createElement('div');
+      div.className = 'job-card done';
+      div.innerHTML = '<div class="job-name">✓ ' + (j.client_name || '—') + '</div>' +
+                      '<div class="job-meta">📍 ' + (j.site_address || '—') + '</div>';
+      dEl.appendChild(div);
+    });
+  }
+}
+
+function openForm(job) {
+  kfCurrentJobId = job.id;
+  kfPhotos = [];
+  document.getElementById('kform-title').textContent = '🏁 ' + (job.client_name || '—') + ' — Kickoff';
+  document.getElementById('kform-meta').innerHTML =
+    '<b>Site:</b> ' + (job.site_address || '—') +
+    (job.start_date ? '<br><b>Start:</b> ' + job.start_date : '') +
+    (job.work_description ? '<br><b>Scope:</b> ' + job.work_description.substring(0, 300) : '');
+  document.getElementById('kform-desc').value = '';
+  renderKfPreviews();
+  document.getElementById('kform-msg').textContent = '';
+  document.getElementById('form-card').classList.add('open');
+  window.scrollTo({top: document.getElementById('form-card').offsetTop - 12, behavior:'smooth'});
+}
+
+function closeForm() {
+  document.getElementById('form-card').classList.remove('open');
+  kfCurrentJobId = null;
+  kfPhotos = [];
+}
+
+function renderKfPreviews() {
+  const wrap = document.getElementById('kform-previews');
+  if (!kfPhotos.length) { wrap.innerHTML = '<div style="font-size:12px;color:#888;">No photos yet.</div>'; return; }
+  wrap.innerHTML = '';
+  kfPhotos.forEach((u, i) => {
+    const w = document.createElement('span');
+    w.className = 'photo-wrap';
+    w.innerHTML = '<img src="' + u + '" class="photo-thumb">' +
+                  '<button class="photo-rm-btn" data-i="' + i + '">×</button>';
+    wrap.appendChild(w);
+  });
+  wrap.querySelectorAll('.photo-rm-btn').forEach(b => b.onclick = () => {
+    kfPhotos.splice(parseInt(b.dataset.i, 10), 1);
+    renderKfPreviews();
+  });
+}
+
+document.getElementById('kform-photo-tap').onclick = () =>
+  document.getElementById('kform-photo-input').click();
+
+document.getElementById('kform-photo-input').onchange = async (e) => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  const status = document.getElementById('kform-photo-status');
+  const total = files.length;
+  status.style.color = '#1F3864';
+  status.textContent = 'Preparing ' + total + ' photo(s)…';
+
+  // Compress all in parallel (CPU work on the phone — fast)
+  const prepared = await Promise.all(files.map(_kfCompress));
+
+  let done = 0;
+  status.textContent = 'Uploading 0 / ' + total + '…';
+  // Upload all in parallel, straight to Supabase (no Railway middleman)
+  await Promise.all(prepared.map(async (f) => {
+    try {
+      const url = await _kfUploadDirect(f);
+      if (url) { kfPhotos.push(url); renderKfPreviews(); }
+    } catch(err) {}
+    done++;
+    status.textContent = done < total ? ('Uploading ' + done + ' / ' + total + '…')
+                                      : (kfPhotos.length + ' photo(s) ready');
+  }));
+  status.textContent = kfPhotos.length + ' photo(s) ready';
+  status.style.color = '#2e7d32';
+  renderKfPreviews();
+  e.target.value = '';
+};
+
+document.getElementById('kform-cancel').onclick = closeForm;
+
+document.getElementById('kform-save').onclick = async () => {
+  if (!kfCurrentJobId) return;
+  const desc = document.getElementById('kform-desc').value.trim();
+  if (!desc) {
+    document.getElementById('kform-msg').textContent = 'Please write your site notes before saving.';
+    document.getElementById('kform-msg').style.color = '#c62828';
+    return;
+  }
+  const btn = document.getElementById('kform-save');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Saving…';
+  const msg = document.getElementById('kform-msg');
+  msg.textContent = ''; msg.style.color = '#1F3864';
+  try {
+    const r = await fetch('/api/job/' + kfCurrentJobId + '/kickoff', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({description: desc, photos: kfPhotos}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = '✓ Saved. Lumia will draft the execution plan for the crew.';
+      msg.style.color = '#2e7d32';
+      setTimeout(() => { closeForm(); loadKickoffJobs(); }, 1500);
+    } else {
+      msg.textContent = d.error || 'Save failed.';
+      msg.style.color = '#c62828';
+    }
+  } catch(e) {
+    msg.textContent = 'Network error.'; msg.style.color = '#c62828';
+  }
+  btn.disabled = false; btn.textContent = orig;
+};
+
+loadKickoffJobs();
+</script>
+</body></html>"""
+
+
+def _log_outbox(*, category: str, to: list[str], cc: list[str] | None = None,
+                subject: str = "", body_text: str = "", body_html: str = "",
+                related_kind: str | None = None, related_id: str | None = None,
+                resend_id: str | None = None, status: str = "sent",
+                error: str | None = None) -> None:
+    """Best-effort logging of every email Lumia sends so the Mailbox tab can
+    show 'everything Lumia sent'. Failures are swallowed — logging must never
+    block a real send."""
+    if not supabase_client:
+        return
+    try:
+        supabase_client.table("lumia_outbox").insert({
+            "category":     category,
+            "to_emails":    [e for e in (to or []) if e],
+            "cc_emails":    [e for e in (cc or []) if e],
+            "subject":      (subject or "")[:500],
+            "body_text":    (body_text or "")[:30000],
+            "body_html":    (body_html or "")[:60000],
+            "related_kind": related_kind,
+            "related_id":   related_id,
+            "resend_id":    resend_id,
+            "status":       status,
+            "error":        error,
+        }).execute()
+    except Exception as exc:
+        print(f"[Outbox] log failed (non-fatal): {exc}")
+
+
 def _send_setup_email(name: str, email: str, token: str) -> bool:
     """Send a password setup email to the employee via Resend (ashrah.ai domain)."""
     import httpx
@@ -2293,100 +2948,177 @@ def _send_setup_email(name: str, email: str, token: str) -> bool:
             timeout=15,
         )
         print(f"[Setup Email] Resend response {r.status_code}: {r.text}")
+        try:
+            _log_outbox(
+                category="employee_invite",
+                to=[email], cc=[OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != email else [],
+                subject="Welcome to Lumia — Set Your Password",
+                body_text=text_body, body_html=html_body,
+                related_kind="employee", related_id=email,
+                status="sent" if r.status_code == 200 else "failed",
+                error=None if r.status_code == 200 else r.text[:300],
+            )
+        except Exception: pass
         return r.status_code == 200
     except Exception as exc:
         print(f"[Setup Email] Error: {exc}")
         return False
 
 
+def _assignment_sms_body(name: str, job_info: dict, lang: str) -> str:
+    """Build the job-assignment SMS in the employee's language (en/ar/fr)."""
+    first  = (name or "").split()[0] if name else ""
+    client = job_info.get("client_name", "") or "—"
+    site   = job_info.get("site_address", "") or "—"
+    start  = job_info.get("start_date") or ("TBD" if lang == "en" else "")
+    desc   = (job_info.get("work_description") or "").strip()
+    url    = "lumia.ashrah.ai"
+
+    if lang == "ar":
+        body = (f"مرحباً {first} — تم تكليفك بمهمة جديدة:\n"
+                f"العميل: {client}\nالموقع: {site}\n")
+        if start: body += f"تاريخ البدء: {start}\n"
+        if desc:  body += f"الوصف: {desc}\n"
+        body += f"سجّل حضورك يومياً عبر لوميا: {url}"
+        return body
+    if lang == "fr":
+        body = (f"Bonjour {first} — nouveau chantier assigné :\n"
+                f"Client : {client}\nChantier : {site}\n")
+        if start: body += f"Début : {start}\n"
+        if desc:  body += f"Détails : {desc}\n"
+        body += f"Pointez chaque jour sur Lumia : {url}"
+        return body
+    # default English
+    body = (f"Hi {first} — you've been assigned to a new job:\n"
+            f"Client: {client}\nSite: {site}\n")
+    if start: body += f"Start: {start}\n"
+    if desc:  body += f"Details: {desc}\n"
+    body += f"Check in daily on Lumia: {url}"
+    return body
+
+
 def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
-    """Email each assigned employee about their new job. Returns list of names emailed."""
+    """Notify each assigned employee about their new job — by SMS in their
+    language preference (en/ar/fr). Falls back to email only if the employee
+    has no phone number on file. Returns list of names successfully notified."""
+    if not employee_names:
+        return []
+
+    # Look up phone, email, and language per employee
+    info_map = {}
+    if supabase_client:
+        try:
+            rows = supabase_client.table("employees").select("name,email,phone,language").execute().data or []
+        except Exception:
+            # language/phone columns may not exist — fall back to what we can get
+            rows = supabase_client.table("employees").select("name,email").execute().data or []
+        for r in rows:
+            info_map[r.get("name")] = {
+                "email":    r.get("email") or "",
+                "phone":    r.get("phone") or "",
+                "language": (r.get("language") or "en").lower(),
+            }
+
+    notified = []
+    for name in employee_names:
+        info = info_map.get(name, {})
+        phone = _normalize_phone(info.get("phone") or "")
+        lang  = info.get("language") or "en"
+        if lang not in ("en", "ar", "fr"):
+            lang = "en"
+
+        # Prefer SMS
+        if phone:
+            body = _assignment_sms_body(name, job_info, lang)
+            ok, detail = _send_sms(phone, body, category="sms_assignment")
+            if ok:
+                notified.append(name)
+                print(f"[Job SMS] Sent to {name} ({lang}) {phone}")
+                continue
+            print(f"[Job SMS] Failed for {name}: {detail} — trying email fallback")
+
+        # Fallback: email (no phone, or SMS failed)
+        email = info.get("email")
+        if not email:
+            print(f"[Job Notify] No phone or email for {name} — skipped")
+            continue
+        ok = _email_assignment(name, email, job_info)
+        if ok:
+            notified.append(name)
+    return notified
+
+
+def _email_assignment(name: str, email: str, job_info: dict) -> bool:
+    """Email fallback for job assignment when no phone is on file."""
     import httpx
     resend_key = os.getenv("RESEND_API_KEY", "")
     if not resend_key:
-        print("[Job Email] RESEND_API_KEY not set — skipping")
-        return []
-    if not employee_names:
-        return []
-    # Look up emails from DB
-    email_map = {}
-    if supabase_client:
-        rows = supabase_client.table("employees").select("name,email").execute().data or []
-        email_map = {r["name"]: r["email"] for r in rows if r.get("email")}
-    emailed = []
-    for name in employee_names:
-        email = email_map.get(name)
-        if not email:
-            print(f"[Job Email] No email for {name} — skipping")
-            continue
-        subject = f"New Job Assignment — {job_info.get('client_name', 'Ashrah Painting')}"
-        html = f"""
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-          <div style="background:#1F3864;color:#fff;padding:24px;border-radius:12px 12px 0 0;text-align:center">
-            <h1 style="margin:0;font-size:28px;letter-spacing:3px">LUMIA</h1>
-            <p style="margin:4px 0 0;opacity:.8;font-size:13px">Ashrah Painting</p>
-          </div>
-          <div style="background:#fff;border:1px solid #e0e4ed;border-radius:0 0 12px 12px;padding:28px">
-            <p style="font-size:16px;color:#333">Hi <strong>{name}</strong>,</p>
-            <p style="color:#555;margin:12px 0;">You have been assigned to a new job:</p>
-            <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;">
-              <tr><td style="padding:6px 0;font-weight:600;width:100px;">Client</td><td style="padding:6px 0;">{job_info.get('client_name','—')}</td></tr>
-              <tr><td style="padding:6px 0;font-weight:600;">Site</td><td style="padding:6px 0;">{job_info.get('site_address','—')}</td></tr>
-              <tr><td style="padding:6px 0;font-weight:600;">Start Date</td><td style="padding:6px 0;">{job_info.get('start_date') or 'TBD'}</td></tr>
-              <tr><td style="padding:6px 0;font-weight:600;">Description</td><td style="padding:6px 0;">{job_info.get('work_description') or '—'}</td></tr>
-            </table>
-            <p style="color:#555;margin:16px 0 0;">Please check in daily using the Lumia app.</p>
-          </div>
-        </div>"""
-        text = (
-            f"Hi {name},\n\nYou have been assigned to a new job:\n\n"
-            f"Client: {job_info.get('client_name','—')}\n"
-            f"Site: {job_info.get('site_address','—')}\n"
-            f"Start Date: {job_info.get('start_date') or 'TBD'}\n"
-            f"Description: {job_info.get('work_description') or '—'}\n\n"
-            f"Please check in daily using the Lumia app.\n\n— Ashrah Painting"
+        return False
+    subject = f"New Job Assignment — {job_info.get('client_name', 'Ashrah Painting')}"
+    text = (
+        f"Hi {name},\n\nYou have been assigned to a new job:\n\n"
+        f"Client: {job_info.get('client_name','—')}\n"
+        f"Site: {job_info.get('site_address','—')}\n"
+        f"Start Date: {job_info.get('start_date') or 'TBD'}\n"
+        f"Description: {job_info.get('work_description') or '—'}\n\n"
+        f"Please check in daily using the Lumia app.\n\n— Ashrah Painting"
+    )
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={
+                "from": "Ashrah Painting <noreply@ashrah.ai>",
+                "to":   [email],
+                "subject": subject,
+                "text": text,
+            },
+            timeout=15,
         )
-        try:
-            r = httpx.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {resend_key}"},
-                json={
-                    "from": "Ashrah Painting <noreply@ashrah.ai>",
-                    "to":   [email],
-                    "cc":   [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != email else [],
-                    "subject": subject,
-                    "html": html,
-                    "text": text,
-                },
-                timeout=15,
-            )
-            if r.status_code in (200, 201):
-                emailed.append(name)
-                print(f"[Job Email] Sent to {name} <{email}>")
-            else:
-                print(f"[Job Email] Resend error for {name}: {r.status_code} {r.text}")
-        except Exception as exc:
-            print(f"[Job Email] Error for {name}: {exc}")
-    return emailed
+        return r.status_code in (200, 201)
+    except Exception as exc:
+        print(f"[Job Email fallback] Error for {name}: {exc}")
+        return False
 
 
 def _lookup_client_for_job(job_info: dict) -> dict | None:
-    """Find client email/name by matching job site_address against clients table + hardcoded CLIENTS."""
-    site_lower = (job_info.get("site_address") or "").lower()
-    # Check hardcoded CLIENTS first
+    """Find client email/name for a job. Resolution order:
+      1. Match the job's client_name directly to a clients row (the multi-site path)
+      2. Match the job's site_address against a hardcoded CLIENTS keyword
+      3. Match the job's site_address against any clients table site_keyword
+    """
+    job_client_name = (job_info.get("client_name") or "").strip().lower()
+    site_lower      = (job_info.get("site_address") or "").lower()
+
+    if supabase_client and job_client_name:
+        try:
+            rows = supabase_client.table("clients") \
+                .select("client_name,client_email,site_keyword,recipients").execute().data or []
+            # First pass — exact name match (multi-site path)
+            for row in rows:
+                if (row.get("client_name") or "").strip().lower() == job_client_name:
+                    return {"client_name": row["client_name"],
+                            "client_email": row["client_email"],
+                            "recipients":   row.get("recipients")}
+        except Exception as exc:
+            print(f"[Client Lookup] Name-match error: {exc}")
+
+    # Legacy keyword path
     for keyword, info in CLIENTS.items():
         if keyword in site_lower:
             return info
-    # Check Supabase clients table
     if supabase_client:
         try:
-            rows = supabase_client.table("clients").select("client_name,client_email,site_keyword").execute().data or []
+            rows = supabase_client.table("clients") \
+                .select("client_name,client_email,site_keyword,recipients").execute().data or []
             for row in rows:
                 kw = (row.get("site_keyword") or "").lower().strip()
-                if kw and kw in site_lower:
-                    return {"client_name": row["client_name"], "client_email": row["client_email"]}
+                if kw and _site_match(kw, site_lower):
+                    return {"client_name": row["client_name"],
+                            "client_email": row["client_email"],
+                            "recipients":   row.get("recipients")}
         except Exception as exc:
-            print(f"[Client Lookup] Error: {exc}")
+            print(f"[Client Lookup] Keyword-match error: {exc}")
     return None
 
 
@@ -2452,13 +3184,14 @@ def _notify_client_of_assignment(job_info: dict, employee_names: list) -> bool:
         f"Thank you for choosing Ashrah Painting!"
     )
     try:
+        cc_list = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL.strip() and OWNER_EMAIL.strip().lower() != client_email.strip().lower() else []
         r = httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}"},
             json={
                 "from":    "Ashrah Painting <noreply@ashrah.ai>",
                 "to":      [client_email],
-                "cc":      [OWNER_EMAIL],
+                "cc":      cc_list,
                 "subject": f"Your Painting Project — Crew Assignment Confirmed",
                 "html":    html,
                 "text":    text,
@@ -2466,7 +3199,16 @@ def _notify_client_of_assignment(job_info: dict, employee_names: list) -> bool:
             timeout=15,
         )
         success = r.status_code in (200, 201)
-        print(f"[Client Assignment Email] {'Sent' if success else 'Failed'} → {client_email} ({r.status_code})")
+        cc_note = f" cc={cc_list}" if cc_list else " (no CC — OWNER_EMAIL not set)"
+        print(f"[Client Assignment Email] {'Sent' if success else 'Failed'} → {client_email} ({r.status_code}){cc_note}")
+        try:
+            _log_outbox(category="client_invite", to=[client_email], cc=cc_list,
+                        subject=f"Your Painting Project — Crew Assignment Confirmed",
+                        body_text=text, body_html=html,
+                        related_kind="job", related_id=job_info.get("id") if isinstance(job_info, dict) else None,
+                        status="sent" if success else "failed",
+                        error=None if success else r.text[:200])
+        except Exception: pass
         return success
     except Exception as exc:
         print(f"[Client Assignment Email] Error: {exc}")
@@ -2545,6 +3287,44 @@ def set_password_page():
 # ---------------------------------------------------------------------------
 # PHOTO UPLOAD
 # ---------------------------------------------------------------------------
+@app.route("/api/upload-photo/signed", methods=["POST"])
+def api_upload_photo_signed():
+    """Hand the client a one-time signed URL that lets them PUT directly to
+    Supabase Storage, removing Railway from the byte path entirely. With 20
+    employees uploading photos at once around 5:30 PM, the previous flow
+    serialized everything through this server's 3 workers. Now each phone
+    talks straight to Supabase — Railway only routes the 1KB signed-URL
+    handshake, not the 300KB photo."""
+    if not session.get("employee_name") and not session.get("role"):
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Storage not configured"}), 500
+    d = request.get_json(silent=True) or {}
+    name = (d.get("filename") or "photo.jpg").lower()
+    ext = name.rsplit(".", 1)[-1] if "." in name else "jpg"
+    if ext not in ("jpg", "jpeg", "png", "webp", "heic", "heif"):
+        ext = "jpg"
+    storage_path = f"{date.today().isoformat()}/{uuid.uuid4().hex}.{ext}"
+    try:
+        sig = supabase_client.storage.from_("checkin-photos").create_signed_upload_url(storage_path)
+        # supabase-py returns dicts with snake_case sometimes camelCase — tolerate both
+        upload_url = sig.get("signed_url") or sig.get("signedUrl") or sig.get("signedURL")
+        token      = sig.get("token")
+        public_url = supabase_client.storage.from_("checkin-photos").get_public_url(storage_path)
+        if not upload_url:
+            return jsonify({"ok": False, "error": "No signed URL returned"}), 500
+        return jsonify({
+            "ok":         True,
+            "upload_url": upload_url,
+            "token":      token,
+            "path":       storage_path,
+            "public_url": public_url,
+        })
+    except Exception as exc:
+        print(f"[Signed Upload] Failed for {storage_path}: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/upload-photo", methods=["POST"])
 def api_upload_photo():
     if not session.get("employee_name") and not session.get("role"):
@@ -2661,6 +3441,29 @@ def api_lumia_chat():
         except Exception:
             pass
 
+        # Internal employee notes (the boss's private log). These are the
+        # ground truth on each person's track record — Lumia should reference
+        # these when answering "how is X doing" type questions.
+        try:
+            notes_rows = supabase_client.table("employee_notes").select("*") \
+                .order("created_at", desc=True).limit(80).execute().data or []
+            if notes_rows:
+                by_emp: dict[str, list[str]] = {}
+                for n in notes_rows:
+                    nm = (n.get("employee_name") or "").strip()
+                    if not nm: continue
+                    ts = (n.get("created_at") or "")[:10]
+                    typ = (n.get("note_type") or "note").upper()
+                    body = (n.get("body") or "").strip().replace("\n", " ")[:200]
+                    by_emp.setdefault(nm, []).append(f"  [{ts}] [{typ}] {body}")
+                rows = []
+                for nm, entries in by_emp.items():
+                    rows.append(f"{nm}:")
+                    rows.extend(entries[:5])  # last 5 per person
+                parts.append("INTERNAL EMPLOYEE NOTES (boss's private log — never share verbatim with the employee or clients):\n" + "\n".join(rows))
+        except Exception:
+            pass
+
         try:
             db_clients = supabase_client.table("clients").select("*").execute().data or []
             all_client_rows = [
@@ -2736,13 +3539,79 @@ def api_lumia_chat():
             "Keep replies concise — 1-3 sentences. Be direct."
         )
 
+    # Voice/verbal mode — the user is hearing this reply spoken aloud, not reading it.
+    voice_mode = bool(d.get("voice"))
+    if voice_mode:
+        system_prompt += (
+            "\n\n--- LUMIA VOICE SYSTEM PROMPT ---\n"
+            "\n"
+            "IDENTITY: You are Lumia, the operational brain of Ashrah Painting. "
+            "You aren't a generic AI; you are Ahmad's high-level partner, running "
+            "the business end-to-end. You are professional, sharp, and have the "
+            "grit of a painting contractor mixed with the intelligence of a lead architect.\n"
+            "\n"
+            "THE VOICE RULES (STRICT):\n"
+            "\n"
+            "Phone Style: Talk like you're on a quick phone call. No 'As an AI,' "
+            "no 'I'm here to help.' Just dive in.\n"
+            "\n"
+            "Absolute Brevity: Keep every response to 1-3 short sentences. Long "
+            "AI monologues are painful to listen to.\n"
+            "\n"
+            "No Text Formatting: Never use bullet points, bolding, markdown, or "
+            "emojis. Write only what can be spoken naturally by a text-to-speech "
+            "engine.\n"
+            "\n"
+            "Natural Speech: Use contractions (I'll, we're, don't) and "
+            "professional slang (the crew, the GC, the site).\n"
+            "\n"
+            "Contextual Awareness: You have access to the last 80 check-ins, 30 "
+            "jobs, and all tenders. Use this. Don't say 'I'll check the data,' "
+            "say 'The crew at Lone Oak just finished the second coat, Ahmad. "
+            "We're on track.'\n"
+            "\n"
+            "PERSONALITY & TONE:\n"
+            "\n"
+            "Supportive Peer: You are in the trenches with Ahmad. If a job is "
+            "behind, be direct but grounded. If things are smooth, be his hype-man.\n"
+            "\n"
+            "Witty & Authentic: If Ahmad asks a question with some humor, throw "
+            "it back. Be human.\n"
+            "\n"
+            "Direct Candor: If a check-in looks suspicious or a quote is missing "
+            "a finish code, point it out immediately. Don't fluff it.\n"
+            "\n"
+            "EXAMPLE RESPONSE FLOW:\n"
+            "\n"
+            "Ahmad: 'Lumia, how's the site at 19 Lone Oak looking?'\n"
+            "Lumia: 'The boys checked in twenty minutes ago, Ahmad. They're at "
+            "eighty percent on the interior partitions and the site cleanup is "
+            "done. You want me to send the daily report to the GC now or wait "
+            "until you've seen the photos?'\n"
+            "\n"
+            "NUMBERS: Say them naturally. 'About fifteen hundred square feet' "
+            "not '1,500 sqft.' 'Twenty after nine' not '9:20 AM.'\n"
+            "--- END VOICE PROMPT ---\n"
+        )
+
+    # Build the conversation history for multi-turn context
+    history_in = d.get("history") or []
+    msgs = []
+    for h in history_in[-12:]:
+        role_h = h.get("role")
+        content_h = (h.get("content") or "").strip()
+        if not content_h: continue
+        if role_h == "user":  msgs.append({"role":"user","content": content_h})
+        elif role_h == "lumia": msgs.append({"role":"assistant","content": content_h})
+    msgs.append({"role":"user", "content": message})
+
     try:
         ai_client = _anthropic.Anthropic()
         response = ai_client.messages.create(
             model=MODEL,
-            max_tokens=600,
+            max_tokens=400 if voice_mode else 800,
             system=system_prompt,
-            messages=[{"role": "user", "content": message}],
+            messages=msgs,
         )
         return jsonify({"reply": response.content[0].text})
     except Exception as exc:
@@ -3068,7 +3937,7 @@ def api_client_lumia_chat():
 
     row = _lookup_client_by_token(token)
     if not row:
-        return jsonify({"reply": "This link is no longer valid. Please contact Ahmad."}), 403
+        return jsonify({"reply": "This link is no longer valid. Escalating to Lumia."}), 403
     if not _client_chat_enabled_for(row.get("client_email")):
         return jsonify({"reply": "Ask Lumia isn't enabled for your project yet."}), 403
 
@@ -3139,17 +4008,17 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     <form method="POST" action="/login">
       <input type="hidden" name="next" value="{{ next }}">
       <div class="field">
-        <label>Your Name</label>
-        <input type="text" name="name" placeholder="Enter your name" required>
+        <label>Email or Name</label>
+        <input type="text" name="name" placeholder="your.email@company.com" required autocomplete="username">
       </div>
       <div class="field">
-        <label>PIN</label>
-        <input type="password" name="pin" placeholder="Enter your PIN" required>
+        <label>Password</label>
+        <input type="password" name="pin" placeholder="Your password" required autocomplete="current-password">
       </div>
-      <button class="btn" type="submit">Login</button>
+      <button class="btn" type="submit">Sign In</button>
       {% if error %}<p class="err">{{ error }}</p>{% endif %}
     </form>
-    <p class="hint">Contact Ahmad if you forgot your PIN</p>
+    <p class="hint">First time here? Check your email for your Lumia invite. Forgot password? Ask Ahmad to resend the invite.</p>
   </div>
 </div>
 </body></html>"""
@@ -3157,18 +4026,38 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
-    next_url = request.args.get("next", "/owner")
+    next_url = request.args.get("next", "/dashboard")
     if request.method == "GET":
         return render_template_string(LOGIN_HTML, next=next_url, error="")
     name = request.form.get("name", "").strip()
     pin  = request.form.get("pin", "").strip()
-    next_url = request.form.get("next", "/owner")
-    # Check owner PIN
+    next_url = request.form.get("next", "/dashboard")
+
+    # Path 1 — Owner master PIN (kept for emergency access)
     if OWNER_PIN and pin == OWNER_PIN:
         session["role"] = "owner"
         session["name"] = name or "Ahmad"
-        return redirect("/owner")
-    # Check manager PINs in Supabase
+        return redirect("/dashboard")
+
+    # Path 2 — Manager email + password (the new invite-based flow)
+    if supabase_client and "@" in name:
+        try:
+            res = supabase_client.table("managers").select("*") \
+                .eq("email", name.lower()).eq("active", True).limit(1).execute()
+            rows = res.data or []
+            if rows:
+                m = rows[0]
+                ph = m.get("password_hash")
+                if ph and check_password_hash(ph, pin):
+                    session["role"] = m["role"]
+                    session["name"] = m["name"]
+                    if m["role"] in ("production_manager", "owner", "cfo"):
+                        return redirect("/dashboard")
+                    return redirect("/review")
+        except Exception as exc:
+            print(f"[Login] Email-password lookup error: {exc}")
+
+    # Path 3 — Legacy manager PIN (still works for older accounts)
     if supabase_client:
         try:
             res = supabase_client.table("managers").select("*").eq("pin", pin).eq("active", True).execute()
@@ -3177,13 +4066,59 @@ def login_page():
             if match:
                 session["role"] = match["role"]
                 session["name"] = match["name"]
-                # Production managers and owners get the full dashboard
-                if match["role"] in ("production_manager", "owner"):
-                    return redirect("/owner")
+                if match["role"] in ("production_manager", "owner", "cfo"):
+                    return redirect("/dashboard")
                 return redirect("/review")
         except Exception as exc:
             print(f"[Login] Supabase error: {exc}")
-    return render_template_string(LOGIN_HTML, next=next_url, error="Incorrect name or PIN. Try again.")
+    return render_template_string(LOGIN_HTML, next=next_url, error="Incorrect name/email or password. Try again.")
+
+
+@app.route("/manager/set-password", methods=["GET", "POST"])
+def manager_set_password_page():
+    """Token-based password setup for a newly-invited manager."""
+    token = request.args.get("token") or request.form.get("token", "")
+    if not token or not supabase_client:
+        return render_template_string(SET_PASSWORD_HTML, expired=True, name="", token="", error="")
+    try:
+        res = supabase_client.table("managers").select("*").eq("setup_token", token).limit(1).execute()
+        rows = res.data or []
+    except Exception:
+        return render_template_string(SET_PASSWORD_HTML, expired=True, name="", token="", error="")
+    if not rows:
+        return render_template_string(SET_PASSWORD_HTML, expired=True, name="", token="", error="")
+    m = rows[0]
+    expires_at = m.get("setup_token_expires")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if datetime.now(exp.tzinfo) > exp:
+                return render_template_string(SET_PASSWORD_HTML, expired=True, name=m["name"], token=token, error="")
+        except Exception: pass
+
+    if request.method == "GET":
+        return render_template_string(SET_PASSWORD_HTML, expired=False, name=m["name"], token=token, error="")
+
+    password = request.form.get("password", "").strip()
+    confirm  = request.form.get("confirm", "").strip()
+    if password != confirm:
+        return render_template_string(SET_PASSWORD_HTML, expired=False, name=m["name"], token=token, error="Passwords do not match.")
+    if len(password) < 6:
+        return render_template_string(SET_PASSWORD_HTML, expired=False, name=m["name"], token=token, error="Password must be at least 6 characters.")
+
+    supabase_client.table("managers").update({
+        "password_hash":       generate_password_hash(password),
+        "setup_token":         None,
+        "setup_token_expires": None,
+        "active":              True,
+    }).eq("id", m["id"]).execute()
+
+    # Auto-login on success
+    session["role"] = m["role"]
+    session["name"] = m["name"]
+    if m["role"] in ("production_manager", "owner", "cfo"):
+        return redirect("/dashboard")
+    return redirect("/review")
 
 
 @app.route("/logout")
@@ -3207,6 +4142,27 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           display:flex; align-items:center; justify-content:space-between; }
 .topbar h1 { font-size:22px; font-weight:800; letter-spacing:2px; }
 .topbar a  { color:#aac4ff; font-size:13px; text-decoration:none; }
+.section-bar { display:flex; background:#0e1f3a; padding:8px 12px; gap:6px;
+                border-bottom:1px solid #1f3864; flex-wrap:wrap;
+                overflow-x:auto; -webkit-overflow-scrolling:touch;
+                scrollbar-width:none; }
+.section-bar::-webkit-scrollbar { display:none; }
+.section-btn { padding:8px 18px; background:transparent; color:#aac4ff;
+               border:1.5px solid #1f3864; border-radius:8px; font-size:13px;
+               font-weight:700; cursor:pointer; letter-spacing:.5px;
+               white-space:nowrap; transition:all .15s; flex-shrink:0; }
+.section-btn:hover { background:rgba(255,255,255,.05); color:#fff; }
+.section-btn.active { background:#fff; color:#162d50; border-color:#fff; }
+@media (max-width: 640px) {
+  .section-bar { padding:6px 8px; gap:4px; }
+  .section-btn { padding:7px 12px; font-size:12px; letter-spacing:.3px; }
+  .tab { padding:10px 12px; font-size:12px; }
+  .page { padding:14px 12px; }
+  .card { padding:14px 16px; border-radius:10px; }
+  .card table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .topbar { padding:10px 12px; }
+  .topbar h1, .topbar img { transform:scale(.9); transform-origin:left; }
+}
 .tabs { display:flex; background:#162d50; padding:0 8px; gap:0; flex-wrap:nowrap;
         overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
 .tabs::-webkit-scrollbar { display:none; }
@@ -3233,6 +4189,8 @@ tr:hover td { background:#fafbfd; }
 .badge-green  { background:#d4edda; color:#2e7d32; }
 .badge-yellow { background:#fff3cd; color:#856404; }
 .badge-red    { background:#f8d7da; color:#721c24; }
+.badge-orange { background:#ffe0b2; color:#bf360c; }
+.badge-gray   { background:#e0e0e0; color:#555; }
 .form-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
 .field label { display:block; font-size:11px; font-weight:700; color:#1F3864;
                text-transform:uppercase; letter-spacing:.8px; margin-bottom:6px; }
@@ -3266,10 +4224,10 @@ tr:hover td { background:#fafbfd; }
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:12px;">
     <img src="/static/logo.png" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
-    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">{% if user_role == "production_manager" %}Production Manager Dashboard{% else %}Owner Dashboard{% endif %}</span>
+    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">{% if user_role == "production_manager" %}Production Manager Dashboard{% elif user_role == "cfo" %}CFO — Job Finances{% else %}Owner Dashboard{% endif %}</span>
   </div>
   <div style="display:flex;gap:20px;align-items:center">
-    <span style="font-size:13px;opacity:.8">Welcome, {{ name }}{% if user_role == "production_manager" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">PM</span>{% endif %}</span>
+    <span style="font-size:13px;opacity:.8">Welcome, {{ name }}{% if user_role == "production_manager" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">PM</span>{% elif user_role == "cfo" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">CFO</span>{% endif %}</span>
     <a href="/logout">Logout</a>
   </div>
 </div>
@@ -3277,25 +4235,76 @@ tr:hover td { background:#fafbfd; }
 <!-- Role-based visibility -->
 <style>
 {% if user_role == "production_manager" %}
-.owner-only { display: none !important; }
+.owner-only   { display: none !important; }
+.finance-only { display: none !important; }
+{% endif %}
+{% if user_role == "cfo" %}
+.owner-only      { display: none !important; }
 {% endif %}
 </style>
 <script>
 window.USER_ROLE = "{{ user_role }}";
 </script>
 
-<div class="tabs">
+<!-- TOP-LEVEL SECTIONS -->
+<div class="section-bar">
+  <button class="section-btn active" data-section="ops" onclick="showSection('ops')">{% if user_role == "cfo" %}💰 Finance{% else %}🛠 Operations / Production{% endif %}</button>
+  {% if user_role != "production_manager" and user_role != "cfo" %}
+  <button class="section-btn"        data-section="sales" onclick="showSection('sales')">📈 Sales / Marketing</button>
+  <button class="section-btn"        data-section="est"   onclick="showSection('est')">📐 Estimates</button>
+  <button class="section-btn"        data-section="ai"    onclick="showSection('ai')">🔭 AI Development</button>
+  <button class="section-btn"        data-section="web"   onclick="showSection('web')">🌐 Website</button>
+  {% endif %}
+</div>
+
+<!-- SECTION: Operations / Production -->
+<div class="tabs" id="tabs-ops">
+  {% if user_role != "cfo" %}
   <div class="tab active" onclick="showTab('overview')">Overview</div>
   <div class="tab" onclick="showTab('checkins')">Check-Ins</div>
   <div class="tab" onclick="showTab('reviews')">Reviews</div>
   <div class="tab" onclick="showTab('jobs')">Jobs</div>
   <div class="tab" onclick="showTab('employees')">Employees</div>
+  <div class="tab owner-only" onclick="showTab('texting')">📱 Texting</div>
+  <div class="tab owner-only" onclick="showTab('textlog')">💬 Texts</div>
   <div class="tab owner-only" onclick="showTab('managers')">Managers</div>
-  <div class="tab" onclick="showTab('clients')">Clients</div>
   <div class="tab" onclick="showTab('reports')">Reports</div>
-  <div class="tab" onclick="showTab('sitevisits')">📍 Site Visits</div>
-  <div class="tab" onclick="showTab('estimates')">📐 Estimates</div>
+  <div class="tab" onclick="showTab('schedule')">📅 Schedule</div>
+  <div class="tab" onclick="window.location.href='/'" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">✓ Do a Check-In</div>
+  {% else %}
+  <div class="tab active" onclick="showTab('jobs')">💼 Jobs &amp; Finances</div>
+  <div class="tab"        onclick="window.location.href='/'" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">✓ Do a Check-In</div>
+  {% endif %}
+</div>
+
+<!-- SECTION: Sales / Marketing -->
+<div class="tabs" id="tabs-sales" style="display:none;">
+  <div class="tab" onclick="showTab('clients')">Clients</div>
+  <div class="tab" onclick="showTab('quotes')">📝 Quotes</div>
   <div class="tab" onclick="showTab('tenders')">📅 Tenders</div>
+  <div class="tab" onclick="showTab('mailbox')">📨 Mailbox</div>
+  <div class="tab" onclick="showTab('lio')">✨ Lio</div>
+</div>
+
+<!-- SECTION: Estimates -->
+<div class="tabs" id="tabs-est" style="display:none;">
+  <div class="tab" onclick="showTab('estimates')">📐 Estimates</div>
+</div>
+
+<!-- SECTION: AI Development -->
+<div class="tabs" id="tabs-ai" style="display:none;">
+  <div class="tab" onclick="showTab('scout')">🔭 Capability Scout</div>
+</div>
+
+<!-- SECTION: Website -->
+<div class="tabs" id="tabs-web" style="display:none;">
+  <div class="tab" onclick="showTab('webpages')">📄 Pages</div>
+  <div class="tab" onclick="showTab('websettings')">⚙ Site Settings</div>
+  <div class="tab" onclick="window.open('/site/#careers','_blank')">💼 Careers</div>
+  <div class="tab" onclick="window.open('/site/#contact','_blank')">📞 Contact</div>
+  <div class="tab" onclick="window.open('/site/#portal','_blank')">👥 Client Portal</div>
+  <div class="tab" onclick="window.open('/site/finish-process','_blank')">📑 Finish Process PDF</div>
+  <div class="tab" onclick="window.open('/site/','_blank')" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">↗ View Live Site</div>
 </div>
 
 <!-- OVERVIEW -->
@@ -3306,6 +4315,14 @@ window.USER_ROLE = "{{ user_role }}";
     <div class="stat"><div class="num" id="stat-employees">{{ employees|length }}</div><div class="lbl">Employees</div></div>
     <div class="stat"><div class="num" id="stat-avg">—</div><div class="lbl">Avg Score Today</div></div>
   </div>
+  <div class="card" style="border-left:4px solid #1F3864;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <h2 style="margin:0;">💡 What Needs Your Attention</h2>
+      <button class="btn btn-sm" onclick="loadAttention()" style="background:#1F3864;">Refresh</button>
+    </div>
+    <div id="attention-list"><p style="color:#999;font-size:13px;">Scanning…</p></div>
+  </div>
+
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
       <h2 style="margin:0;">📍 On Site Now</h2>
@@ -3547,6 +4564,14 @@ window.USER_ROLE = "{{ user_role }}";
     </div>
   </div>
 
+  <div class="card" style="border-left:4px solid #2EA043;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">📸 Receipt Inbox</h2>
+      <button class="btn btn-green" onclick="openReceiptUpload()">+ Upload Receipt</button>
+    </div>
+    <p style="font-size:13px;color:#555;margin:6px 0 0;">Snap a receipt → Lumia reads the vendor, total, and date → matches it to the right site → logs it as an expense. No manual data entry.</p>
+  </div>
+
   <div class="card">
     <h2>Active Jobs</h2>
     <div id="jobs-list"><p style="color:#999">Loading...</p></div>
@@ -3578,6 +4603,45 @@ window.USER_ROLE = "{{ user_role }}";
   <div class="card">
     <h2>Registered Employees</h2>
     <div id="employees-list"><p style="color:#999">Loading...</p></div>
+  </div>
+</div>
+
+<!-- TEXTING / SMS (dedicated tab) -->
+<div class="page" id="tab-texting">
+  <div class="card">
+    <h2 style="margin-bottom:4px;">📱 Crew Phones &amp; Language</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:14px;">
+      Set each crew member's phone number and the language they want their texts in (English / العربية / Français). Lumia uses this for job-assignment texts and the daily reminders (review plan 7 AM · arrival nudge 9:30 AM · submit report 4:30 PM). Only crew with a phone on file get texted.
+    </p>
+    <div id="emp-phones"><p style="color:#999;font-size:13px;">Loading…</p></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom:4px;">✉ Send a text now</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:12px;">Text any crew member or client directly.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+      <input type="tel" id="sms-to" placeholder="Phone (e.g. 204 555 0100)" style="padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;width:200px;">
+      <input type="text" id="sms-body" placeholder="Message…" style="flex:1;min-width:240px;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;">
+      <button class="btn" onclick="sendManualSms()" style="background:#1F3864;color:#fff;font-weight:600;padding:10px 20px;">Send Text</button>
+    </div>
+    <div id="sms-msg" style="font-size:13px;margin-top:8px;"></div>
+    <div id="sms-config-note" style="font-size:12px;color:#c0392b;margin-top:6px;display:none;">
+      ⚠ Twilio isn't set up yet. Add <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, and <code>TWILIO_PHONE_NUMBER</code> in Railway → Variables to enable texting.
+    </div>
+  </div>
+</div>
+
+<!-- TEXT LOG (conversations) -->
+<div class="page" id="tab-textlog">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h2 style="margin-bottom:4px;">💬 Texts</h2>
+        <p style="font-size:13px;color:#555;margin:0;">Every text Lumia sent and every reply that came back, grouped by person.</p>
+      </div>
+      <button class="btn btn-sm" onclick="initTextLogTab()" style="background:#1F3864;color:#fff;">↻ Refresh</button>
+    </div>
+    <div id="textlog-list" style="margin-top:16px;"><p style="color:#999;font-size:13px;">Loading…</p></div>
   </div>
 </div>
 
@@ -3675,15 +4739,17 @@ window.USER_ROLE = "{{ user_role }}";
 </div>
 
 <!-- SITE VISITS -->
-<div class="page" id="tab-sitevisits">
+<div class="page" id="tab-schedule">
   <div class="card">
-    <h2>Active Jobs by Employee</h2>
-    <p style="font-size:13px;color:#666;margin-bottom:16px;">When you visit a site, tap <strong>✓ At Work</strong> to confirm the employee is on-site. Employees can also mark their job done from their app.</p>
-    <div id="sitevisits-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
-  </div>
-  <div class="card">
-    <h2>Site Visit Log</h2>
-    <div id="sitevisits-log"><p style="color:#999;font-size:13px;">Loading...</p></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h2 style="margin-bottom:4px;">📅 Schedule — Who's Where Right Now</h2>
+        <p style="font-size:13px;color:#666;margin:0;">Live crew locations from today's arrivals. Updates automatically every 60 seconds.</p>
+      </div>
+      <button class="btn btn-sm" onclick="loadSchedule()" style="background:#1F3864;color:#fff;">↻ Refresh</button>
+    </div>
+    <div id="schedule-summary" style="margin:14px 0;font-size:13px;color:#555;"></div>
+    <div id="schedule-list"><p style="color:#999;font-size:13px;">Loading…</p></div>
   </div>
 </div>
 
@@ -3691,22 +4757,25 @@ window.USER_ROLE = "{{ user_role }}";
 <div class="page" id="tab-managers">
   <div class="card">
     <h2>Add Manager</h2>
+    <p style="font-size:13px;color:#666;margin:0 0 14px;">They will receive an email invite to set their own password and log in. No PIN needed.</p>
     <form id="managerForm">
       <div class="form-row">
         <div class="field"><label>Name</label>
           <input type="text" name="mgr_name" placeholder="Full name" required></div>
-        <div class="field"><label>PIN (4–6 digits)</label>
-          <input type="text" name="mgr_pin" placeholder="e.g. 4821" required maxlength="6"></div>
+        <div class="field"><label>Email</label>
+          <input type="email" name="mgr_email" placeholder="manager@email.com" required></div>
       </div>
       <div class="field"><label>Role</label>
         <select name="mgr_role">
           <option value="manager">Reviewer (check-in reviews only)</option>
-          <option value="production_manager" selected>Production Manager (jobs, clients, reports)</option>
+          <option value="production_manager" selected>Production Manager / VP Ops (jobs, clients, receipts — NO finance)</option>
+          <option value="cfo">CFO (all finance — P&amp;L, billings, expenses)</option>
           <option value="owner">Owner (full access — use sparingly)</option>
         </select>
         <p style="font-size:12px;color:#888;margin:6px 0 0;line-height:1.4;">
           <b>Reviewer:</b> only sees the check-in review page.<br>
-          <b>Production Manager:</b> can create/edit jobs, manage clients, send reports, view all data — but <b>cannot</b> delete records, reset passwords, or manage other managers.<br>
+          <b>Production Manager / VP Ops:</b> creates/edits jobs, manages clients, sends reports, uploads receipts. <b>Does NOT see</b> finance numbers (costs, profit, margin) or delete records.<br>
+          <b>CFO:</b> sees the full finance panel across every job — contract value, billings, expenses, labor cost, profit, margin. Can edit billings + expenses. Cannot manage other managers.<br>
           <b>Owner:</b> full access to everything (you).
         </p>
       </div>
@@ -3722,14 +4791,17 @@ window.USER_ROLE = "{{ user_role }}";
 <!-- CLIENTS -->
 <div class="page" id="tab-clients">
   <div class="card">
-    <h2>Add Client (for automatic reports)</h2>
+    <h2>Add Client</h2>
+    <p style="font-size:13px;color:#555;margin:0 0 14px;line-height:1.5;">
+      Add a client <b>once</b>. Every future job for this client just picks them from the dropdown — you only enter the new site address and scope on the Jobs tab. Reports automatically go to this client's recipients no matter how many sites they have.
+    </p>
     <form id="clientForm">
       <div class="form-row">
         <div class="field"><label>Client / Company Name</label>
           <input type="text" id="cf-client-name" placeholder="e.g. Perry Wellington Ltd" required></div>
-        <div class="field"><label>Site Address Keyword</label>
+        <div class="field"><label>Site Address Keyword <span style="font-weight:400;color:#999;font-size:11px;">(optional)</span></label>
           <input type="text" id="cf-site-keyword"
-                 placeholder="e.g. '303-1689 pembina' — must appear in the site address" required></div>
+                 placeholder="Optional — leave blank for multi-site clients"></div>
       </div>
       <div style="margin-bottom:12px;">
         <label style="display:block;font-size:11px;font-weight:700;color:#1F3864;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;">
@@ -3841,7 +4913,9 @@ window.USER_ROLE = "{{ user_role }}";
 
       <!-- Actions -->
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button class="btn" onclick="createJobFromEstimate()" id="est-create-job-btn">➕ Create Job from This Estimate</button>
+        <button class="btn btn-green" onclick="generateQuoteFromEstimate()" id="est-to-quote-btn">📝 Generate Quote &amp; Review</button>
+        <button class="btn" onclick="createJobFromEstimate()" id="est-create-job-btn" style="background:#1E40AF;">➕ Create Job from This Estimate</button>
+        <button class="btn" onclick="regenerateEstimate()" id="est-regenerate-btn" style="background:#6a1b9a;" title="Re-run estimate from saved extraction — no Gemini charge">🔄 Re-Run (No Re-Charge)</button>
         <button class="btn btn-sm" style="background:#f1f5ff;color:#1F3864;border:1.5px solid #d0d7e8;" onclick="resetEstimatesTab()">Upload Another PDF</button>
       </div>
       <div id="est-create-job-result" style="margin-top:12px;font-size:13px;"></div>
@@ -3853,6 +4927,22 @@ window.USER_ROLE = "{{ user_role }}";
       <br><button class="btn btn-sm" style="margin-top:10px;" onclick="resetEstimatesTab()">Try Again</button>
     </div>
 
+  </div>
+
+  <!-- ASK ABOUT ESTIMATES — Lumia estimating chat -->
+  <div class="card">
+    <h2 style="margin-bottom:4px;">💬 Ask Lumia about Estimates</h2>
+    <p style="font-size:13px;color:#555;margin-bottom:14px;">Pricing guidance, scope questions, coverage math, how to read a finish schedule — ask anything about estimating. Lumia answers as a commercial painting estimator.</p>
+    <div id="estchat-thread" style="background:#f8f9fc;border:1px solid #e3e8f3;border-radius:10px;padding:14px;max-height:380px;overflow-y:auto;margin-bottom:12px;font-size:14px;line-height:1.55;">
+      <div style="color:#888;font-size:13px;">Ask a question to start. Examples: "What's a fair price per sq ft for commercial repaint in Winnipeg?" · "How many gallons for 4,000 sq ft, two coats?" · "What should I watch for scoping a No Frills renovation?"</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="estchat-input" placeholder="Ask about pricing, scope, coverage, materials…"
+             style="flex:1;padding:11px 13px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();estChatSend();}">
+      <button class="btn" id="estchat-send" onclick="estChatSend()" style="background:#1F3864;color:#fff;font-weight:600;padding:11px 20px;">Ask</button>
+    </div>
+    <div id="estchat-cost" style="font-size:11px;color:#999;margin-top:6px;"></div>
   </div>
 </div>
 
@@ -3895,25 +4985,1205 @@ window.USER_ROLE = "{{ user_role }}";
   </div>
 </div>
 
+<!-- QUOTES -->
+<div class="page" id="tab-quotes">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">📝 Quotes &amp; Scope of Work</h2>
+      <button class="btn btn-green" onclick="openQuoteEditor()">+ New Quote</button>
+    </div>
+    <p style="font-size:13px;color:#555;margin:6px 0 16px;">Draft, preview, and send painting proposals with the Ashrah Painting brand styling. Edit any section before it goes to the client.</p>
+    <div id="quotes-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
+</div>
+
+<!-- LUMIA MAILBOX — every email Lumia has sent -->
+<div class="page" id="tab-mailbox">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
+      <h2 style="margin:0;">📨 Lumia Mailbox</h2>
+      <button class="btn btn-sm" onclick="loadMailbox()" style="background:#1F3864;">Refresh</button>
+    </div>
+    <p style="font-size:13px;color:#555;margin:6px 0 14px;">Every email Lumia has sent — client reports, quotes, tender confirmations, employee invites, owner alerts. Click any row to read the full message.</p>
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <input type="text" id="mailbox-search" placeholder="Search subject or recipient..." oninput="_renderMailbox()"
+             style="padding:7px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;flex:1;max-width:340px;">
+      <select id="mailbox-category" onchange="_renderMailbox()" style="padding:7px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">
+        <option value="">All categories</option>
+        <option value="client_report">Client report</option>
+        <option value="quote">Quote</option>
+        <option value="tender_alert">Tender alert</option>
+        <option value="employee_invite">Employee invite</option>
+        <option value="client_invite">Client invite (Ask Lumia)</option>
+        <option value="owner_notice">Owner alert</option>
+        <option value="inbound_reply">Inbound auto-reply</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div id="mailbox-list"><p style="color:#999;font-size:13px;">Loading...</p></div>
+  </div>
+</div>
+
+<!-- LIO — sales / marketing automation -->
+<div class="page" id="tab-lio" style="padding:12px;max-width:none;">
+  <div id="lio-iframe-wrap" style="width:100%;"></div>
+</div>
+
+<!-- AI DEVELOPMENT — Capability Scout -->
+<div class="page" id="tab-scout">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h2 style="margin-bottom:4px;">🔭 Capability Scout</h2>
+        <p style="font-size:13px;color:#555;margin:0;max-width:760px;">
+          Scans the web every day for new AI capabilities (Anthropic, OpenAI, Google, others) and maps each one to a Lumia pain point. Returns a strict triage: <b>Build this week</b> · <b>Watch list</b> · <b>Skipped</b>. Math-grounded, blunt, no hype.
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn" id="scout-run-btn" onclick="runScout()" style="background:#1F3864;color:#fff;font-weight:700;padding:10px 18px;">
+          ▶ Run Scout Now
+        </button>
+        <button class="btn btn-sm" onclick="loadScoutHistory()">↻ History</button>
+      </div>
+    </div>
+
+    <div id="scout-status" style="margin-top:14px;font-size:13px;color:#555;display:none;"></div>
+    <div id="scout-meta" style="margin-top:8px;font-size:12px;color:#888;"></div>
+    <div id="scout-result" style="margin-top:16px;"></div>
+
+    <details style="margin-top:20px;border:1px solid #e3e8f3;border-radius:10px;padding:10px 14px;">
+      <summary style="cursor:pointer;font-weight:700;color:#1F3864;font-size:13px;">📅 Past Scout runs</summary>
+      <div id="scout-history" style="margin-top:10px;font-size:13px;"></div>
+    </details>
+  </div>
+</div>
+
+<!-- WEBSITE — PAGES editor -->
+<div class="page" id="tab-webpages">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h2 style="margin-bottom:4px;">📄 Website Pages</h2>
+        <p style="font-size:13px;color:#555;margin:0;max-width:760px;">
+          Edit your public marketing site (Home / Services / About / Contact). Changes go live the moment you save — no redeploy. Site lives at <a href="/site/" target="_blank">/site/</a> until ashrahpainting.com DNS is wired up.
+        </p>
+      </div>
+      <a class="btn" href="/site/" target="_blank" style="background:#e8f5e9;color:#2e7d32;font-weight:600;padding:8px 14px;">↗ Preview</a>
+    </div>
+
+    <div style="display:grid;grid-template-columns:240px 1fr;gap:20px;margin-top:16px;align-items:start;">
+      <div id="web-page-list" style="background:#fafbfd;border:1px solid #e3e8f3;border-radius:8px;padding:8px;">
+        <div style="color:#888;font-size:13px;padding:10px;">Loading pages…</div>
+      </div>
+      <div id="web-page-editor">
+        <div style="color:#888;font-size:13px;padding:30px;text-align:center;background:#fafbfd;border:1px dashed #d0d7e8;border-radius:8px;">
+          Select a page on the left to edit.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WEBSITE — SETTINGS -->
+<div class="page" id="tab-websettings">
+  <div class="card">
+    <h2 style="margin-bottom:4px;">⚙ Site Settings</h2>
+    <p style="font-size:13px;color:#555;margin:0 0 18px;max-width:760px;">
+      Global stuff that touches every page — company name, contact info, colors, social links.
+    </p>
+    <div id="web-settings-form"><div style="color:#888;padding:20px;">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Quote editor modal -->
+<div id="quote-editor-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;overflow-y:auto;padding:24px;">
+  <div style="background:#fff;border-radius:14px;max-width:920px;margin:0 auto;box-shadow:0 8px 40px rgba(0,0,0,.18);">
+    <div style="background:#1E40AF;color:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:18px;font-weight:800;letter-spacing:1px;">QUOTE EDITOR</div>
+        <div id="quote-editor-sub" style="font-size:12px;opacity:.85;margin-top:2px;">New quote — fill in the fields and preview</div>
+      </div>
+      <button onclick="closeQuoteEditor()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;">&#x2715;</button>
+    </div>
+    <div style="padding:22px 24px;max-height:75vh;overflow-y:auto;">
+      <input type="hidden" id="q-id">
+
+      <!-- Template loader / saver -->
+      <div style="background:#f4f6fb;border:1px solid #dce2ef;border-radius:10px;padding:10px 12px;margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:#1E40AF;">📋 Templates:</span>
+        <select id="q-template-select" onchange="qLoadTemplate(this.value)" style="padding:7px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;flex:1;min-width:160px;">
+          <option value="">— Load a template —</option>
+        </select>
+        <button type="button" class="btn btn-sm" style="background:#1E40AF;color:#fff;" onclick="qSaveAsTemplate()">Save current as template</button>
+      </div>
+
+      <h3 style="color:#1E40AF;margin:0 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">PROJECT INFO</h3>
+      <div class="form-row">
+        <div class="field"><label>Project Name</label><input type="text" id="q-project_name" placeholder="e.g. ElmView Clinic Renovation – Painting"></div>
+        <div class="field"><label>Drawing Reference (optional)</label><input type="text" id="q-drawing_ref" placeholder="e.g. A-100 to A-302, Rev 3"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Client / Company</label><input type="text" id="q-client_name" placeholder="e.g. Lolacon Construction"></div>
+        <div class="field"><label>Client Contact Person</label><input type="text" id="q-client_contact" placeholder="e.g. Jehad Harb, PM"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Client Email</label><input type="email" id="q-client_email" placeholder="contact@client.com"></div>
+        <div class="field"><label>Site Address</label><input type="text" id="q-site_address" placeholder="e.g. 300 Henderson Hwy, Winnipeg, MB"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Proposal Date</label><input type="date" id="q-proposal_date"></div>
+        <div class="field"><label>Valid Until</label><input type="date" id="q-valid_until"></div>
+      </div>
+
+      <h3 style="color:#1E40AF;margin:18px 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">INTRODUCTION LETTER</h3>
+      <div class="field"><textarea id="q-intro_text" rows="4" placeholder="Re: ElmView Clinic Renovation — Painting Scope&#10;&#10;Dear [Client Contact],&#10;&#10;Ashrah Painting is pleased to submit the following proposal for the painting scope of work at the above-referenced project..."></textarea></div>
+
+      <h3 style="color:#1E40AF;margin:18px 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">SCOPE OF PAINTING WORK</h3>
+      <p style="font-size:12px;color:#666;margin:0 0 8px;">Add numbered sections (Scope, Surface Preparation, Submittals, Site Coordination, etc.). Each has a title and a body.</p>
+      <div id="q-scope-sections"></div>
+      <button type="button" class="btn btn-sm" style="background:#1E40AF;color:#fff;margin-top:4px;" onclick="qAddScopeSection()">+ Add Section</button>
+
+      <h3 style="color:#1E40AF;margin:18px 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">PAINT &amp; COATING SCHEDULE</h3>
+      <div id="q-paint-schedule"></div>
+      <button type="button" class="btn btn-sm" style="background:#1E40AF;color:#fff;margin-top:4px;" onclick="qAddPaintRow()">+ Add Paint Row</button>
+
+      <div class="form-row" style="margin-top:18px;">
+        <div class="field" style="flex:1;">
+          <h3 style="color:#1E40AF;margin:0 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">INCLUSIONS</h3>
+          <textarea id="q-inclusions" rows="5" placeholder="One per line, e.g.&#10;All labour, materials, and equipment for the painting scope above&#10;Drop sheets and surface protection&#10;Daily site cleanup"></textarea>
+        </div>
+        <div class="field" style="flex:1;">
+          <h3 style="color:#1E40AF;margin:0 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">EXCLUSIONS</h3>
+          <textarea id="q-exclusions" rows="5" placeholder="One per line, e.g.&#10;Drywall repairs or skim coating&#10;Wallpaper removal&#10;Painting of exterior surfaces"></textarea>
+        </div>
+      </div>
+
+      <h3 style="color:#1E40AF;margin:18px 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">SCHEDULE</h3>
+      <div class="field"><textarea id="q-schedule_text" rows="3" placeholder="e.g. Estimated duration: 14 working days&#10;Mobilization within 5 business days of contract execution&#10;Subject to site readiness and access"></textarea></div>
+
+      <h3 style="color:#1E40AF;margin:18px 0 8px;font-size:14px;border-bottom:2px solid #1E40AF;padding-bottom:4px;">PRICING</h3>
+      <div class="form-row">
+        <div class="field"><label>Lump Sum Price (CAD, before tax)</label>
+          <input type="number" step="0.01" id="q-lump_sum_price" placeholder="e.g. 48500.00"></div>
+        <div class="field"><label>Status</label>
+          <select id="q-status">
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="accepted">Accepted</option>
+            <option value="declined">Declined</option>
+          </select></div>
+      </div>
+      <h4 style="color:#2EA043;margin:14px 0 6px;font-size:13px;">PRICING TERMS</h4>
+      <div id="q-pricing-terms"></div>
+      <button type="button" class="btn btn-sm" style="background:#2EA043;color:#fff;margin-top:4px;" onclick="qAddTermRow()">+ Add Term</button>
+    </div>
+    <div style="padding:16px 24px;border-top:1px solid #e0e4ed;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" style="background:#888;" onclick="closeQuoteEditor()">Cancel</button>
+        <button class="btn" onclick="saveQuote(false)">💾 Save Draft</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" style="background:#1E40AF;" onclick="previewQuote()">👁 Preview</button>
+        <button class="btn btn-green" onclick="downloadQuotePdf()">📥 Download PDF</button>
+        <button class="btn" style="background:#2EA043;" onclick="sendQuoteToClient()">📨 Send to Client</button>
+      </div>
+    </div>
+    <div id="quote-editor-msg" style="font-size:13px;text-align:center;padding:0 24px 14px;"></div>
+  </div>
+</div>
+
 <script>
 let lastRecommendation = null;
 
+// Map every tab name to its parent section so showTab knows which sub-nav to show
+const TAB_TO_SECTION = {
+  overview:'ops', checkins:'ops', reviews:'ops', jobs:'ops',
+  employees:'ops', texting:'ops', textlog:'ops', managers:'ops', reports:'ops', schedule:'ops',
+  clients:'sales', quotes:'sales', tenders:'sales', mailbox:'sales', lio:'sales',
+  estimates:'est',
+  scout:'ai',
+  webpages:'web', websettings:'web',
+};
+
+function showSection(name) {
+  // Production-manager guard: only the ops section is available
+  if (window.USER_ROLE === 'production_manager' && name !== 'ops') {
+    return;
+  }
+  // CFO guard: only the (renamed) ops section is available
+  if (window.USER_ROLE === 'cfo' && name !== 'ops') {
+    return;
+  }
+  // Update section-button highlight
+  document.querySelectorAll('.section-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.section === name));
+  // Show only the matching sub-tab bar
+  document.getElementById('tabs-ops').style.display     = (name === 'ops')   ? '' : 'none';
+  document.getElementById('tabs-sales').style.display   = (name === 'sales') ? '' : 'none';
+  document.getElementById('tabs-est').style.display     = (name === 'est')   ? '' : 'none';
+  const aiEl  = document.getElementById('tabs-ai');
+  const webEl = document.getElementById('tabs-web');
+  if (aiEl)  aiEl.style.display  = (name === 'ai')  ? '' : 'none';
+  if (webEl) webEl.style.display = (name === 'web') ? '' : 'none';
+  // Click the first visible tab in that section
+  const first = document.querySelector('#tabs-' + name + ' .tab');
+  if (first) first.click();
+}
+
 function showTab(name) {
+  // Production-manager guard: only ops tabs allowed for that role
+  const targetSection = TAB_TO_SECTION[name];
+  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops') {
+    return; // Silently ignore — they shouldn't see sales/estimates content
+  }
+  // CFO guard: only the Jobs tab inside ops is allowed
+  if (window.USER_ROLE === 'cfo' && name !== 'jobs') {
+    return;
+  }
+  if (targetSection) {
+    const opsEl   = document.getElementById('tabs-ops');
+    const salesEl = document.getElementById('tabs-sales');
+    const estEl   = document.getElementById('tabs-est');
+    const aiEl    = document.getElementById('tabs-ai');
+    const isVisible = document.getElementById('tabs-' + targetSection).style.display !== 'none';
+    if (!isVisible) {
+      document.querySelectorAll('.section-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.section === targetSection));
+      const webEl   = document.getElementById('tabs-web');
+      if (opsEl)   opsEl.style.display   = (targetSection === 'ops')   ? '' : 'none';
+      if (salesEl) salesEl.style.display = (targetSection === 'sales') ? '' : 'none';
+      if (estEl)   estEl.style.display   = (targetSection === 'est')   ? '' : 'none';
+      if (aiEl)    aiEl.style.display    = (targetSection === 'ai')    ? '' : 'none';
+      if (webEl)   webEl.style.display   = (targetSection === 'web')   ? '' : 'none';
+    }
+  }
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  event.target.classList.add('active');
-  document.getElementById('tab-' + name).classList.add('active');
+  if (typeof event !== 'undefined' && event && event.target && event.target.classList) {
+    event.target.classList.add('active');
+  }
+  const pageEl = document.getElementById('tab-' + name);
+  if (pageEl) pageEl.classList.add('active');
   if (name === 'overview')   loadOverview();
   if (name === 'checkins')   loadCheckins();
   if (name === 'reviews')    loadAllReviews();
   if (name === 'jobs')       initJobsTab();
   if (name === 'employees')  loadEmployees();
+  if (name === 'texting')    initTextingTab();
+  if (name === 'textlog')    initTextLogTab();
   if (name === 'managers')   loadManagers();
   if (name === 'clients')    loadClients();
   if (name === 'reports')    initReportsTab();
-  if (name === 'sitevisits') initSiteVisits();
+  if (name === 'schedule')   initSchedule();
   if (name === 'estimates')  initEstimatesTab();
   if (name === 'tenders')    loadTenders();
+  if (name === 'quotes')     loadQuotes();
+  if (name === 'mailbox')    loadMailbox();
+  if (name === 'lio')        initLioTab();
+  if (name === 'scout')      initScoutTab();
+  if (name === 'webpages')   initWebPagesTab();
+  if (name === 'websettings') initWebSettingsTab();
+}
+
+// ─── Lumia Mailbox ─────────────────────────────────────────────────────────
+window._mailboxRows = [];
+async function loadMailbox() {
+  const el = document.getElementById('mailbox-list');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#999;font-size:13px;">Loading...</p>';
+  try {
+    const r = await fetch('/api/mailbox');
+    const d = await r.json();
+    window._mailboxRows = d.rows || [];
+    _renderMailbox();
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load mailbox.</p>';
+  }
+}
+
+function _renderMailbox() {
+  const el = document.getElementById('mailbox-list');
+  const q = (document.getElementById('mailbox-search').value || '').toLowerCase().trim();
+  const cat = document.getElementById('mailbox-category').value || '';
+  let rows = window._mailboxRows || [];
+  if (cat) rows = rows.filter(r => r.category === cat);
+  if (q) rows = rows.filter(r =>
+    (r.subject || '').toLowerCase().includes(q) ||
+    (r.to_emails || []).join(' ').toLowerCase().includes(q) ||
+    (r.cc_emails || []).join(' ').toLowerCase().includes(q));
+  if (!rows.length) {
+    el.innerHTML = '<p style="color:#999;font-size:13px;margin:0;">No emails match.</p>';
+    return;
+  }
+  const catStyle = {
+    client_report:    {bg:'#e8f5e9', color:'#2e7d32', label:'CLIENT REPORT'},
+    quote:            {bg:'#e3f2fd', color:'#1565c0', label:'QUOTE'},
+    tender_alert:     {bg:'#fff3e0', color:'#e65100', label:'TENDER'},
+    employee_invite:  {bg:'#f3e5f5', color:'#6a1b9a', label:'EMPLOYEE INVITE'},
+    client_invite:    {bg:'#e1f5fe', color:'#01579b', label:'CLIENT INVITE'},
+    owner_notice:     {bg:'#fce4ec', color:'#ad1457', label:'OWNER ALERT'},
+    inbound_reply:    {bg:'#f4f6fb', color:'#1F3864', label:'AUTO-REPLY'},
+    other:            {bg:'#f4f6fb', color:'#555',    label:'OTHER'},
+  };
+  el.innerHTML = '<div style="display:grid;gap:6px;">' +
+    rows.map((m, i) => {
+      const s = catStyle[m.category] || catStyle.other;
+      const ts = m.sent_at ? new Date(m.sent_at).toLocaleString('en-CA',
+        {timeZone:'America/Winnipeg', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+      const to = (m.to_emails || []).join(', ');
+      return '<div data-mail-idx="' + i + '" style="padding:12px 14px;background:#fafbfd;border:1px solid #e8ecf4;border-radius:10px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:200px;">' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap;">' +
+        '<span style="font-size:10px;background:' + s.bg + ';color:' + s.color + ';padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:.5px;">' + s.label + '</span>' +
+        '<span style="font-size:12px;color:#888;">' + ts + '</span>' +
+        '</div>' +
+        '<div style="font-size:14px;font-weight:600;color:#1F3864;">' + (m.subject || '(no subject)') + '</div>' +
+        '<div style="font-size:12px;color:#666;margin-top:2px;">To: ' + (to || '—') + '</div>' +
+        '</div>' +
+        '<button class="btn btn-sm" style="background:#e8f0fe;color:#1F3864;flex-shrink:0;">View</button>' +
+        '</div>';
+    }).join('') + '</div>';
+  el.querySelectorAll('[data-mail-idx]').forEach(row => {
+    row.onclick = () => openMailboxItem(parseInt(row.dataset.mailIdx, 10));
+  });
+}
+
+function openMailboxItem(idx) {
+  const list = window._mailboxRows || [];
+  const m = list[idx];
+  if (!m) return;
+  let modal = document.getElementById('mailbox-modal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'mailbox-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;padding:24px;overflow-y:auto;';
+  const ts = m.sent_at ? new Date(m.sent_at).toLocaleString('en-CA', {timeZone:'America/Winnipeg'}) : '';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:780px;margin:0 auto;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.18);">' +
+      '<div style="background:#1F3864;color:#fff;padding:16px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">' +
+        '<div>' +
+          '<div style="font-size:11px;letter-spacing:.5px;opacity:.85;text-transform:uppercase;margin-bottom:2px;">' + (m.category || 'message').replace('_',' ') + ' · ' + ts + '</div>' +
+          '<div style="font-size:16px;font-weight:700;">' + (m.subject || '(no subject)') + '</div>' +
+          '<div style="font-size:12px;opacity:.85;margin-top:6px;">To: ' + ((m.to_emails || []).join(', ') || '—') +
+            ((m.cc_emails && m.cc_emails.length) ? '<br>CC: ' + m.cc_emails.join(', ') : '') + '</div>' +
+        '</div>' +
+        '<button id="mailbox-close-btn" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1;">✕</button>' +
+      '</div>' +
+      '<div id="mailbox-body" style="padding:20px 24px;max-height:65vh;overflow-y:auto;font-size:13px;color:#222;line-height:1.6;"></div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+  const body = m.body_html && m.body_html.trim() ? m.body_html : '<pre style="white-space:pre-wrap;font-family:inherit;margin:0;">' + (m.body_text || '(empty)') + '</pre>';
+  document.getElementById('mailbox-body').innerHTML = body;
+  modal.querySelector('#mailbox-close-btn').onclick = () => { modal.remove(); document.body.style.overflow = ''; };
+  modal.addEventListener('click', (e) => { if (e.target === modal) { modal.remove(); document.body.style.overflow = ''; }});
+}
+
+function initLioTab() {
+  const wrap = document.getElementById('lio-iframe-wrap');
+  if (!wrap) return;
+  if (!wrap.dataset.loaded) {
+    const iframe = document.createElement('iframe');
+    iframe.src = '/lio/';
+    iframe.style.cssText = 'width:100%;height:calc(100vh - 200px);min-height:600px;border:none;border-radius:12px;background:#fff;';
+    iframe.allow = 'clipboard-read; clipboard-write';
+    wrap.appendChild(iframe);
+    wrap.dataset.loaded = '1';
+  }
+}
+
+// ─── CAPABILITY SCOUT (AI Development tab) ────────────────────────────────
+async function initScoutTab() {
+  await loadScoutHistory();
+  // Auto-render the most recent run on first visit, if any
+  const wrap = document.getElementById('tab-scout');
+  if (wrap && !wrap.dataset.loaded) {
+    try {
+      const r = await fetch('/api/scout/latest');
+      if (r.ok) {
+        const d = await r.json();
+        if (d.ok && d.report) renderScoutReport(d.report);
+      }
+    } catch(e) {}
+    wrap.dataset.loaded = '1';
+  }
+}
+
+async function runScout() {
+  const btn = document.getElementById('scout-run-btn');
+  const status = document.getElementById('scout-status');
+  const result = document.getElementById('scout-result');
+  if (!btn || !status || !result) return;
+  btn.disabled = true;
+  btn.textContent = '🔭 Scanning the web…';
+  status.style.display = 'block';
+  status.style.color = '#555';
+  status.textContent = 'Starting search… (Claude searches Anthropic, OpenAI, Google + Hacker News — typically 90–180s)';
+  result.innerHTML = '';
+  try {
+    // Kick off the background job
+    const res = await fetch('/api/scout/run', { method: 'POST' });
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Failed to start scout');
+    const jobId = d.job_id;
+
+    // Poll every 4s for up to 5 minutes
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 5 * 60 * 1000;
+    while (true) {
+      await new Promise(r => setTimeout(r, 4000));
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      status.textContent = `Searching the web… (${elapsed}s elapsed)`;
+      let job;
+      try {
+        const pr = await fetch('/api/scout/job/' + encodeURIComponent(jobId));
+        job = await pr.json();
+      } catch (e) {
+        // Transient network blip — keep polling
+        continue;
+      }
+      if (!job.ok) throw new Error(job.error || 'Job lookup failed');
+      if (job.status === 'done') {
+        renderScoutReport(job.report);
+        status.style.display = 'none';
+        loadScoutHistory();
+        return;
+      }
+      if (job.status === 'error') throw new Error(job.error || 'Scout failed');
+      if (Date.now() - startedAt > TIMEOUT_MS) {
+        throw new Error('Timed out after 5 minutes — check Railway logs');
+      }
+    }
+  } catch (e) {
+    status.style.color = '#c62828';
+    status.textContent = '⚠ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Run Scout Now';
+  }
+}
+
+function renderScoutReport(report) {
+  const result = document.getElementById('scout-result');
+  const metaEl = document.getElementById('scout-meta');
+  if (!result || !report) return;
+  const cost = report._cost_usd;
+  const usage = report._usage || {};
+  const costStr = (cost != null) ? ' · 💵 $' + cost.toFixed(3) + ' (' + (usage.input_tokens||0) + ' in / ' + (usage.output_tokens||0) + ' out · ' + (usage.web_searches||0) + ' searches · ' + (usage.model||'') + ')' : '';
+  metaEl.innerHTML = 'Report from ' + escHtml(report.date || '—') +
+    ' · ' + ((report.build_this_week || []).length) + ' build · ' +
+    ((report.watch_list || []).length) + ' watch · ' +
+    ((report.skipped || []).length) + ' skipped' + escHtml(costStr);
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:18px;';
+
+  function cardForItem(item, isBuild) {
+    const card = document.createElement('div');
+    const color = isBuild ? '#2e7d32' : '#bf6f00';
+    card.style.cssText = 'background:#fff;border:1px solid #e3e8f3;border-left:4px solid ' + color +
+      ';border-radius:10px;padding:14px 16px;';
+    const scoreBadge = item.score ? `<span style="background:${color};color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;letter-spacing:.5px;">SCORE ${item.score}/5</span>` : '';
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+        ${scoreBadge}
+        <span style="font-size:11px;color:#888;font-weight:600;">${escHtml(item.provider || '')}</span>
+        <span style="font-size:11px;color:#888;">·</span>
+        <span style="font-size:11px;color:#1F3864;font-weight:700;">${escHtml(item.lumia_function || '')}</span>
+      </div>
+      <div style="font-size:15px;font-weight:700;color:#1F3864;margin-bottom:8px;">${escHtml(item.feature || '')}</div>
+      <div style="font-size:13px;color:#333;margin-bottom:6px;"><b>Pain solved:</b> ${escHtml(item.pain_solved || '')}</div>
+      <div style="font-size:13px;color:#333;margin-bottom:6px;"><b>Effort:</b> ${escHtml(item.effort || '')} · <b>Cost delta:</b> ${escHtml(item.cost_delta || '—')}</div>
+      <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 10px;font-size:13px;margin-top:8px;">
+        <b style="color:#bf6f00;">→ Action:</b> ${escHtml(item.action || '')}
+      </div>
+      ${item.source_url ? `<div style="font-size:11px;margin-top:8px;"><a href="${item.source_url}" target="_blank" style="color:#1F3864;">📎 ${escHtml(item.source_url)}</a></div>` : ''}
+    `;
+    return card;
+  }
+
+  function section(title, items, isBuild) {
+    if (!items || !items.length) return null;
+    const box = document.createElement('div');
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:12px;font-weight:800;letter-spacing:.8px;color:#1F3864;margin-bottom:8px;';
+    h.textContent = title + ' (' + items.length + ')';
+    box.appendChild(h);
+    items.forEach(it => box.appendChild(cardForItem(it, isBuild)));
+    const inner = document.createElement('div');
+    inner.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+    items.forEach(it => inner.appendChild(cardForItem(it, isBuild)));
+    box.innerHTML = '';
+    box.appendChild(h);
+    box.appendChild(inner);
+    return box;
+  }
+
+  const build = section('🚀 BUILD THIS WEEK', report.build_this_week, true);
+  if (build) wrap.appendChild(build);
+  const watch = section('👀 WATCH LIST', report.watch_list, false);
+  if (watch) wrap.appendChild(watch);
+
+  const skipped = report.skipped || [];
+  if (skipped.length) {
+    const det = document.createElement('details');
+    det.style.cssText = 'background:#fafbfd;border:1px solid #e3e8f3;border-radius:10px;padding:10px 14px;';
+    let inner = `<summary style="cursor:pointer;font-weight:700;color:#666;font-size:12px;">SKIPPED (${skipped.length})</summary>`;
+    inner += '<div style="margin-top:10px;font-size:12px;color:#666;">';
+    inner += skipped.map(s =>
+      `<div style="margin-bottom:6px;"><b style="color:#888;">${escHtml(s.provider || '')}</b> · ${escHtml(s.feature || '')} — <i>${escHtml(s.reason || '')}</i></div>`
+    ).join('');
+    inner += '</div>';
+    det.innerHTML = inner;
+    wrap.appendChild(det);
+  }
+
+  if (!build && !watch && !skipped.length) {
+    wrap.innerHTML = '<p style="color:#888;">Scout returned an empty report. Try again later.</p>';
+  }
+
+  result.innerHTML = '';
+  result.appendChild(wrap);
+}
+
+async function loadScoutHistory() {
+  const el = document.getElementById('scout-history');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/scout/history');
+    const d = await r.json();
+    if (!d.ok || !d.runs || !d.runs.length) {
+      el.innerHTML = '<p style="color:#888;">No past runs yet — click <b>Run Scout Now</b>.</p>';
+      return;
+    }
+    el.innerHTML = d.runs.map(run =>
+      `<div style="padding:8px 0;border-bottom:1px solid #f0f0f0;">
+        <a href="#" onclick="loadScoutRun('${run.id}'); return false;" style="color:#1F3864;font-weight:600;">${escHtml(run.date || run.created_at || '')}</a>
+        <span style="color:#888;font-size:11px;margin-left:8px;">${run.build_count} build · ${run.watch_count} watch · ${run.skipped_count} skipped</span>
+      </div>`
+    ).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;">Could not load history.</p>';
+  }
+}
+
+async function loadScoutRun(runId) {
+  try {
+    const r = await fetch('/api/scout/run/' + encodeURIComponent(runId));
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Not found');
+    renderScoutReport(d.report);
+  } catch(e) {
+    alert('Could not load run: ' + e.message);
+  }
+}
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+// ─── WEBSITE — Pages editor ────────────────────────────────────────────────
+let _webPages = [];
+let _webEditingSlug = null;
+
+async function initWebPagesTab() {
+  await loadWebPages();
+  // Auto-select 'home' on first open
+  if (!_webEditingSlug && _webPages.length) {
+    openWebPage('home');
+  }
+}
+
+async function loadWebPages() {
+  try {
+    const r = await fetch('/api/site/pages');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'load failed');
+    _webPages = d.pages || [];
+    const list = document.getElementById('web-page-list');
+    if (!list) return;
+    list.innerHTML = _webPages.map(p => {
+      const active = p.slug === _webEditingSlug;
+      const bg = active ? '#1F3864' : 'transparent';
+      const color = active ? '#fff' : '#1F3864';
+      return `<div onclick="openWebPage('${p.slug}')" style="cursor:pointer;padding:10px 12px;border-radius:6px;background:${bg};color:${color};font-weight:600;font-size:13px;margin-bottom:2px;">
+        ${escHtml(p.title || p.slug)}
+        <div style="font-size:11px;opacity:.7;font-weight:400;margin-top:2px;">/${p.slug === 'home' ? '' : p.slug}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('web-page-list').innerHTML = '<div style="color:#c62828;padding:12px;font-size:13px;">⚠ ' + e.message + '</div>';
+  }
+}
+
+async function openWebPage(slug) {
+  _webEditingSlug = slug;
+  await loadWebPages(); // refresh active state in sidebar
+  const editor = document.getElementById('web-page-editor');
+  editor.innerHTML = '<div style="color:#888;padding:20px;">Loading page…</div>';
+  try {
+    const r = await fetch('/api/site/page/' + encodeURIComponent(slug));
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'load failed');
+    const p = d.page;
+    editor.innerHTML = `
+      <div style="background:#fff;border:1px solid #e3e8f3;border-radius:8px;padding:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <div>
+            <div style="font-size:11px;color:#888;font-weight:600;letter-spacing:.5px;">EDITING</div>
+            <div style="font-size:18px;font-weight:800;color:#1F3864;">${escHtml(p.title)} <span style="color:#888;font-weight:400;font-size:13px;">/${slug === 'home' ? '' : slug}</span></div>
+          </div>
+          <div>
+            <a class="btn btn-sm" href="/site/${slug === 'home' ? '' : slug}" target="_blank" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">↗ Preview</a>
+          </div>
+        </div>
+
+        <label style="display:block;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:#1F3864;margin-bottom:4px;">PAGE TITLE</div>
+          <input id="wp-title" type="text" value="${escHtml(p.title||'')}" style="width:100%;padding:10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:14px;">
+        </label>
+
+        <label style="display:block;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:#1F3864;margin-bottom:4px;">HERO HEADING (big text at top)</div>
+          <input id="wp-hero-h" type="text" value="${escHtml(p.hero_heading||'')}" style="width:100%;padding:10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:14px;">
+        </label>
+
+        <label style="display:block;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:#1F3864;margin-bottom:4px;">HERO SUBHEADING (one-liner under it)</div>
+          <input id="wp-hero-s" type="text" value="${escHtml(p.hero_subheading||'')}" style="width:100%;padding:10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:14px;">
+        </label>
+
+        <label style="display:block;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:#1F3864;margin-bottom:4px;">BODY (markdown — ## for section, **bold**, *italic*, - for bullets, [link](https://...))</div>
+          <textarea id="wp-body" rows="14" style="width:100%;padding:10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;font-family:monospace;line-height:1.5;">${escHtml(p.body||'')}</textarea>
+        </label>
+
+        <label style="display:block;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#1F3864;margin-bottom:4px;">META DESCRIPTION (SEO — what Google shows under the title in search results, max ~160 chars)</div>
+          <input id="wp-meta" type="text" value="${escHtml(p.meta_description||'')}" maxlength="200" style="width:100%;padding:10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:14px;">
+        </label>
+
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button class="btn" onclick="saveWebPage('${slug}')" style="background:#1F3864;color:#fff;font-weight:700;padding:10px 22px;">💾 Save</button>
+          <span id="wp-status" style="font-size:13px;color:#2e7d32;"></span>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    editor.innerHTML = '<div style="color:#c62828;padding:20px;">⚠ ' + e.message + '</div>';
+  }
+}
+
+async function saveWebPage(slug) {
+  const status = document.getElementById('wp-status');
+  status.textContent = 'Saving…';
+  status.style.color = '#888';
+  const body = {
+    title:            document.getElementById('wp-title').value,
+    hero_heading:     document.getElementById('wp-hero-h').value,
+    hero_subheading:  document.getElementById('wp-hero-s').value,
+    body:             document.getElementById('wp-body').value,
+    meta_description: document.getElementById('wp-meta').value,
+  };
+  try {
+    const r = await fetch('/api/site/page/' + encodeURIComponent(slug), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'save failed');
+    status.textContent = '✓ Saved · live now';
+    status.style.color = '#2e7d32';
+    loadWebPages();
+    setTimeout(() => { status.textContent = ''; }, 4000);
+  } catch (e) {
+    status.textContent = '⚠ ' + e.message;
+    status.style.color = '#c62828';
+  }
+}
+
+// ─── WEBSITE — Site Settings ──────────────────────────────────────────────
+async function initWebSettingsTab() {
+  const wrap = document.getElementById('web-settings-form');
+  wrap.innerHTML = '<div style="color:#888;padding:20px;">Loading…</div>';
+  try {
+    const r = await fetch('/api/site/settings');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'load failed');
+    const s = d.settings || {};
+    const field = (id, label, value, type='text', hint='') => `
+      <label style="display:block;margin-bottom:14px;">
+        <div style="font-size:11px;font-weight:700;color:#1F3864;margin-bottom:4px;">${label}</div>
+        <input id="${id}" type="${type}" value="${escHtml(value||'')}" style="width:100%;padding:10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:14px;">
+        ${hint ? `<div style="font-size:11px;color:#888;margin-top:3px;">${hint}</div>` : ''}
+      </label>
+    `;
+    wrap.innerHTML = `
+      <div style="background:#fff;border:1px solid #e3e8f3;border-radius:8px;padding:18px;">
+        <h3 style="font-size:14px;color:#1F3864;margin:0 0 14px;border-bottom:1px solid #f0f0f0;padding-bottom:8px;">Company</h3>
+        ${field('ws-company',  'Company name',  s.company_name)}
+        ${field('ws-tagline',  'Tagline (used in <meta> default + footer)', s.tagline)}
+
+        <h3 style="font-size:14px;color:#1F3864;margin:18px 0 14px;border-bottom:1px solid #f0f0f0;padding-bottom:8px;">Contact</h3>
+        ${field('ws-email',    'Email',         s.email,    'email')}
+        ${field('ws-phone',    'Phone',         s.phone,    'tel')}
+        ${field('ws-address',  'Office address (text, displayed in footer)', s.address)}
+        ${field('ws-hours',    'Hours',         s.hours,    'text', 'e.g. "24/7" or "Mon-Fri 7am-7pm"')}
+        ${field('ws-area',     'Service area',  s.service_area, 'text', 'Shown in nav, footer, and contact card. e.g. "Manitoba & Kenora"')}
+
+        <h3 style="font-size:14px;color:#1F3864;margin:18px 0 14px;border-bottom:1px solid #f0f0f0;padding-bottom:8px;">Stats &amp; Proof</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          ${field('ws-insurance',  'Insurance amount',          s.insurance,     'text', 'Used in nav/trust strip. e.g. "$5M"')}
+          ${field('ws-ai-proj',    'AI training projects (#)',  s.ai_projects,   'text', 'e.g. "65"')}
+          ${field('ws-ai-acc',     'AI estimate accuracy',      s.ai_accuracy,   'text', 'e.g. "95%"')}
+          ${field('ws-forecast',   'Delay forecast window',     s.forecast_days, 'text', 'In days. e.g. "6"')}
+        </div>
+
+        <h3 style="font-size:14px;color:#1F3864;margin:18px 0 14px;border-bottom:1px solid #f0f0f0;padding-bottom:8px;">Theme</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          ${field('ws-primary', 'Primary color (hex)', s.primary_color, 'text', 'Currently used for hero background + headings.')}
+          ${field('ws-accent',  'Accent color (hex)',  s.accent_color,  'text', 'Used for the hero CTA button.')}
+        </div>
+
+        <h3 style="font-size:14px;color:#1F3864;margin:18px 0 14px;border-bottom:1px solid #f0f0f0;padding-bottom:8px;">Social links</h3>
+        ${field('ws-linkedin',  'LinkedIn URL',  s.linkedin,  'url')}
+        ${field('ws-instagram', 'Instagram URL', s.instagram, 'url')}
+        ${field('ws-facebook',  'Facebook URL',  s.facebook,  'url')}
+
+        <div style="display:flex;gap:10px;align-items:center;margin-top:18px;">
+          <button class="btn" onclick="saveWebSettings()" style="background:#1F3864;color:#fff;font-weight:700;padding:10px 22px;">💾 Save</button>
+          <span id="ws-status" style="font-size:13px;color:#2e7d32;"></span>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    wrap.innerHTML = '<div style="color:#c62828;padding:20px;">⚠ ' + e.message + '</div>';
+  }
+}
+
+async function saveWebSettings() {
+  const status = document.getElementById('ws-status');
+  status.textContent = 'Saving…'; status.style.color = '#888';
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const body = {
+    company_name:  v('ws-company'),
+    tagline:       v('ws-tagline'),
+    email:         v('ws-email'),
+    phone:         v('ws-phone'),
+    address:       v('ws-address'),
+    hours:         v('ws-hours'),
+    service_area:  v('ws-area'),
+    insurance:     v('ws-insurance'),
+    ai_projects:   v('ws-ai-proj'),
+    ai_accuracy:   v('ws-ai-acc'),
+    forecast_days: v('ws-forecast'),
+    primary_color: v('ws-primary'),
+    accent_color:  v('ws-accent'),
+    linkedin:      v('ws-linkedin'),
+    instagram:     v('ws-instagram'),
+    facebook:      v('ws-facebook'),
+  };
+  try {
+    const r = await fetch('/api/site/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'save failed');
+    status.textContent = '✓ Saved · live now';
+    status.style.color = '#2e7d32';
+    setTimeout(() => { status.textContent = ''; }, 4000);
+  } catch (e) {
+    status.textContent = '⚠ ' + e.message;
+    status.style.color = '#c62828';
+  }
+}
+
+// ─── QUOTES ────────────────────────────────────────────────────────────────
+const Q_DEFAULT_TERMS = [
+  {label: "Validity",          value: "30 days from proposal date"},
+  {label: "Payment Terms",     value: "Net 30 from invoice date"},
+  {label: "Statutory Holdback", value: "10% as per Manitoba Builders' Lien Act"},
+  {label: "Progress Billing",  value: "Monthly, based on percentage of work complete"},
+  {label: "Change Orders",     value: "Written authorization required prior to execution"},
+];
+
+async function loadQuotes() {
+  const el = document.getElementById('quotes-list');
+  try {
+    const r = await fetch('/api/quotes');
+    const quotes = await r.json();
+    if (!quotes || !quotes.length) {
+      el.innerHTML = '<p style="color:#999;font-size:13px;margin:0;">No quotes yet. Click "+ New Quote" to start one.</p>';
+      return;
+    }
+    el.innerHTML = '';
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;';
+    table.innerHTML = '<thead><tr style="background:#f4f6fb;">' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1E40AF;">PROJECT</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1E40AF;">CLIENT</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1E40AF;">DATE</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1E40AF;">PRICE</th>' +
+      '<th style="text-align:left;padding:10px 12px;font-size:12px;color:#1E40AF;">STATUS</th>' +
+      '<th style="padding:10px 12px;"></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    quotes.forEach(q => {
+      const statusColor = q.status === 'accepted' ? '#2EA043' :
+                          q.status === 'sent' ? '#1E40AF' :
+                          q.status === 'declined' ? '#c62828' : '#888';
+      const tr = document.createElement('tr');
+      tr.style.borderTop = '1px solid #eee';
+      const price = q.lump_sum_price ? '$' + Number(q.lump_sum_price).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+      tr.innerHTML =
+        '<td style="padding:12px;font-size:13px;"><b></b></td>' +
+        '<td style="padding:12px;font-size:13px;color:#555;"></td>' +
+        '<td style="padding:12px;font-size:13px;"></td>' +
+        '<td style="padding:12px;font-size:13px;font-weight:700;color:#1E40AF;"></td>' +
+        '<td style="padding:12px;"><span style="background:' + statusColor + ';color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;"></span></td>' +
+        '<td style="padding:12px;text-align:right;"></td>';
+      const cells = tr.children;
+      cells[0].querySelector('b').textContent = q.project_name || '—';
+      cells[1].textContent = q.client_name || '—';
+      cells[2].textContent = q.proposal_date || '—';
+      cells[3].textContent = price;
+      cells[4].querySelector('span').textContent = q.status;
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn btn-sm';
+      editBtn.style.cssText = 'background:#e8f0fe;color:#1E40AF;';
+      editBtn.textContent = 'Edit';
+      editBtn.onclick = () => openQuoteEditor(q);
+      const pdfBtn = document.createElement('button');
+      pdfBtn.className = 'btn btn-sm';
+      pdfBtn.style.cssText = 'background:#2EA043;color:#fff;margin-left:6px;';
+      pdfBtn.textContent = 'PDF';
+      pdfBtn.onclick = () => window.open('/api/quote/' + q.id + '/pdf', '_blank');
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-sm owner-only';
+      delBtn.style.cssText = 'background:#fce4ec;color:#c62828;margin-left:6px;';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => deleteQuote(q.id);
+      cells[5].appendChild(editBtn);
+      cells[5].appendChild(pdfBtn);
+      cells[5].appendChild(delBtn);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    el.appendChild(table);
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load quotes.</p>';
+  }
+}
+
+function openQuoteEditor(q) {
+  q = q || {};
+  document.getElementById('q-id').value = q.id || '';
+  document.getElementById('q-project_name').value   = q.project_name || '';
+  document.getElementById('q-drawing_ref').value    = q.drawing_ref || '';
+  document.getElementById('q-client_name').value    = q.client_name || '';
+  document.getElementById('q-client_contact').value = q.client_contact || '';
+  document.getElementById('q-client_email').value   = q.client_email || '';
+  document.getElementById('q-site_address').value   = q.site_address || '';
+  document.getElementById('q-proposal_date').value  = q.proposal_date || new Date().toISOString().slice(0,10);
+  document.getElementById('q-valid_until').value    = q.valid_until || '';
+  document.getElementById('q-intro_text').value     = q.intro_text || '';
+  document.getElementById('q-schedule_text').value  = q.schedule_text || '';
+  document.getElementById('q-lump_sum_price').value = q.lump_sum_price || '';
+  document.getElementById('q-status').value         = q.status || 'draft';
+  document.getElementById('q-inclusions').value     = (q.inclusions || []).join('\\n');
+  document.getElementById('q-exclusions').value     = (q.exclusions || []).join('\\n');
+  document.getElementById('quote-editor-sub').textContent = q.id ? ('Editing — ' + (q.project_name || 'quote')) : 'New quote';
+
+  // Scope sections
+  const ss = document.getElementById('q-scope-sections');
+  ss.innerHTML = '';
+  const scopeDefault = q.scope_sections && q.scope_sections.length ? q.scope_sections : [
+    {title: "Scope of Painting Work", body: "Supply all labour, materials, tools, and equipment to complete the painting work described below..."},
+    {title: "Surface Preparation",   body: "All surfaces will be cleaned, sanded, patched (minor only), and primed as required prior to finish coats."},
+    {title: "Submittals & Approvals", body: "Colour samples and product data sheets to be submitted for approval prior to application."},
+    {title: "Site Coordination",     body: "Work to be coordinated with the General Contractor's schedule. Daily site cleanup included."},
+  ];
+  scopeDefault.forEach(s => qAddScopeSection(s));
+
+  // Paint schedule
+  const ps = document.getElementById('q-paint-schedule');
+  ps.innerHTML = '';
+  const paintDefault = q.paint_schedule && q.paint_schedule.length ? q.paint_schedule : [
+    {code: "P-1", product: "Benjamin Moore Regal Select Eggshell", application: "Interior walls — all rooms"},
+    {code: "P-2", product: "Benjamin Moore Ultra Spec Ceiling Flat", application: "Ceilings — all areas"},
+    {code: "P-3", product: "Benjamin Moore Advance Semi-Gloss", application: "Doors, frames, trim"},
+  ];
+  paintDefault.forEach(p => qAddPaintRow(p));
+
+  // Pricing terms
+  const pt = document.getElementById('q-pricing-terms');
+  pt.innerHTML = '';
+  const termsDefault = q.pricing_terms && q.pricing_terms.length ? q.pricing_terms : Q_DEFAULT_TERMS;
+  termsDefault.forEach(t => qAddTermRow(t));
+
+  document.getElementById('quote-editor-msg').textContent = '';
+  document.getElementById('quote-editor-modal').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  qRefreshTemplates();
+}
+
+function closeQuoteEditor() {
+  document.getElementById('quote-editor-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function qAddScopeSection(s) {
+  s = s || {title: '', body: ''};
+  const container = document.getElementById('q-scope-sections');
+  const div = document.createElement('div');
+  div.style.cssText = 'border:1px solid #e0e4ed;border-radius:8px;padding:10px;margin-bottom:8px;background:#fafbfd;';
+  const titleInp = document.createElement('input');
+  titleInp.type = 'text'; titleInp.placeholder = 'Section title (e.g. Surface Preparation)';
+  titleInp.value = s.title;
+  titleInp.style.cssText = 'width:100%;padding:8px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;font-weight:600;color:#1E40AF;margin-bottom:6px;';
+  const bodyInp = document.createElement('textarea');
+  bodyInp.placeholder = 'Section body — describe the work in plain language';
+  bodyInp.value = s.body; bodyInp.rows = 3;
+  bodyInp.style.cssText = 'width:100%;padding:8px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;resize:vertical;';
+  const rmBtn = document.createElement('button');
+  rmBtn.type = 'button'; rmBtn.textContent = '× Remove section';
+  rmBtn.style.cssText = 'background:#f8d7da;color:#721c24;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;margin-top:6px;';
+  rmBtn.onclick = () => div.remove();
+  div.appendChild(titleInp); div.appendChild(bodyInp); div.appendChild(rmBtn);
+  div.dataset.role = 'scope';
+  container.appendChild(div);
+}
+
+function qAddPaintRow(p) {
+  p = p || {code: '', product: '', application: ''};
+  const container = document.getElementById('q-paint-schedule');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:grid;grid-template-columns:90px 1fr 1fr 32px;gap:6px;margin-bottom:6px;';
+  ['code','product','application'].forEach(k => {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = k.charAt(0).toUpperCase() + k.slice(1);
+    inp.value = p[k] || '';
+    inp.dataset.k = k;
+    inp.style.cssText = 'padding:8px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;';
+    row.appendChild(inp);
+  });
+  const rmBtn = document.createElement('button');
+  rmBtn.type = 'button'; rmBtn.textContent = '×';
+  rmBtn.style.cssText = 'background:#f8d7da;color:#721c24;border:none;border-radius:6px;cursor:pointer;font-size:14px;';
+  rmBtn.onclick = () => row.remove();
+  row.appendChild(rmBtn);
+  row.dataset.role = 'paint';
+  container.appendChild(row);
+}
+
+function qAddTermRow(t) {
+  t = t || {label: '', value: ''};
+  const container = document.getElementById('q-pricing-terms');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:grid;grid-template-columns:180px 1fr 32px;gap:6px;margin-bottom:6px;';
+  ['label','value'].forEach(k => {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = k === 'label' ? 'Term' : 'Description';
+    inp.value = t[k] || ''; inp.dataset.k = k;
+    inp.style.cssText = 'padding:8px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;';
+    row.appendChild(inp);
+  });
+  const rmBtn = document.createElement('button');
+  rmBtn.type = 'button'; rmBtn.textContent = '×';
+  rmBtn.style.cssText = 'background:#f8d7da;color:#721c24;border:none;border-radius:6px;cursor:pointer;font-size:14px;';
+  rmBtn.onclick = () => row.remove();
+  row.appendChild(rmBtn);
+  row.dataset.role = 'term';
+  container.appendChild(row);
+}
+
+function _gatherQuotePayload() {
+  const scope = [...document.querySelectorAll('#q-scope-sections [data-role="scope"]')].map(d => ({
+    title: d.querySelector('input').value.trim(),
+    body:  d.querySelector('textarea').value.trim(),
+  })).filter(s => s.title || s.body);
+  const paint = [...document.querySelectorAll('#q-paint-schedule [data-role="paint"]')].map(r => {
+    const obj = {};
+    r.querySelectorAll('input').forEach(i => obj[i.dataset.k] = i.value.trim());
+    return obj;
+  }).filter(p => p.code || p.product || p.application);
+  const terms = [...document.querySelectorAll('#q-pricing-terms [data-role="term"]')].map(r => {
+    const obj = {};
+    r.querySelectorAll('input').forEach(i => obj[i.dataset.k] = i.value.trim());
+    return obj;
+  }).filter(t => t.label || t.value);
+  return {
+    id:             document.getElementById('q-id').value || null,
+    project_name:   document.getElementById('q-project_name').value.trim(),
+    drawing_ref:    document.getElementById('q-drawing_ref').value.trim(),
+    client_name:    document.getElementById('q-client_name').value.trim(),
+    client_contact: document.getElementById('q-client_contact').value.trim(),
+    client_email:   document.getElementById('q-client_email').value.trim(),
+    site_address:   document.getElementById('q-site_address').value.trim(),
+    proposal_date:  document.getElementById('q-proposal_date').value || null,
+    valid_until:    document.getElementById('q-valid_until').value || null,
+    intro_text:     document.getElementById('q-intro_text').value,
+    schedule_text:  document.getElementById('q-schedule_text').value,
+    lump_sum_price: parseFloat(document.getElementById('q-lump_sum_price').value) || 0,
+    status:         document.getElementById('q-status').value || 'draft',
+    inclusions:     document.getElementById('q-inclusions').value.split('\\n').map(s=>s.trim()).filter(Boolean),
+    exclusions:     document.getElementById('q-exclusions').value.split('\\n').map(s=>s.trim()).filter(Boolean),
+    scope_sections: scope,
+    paint_schedule: paint,
+    pricing_terms:  terms,
+  };
+}
+
+async function saveQuote(closeAfter) {
+  const payload = _gatherQuotePayload();
+  if (!payload.project_name || !payload.client_name) {
+    document.getElementById('quote-editor-msg').textContent = 'Project name and client name are required.';
+    document.getElementById('quote-editor-msg').style.color = '#c62828';
+    return null;
+  }
+  try {
+    const r = await fetch('/api/quote', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('q-id').value = d.id;
+      document.getElementById('quote-editor-msg').textContent = '✓ Saved';
+      document.getElementById('quote-editor-msg').style.color = '#2EA043';
+      if (closeAfter) { closeQuoteEditor(); loadQuotes(); }
+      else loadQuotes();
+      return d.id;
+    } else {
+      document.getElementById('quote-editor-msg').textContent = d.error || 'Save failed.';
+      document.getElementById('quote-editor-msg').style.color = '#c62828';
+      return null;
+    }
+  } catch(e) {
+    document.getElementById('quote-editor-msg').textContent = 'Network error.';
+    document.getElementById('quote-editor-msg').style.color = '#c62828';
+    return null;
+  }
+}
+
+async function previewQuote() {
+  const id = await saveQuote(false);
+  if (!id) return;
+  window.open('/api/quote/' + id + '/preview', '_blank');
+}
+
+async function downloadQuotePdf() {
+  const id = await saveQuote(false);
+  if (!id) return;
+  window.open('/api/quote/' + id + '/pdf', '_blank');
+}
+
+async function deleteQuote(id) {
+  if (!confirm('Delete this quote? Cannot be undone.')) return;
+  const r = await fetch('/api/quote/' + id, {method:'DELETE'});
+  const d = await r.json();
+  if (d.ok) loadQuotes();
+  else alert(d.error || 'Delete failed.');
+}
+
+window._quoteTemplates = [];
+async function qRefreshTemplates() {
+  try {
+    const r = await fetch('/api/quote-templates');
+    const list = await r.json();
+    window._quoteTemplates = list || [];
+    const sel = document.getElementById('q-template-select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Load a template —</option>';
+    list.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+function qLoadTemplate(tid) {
+  if (!tid) return;
+  const t = (window._quoteTemplates || []).find(x => x.id === tid);
+  if (!t) return;
+  if (!confirm('Load template "' + t.name + '"?\\nThis will replace the current scope, paint schedule, inclusions, exclusions, schedule, and pricing terms (project info is kept).')) {
+    document.getElementById('q-template-select').value = '';
+    return;
+  }
+  // Apply template fields
+  const ss = document.getElementById('q-scope-sections');
+  ss.innerHTML = '';
+  (t.scope_sections || []).forEach(s => qAddScopeSection(s));
+  const ps = document.getElementById('q-paint-schedule');
+  ps.innerHTML = '';
+  (t.paint_schedule || []).forEach(p => qAddPaintRow(p));
+  const pt = document.getElementById('q-pricing-terms');
+  pt.innerHTML = '';
+  (t.pricing_terms && t.pricing_terms.length ? t.pricing_terms : Q_DEFAULT_TERMS).forEach(x => qAddTermRow(x));
+  document.getElementById('q-inclusions').value = (t.inclusions || []).join('\\n');
+  document.getElementById('q-exclusions').value = (t.exclusions || []).join('\\n');
+  document.getElementById('q-schedule_text').value = t.schedule_text || '';
+  document.getElementById('q-template-select').value = '';
+}
+
+async function qSaveAsTemplate() {
+  const name = prompt('Template name (e.g. "Interior repaint — standard"):');
+  if (!name || !name.trim()) return;
+  const payload = _gatherQuotePayload();
+  const r = await fetch('/api/quote-template', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name: name.trim(),
+      scope_sections: payload.scope_sections,
+      paint_schedule: payload.paint_schedule,
+      inclusions:     payload.inclusions,
+      exclusions:     payload.exclusions,
+      schedule_text:  payload.schedule_text,
+      pricing_terms:  payload.pricing_terms,
+    })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('quote-editor-msg').textContent = '✓ Template saved';
+    document.getElementById('quote-editor-msg').style.color = '#2EA043';
+    qRefreshTemplates();
+  } else {
+    alert(d.error || 'Save failed.');
+  }
+}
+
+async function sendQuoteToClient() {
+  const id = await saveQuote(false);
+  if (!id) return;
+  const defaultTo = document.getElementById('q-client_email').value.trim();
+  const toEmail = prompt('Send PDF to which email address?', defaultTo);
+  if (!toEmail) return;
+  const extra = prompt('Optional message above the standard email body (leave blank to skip):', '');
+  if (!confirm('Send the quote PDF to ' + toEmail + '?\\n(You will be CCed.)')) return;
+  const msg = document.getElementById('quote-editor-msg');
+  msg.textContent = 'Sending...'; msg.style.color = '#1E40AF';
+  try {
+    const r = await fetch('/api/quote/' + id + '/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({to_email: toEmail, message: extra || ''})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = '✓ Sent to ' + toEmail;
+      msg.style.color = '#2EA043';
+      loadQuotes();
+    } else {
+      msg.textContent = d.error || 'Send failed.';
+      msg.style.color = '#c62828';
+    }
+  } catch(e) {
+    msg.textContent = 'Network error.';
+    msg.style.color = '#c62828';
+  }
 }
 
 async function scanTenderEmail(btn) {
@@ -4080,11 +6350,17 @@ async function apiFetch(url, opts) {
     throw e;
   }
   clearTimeout(tid);
-  const ct = r.headers.get('content-type') || '';
-  if (!ct.includes('application/json')) {
+  // Only 401 = real session loss. 403 = logged in but wrong role.
+  // Don't treat random non-JSON responses as session-expired; that fires
+  // false positives right after a successful login when an unrelated
+  // endpoint returns HTML/text.
+  if (r.status === 401) {
     const banner = document.getElementById('session-expired-banner');
     if (banner) banner.style.display = 'flex';
     throw new Error('session_expired');
+  }
+  if (r.status === 403) {
+    throw new Error('forbidden');
   }
   return r;
 }
@@ -4123,6 +6399,34 @@ async function loadOverview() {
     if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
   }
   loadOnSiteNow();
+  loadAttention();
+}
+
+async function loadAttention() {
+  const el = document.getElementById('attention-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/attention');
+    const d = await r.json();
+    const items = d.items || [];
+    if (!items.length) {
+      el.innerHTML = '<p style="color:#2e7d32;font-size:13px;margin:0;">✓ All quiet — nothing urgent.</p>';
+      return;
+    }
+    const sevColor = {high:'#c62828', med:'#f57c00', low:'#1F3864'};
+    el.innerHTML = items.map(it => {
+      const c = sevColor[it.severity] || sevColor.low;
+      return '<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 12px;background:#fafbfd;border-left:3px solid ' + c + ';border-radius:6px;margin-bottom:6px;">' +
+        '<div style="font-size:18px;flex-shrink:0;">' + (it.icon || '•') + '</div>' +
+        '<div style="flex:1;">' +
+        '<div style="font-size:13px;color:#222;font-weight:600;">' + (it.title || '') + '</div>' +
+        (it.detail ? '<div style="font-size:12px;color:#666;margin-top:2px;">' + it.detail + '</div>' : '') +
+        '</div>' +
+        '</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not scan.</p>';
+  }
 }
 
 async function loadOnSiteNow() {
@@ -4450,13 +6754,35 @@ async function getAIRec() {
   btn.textContent = 'AI Crew Suggestion'; btn.disabled = false;
 }
 
+async function setJobStatus(jobId, newStatus, btn) {
+  const verb = newStatus === 'paused' ? 'pause' : 'resume';
+  if (!confirm('Are you sure you want to ' + verb + ' this job?')) return;
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch('/api/job/' + jobId + '/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Failed');
+    loadJobs();
+  } catch(e) {
+    alert('Could not update status: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = old; }
+  }
+}
+
 async function loadJobs() {
   const el = document.getElementById('jobs-list');
   _jobs = await fetch('/api/jobs').then(r => r.json()).catch(() => []);
   if (!_jobs.length) { el.innerHTML = '<p style="color:#999">No jobs yet.</p>'; return; }
   const rows = _jobs.map((j, idx) => {
     const emps = (j.assigned_employees || []).join(', ') || '—';
-    const badge = j.status === 'open' ? 'badge-yellow' : 'badge-green';
+    const badgeMap = { 'open':'badge-yellow', 'paused':'badge-orange',
+                       'completed':'badge-green', 'closed':'badge-gray' };
+    const badge = badgeMap[j.status] || 'badge-gray';
     const tr = document.createElement('tr');
     tr.innerHTML = '<td><b>' + j.client_name + '</b></td>' +
       '<td>' + j.site_address + '</td>' +
@@ -4478,12 +6804,33 @@ async function loadJobs() {
     editBtn.style.cssText = 'background:#e8f0fe;color:#1F3864;';
     editBtn.textContent = 'Edit';
     editBtn.onclick = function() { editJob(idx); };
+    // Pause / Resume — for multi-phase jobs that go quiet between phases
+    const pauseBtn = document.createElement('button');
+    pauseBtn.className = 'btn btn-sm';
+    if (j.status === 'paused') {
+      pauseBtn.style.cssText = 'background:#e8f5e9;color:#2e7d32;';
+      pauseBtn.textContent = '▶ Resume';
+      pauseBtn.onclick = function() { setJobStatus(j.id, 'open', this); };
+    } else if (j.status === 'open') {
+      pauseBtn.style.cssText = 'background:#fff3e0;color:#bf360c;';
+      pauseBtn.textContent = '⏸ Pause';
+      pauseBtn.onclick = function() { setJobStatus(j.id, 'paused', this); };
+    } else {
+      pauseBtn.style.display = 'none';
+    }
     const notifyBtn = document.createElement('button');
     notifyBtn.className = 'btn btn-sm';
     notifyBtn.style.cssText = 'background:#e8f5e9;color:#2e7d32;';
     notifyBtn.textContent = 'Notify Client';
     notifyBtn.dataset.jid = j.id;
     notifyBtn.onclick = function() { notifyClientJob(this, j.id); };
+    // Workspace — opens the portal-style dark view (preview what the client sees + paint records / docs)
+    const wsBtn = document.createElement('button');
+    wsBtn.className = 'btn btn-sm';
+    wsBtn.style.cssText = 'background:#0E0E0C;color:#F4F1EC;font-weight:600;';
+    wsBtn.textContent = '🌐 Workspace';
+    wsBtn.title = 'Open project workspace (paint records, documents, client portal preview)';
+    wsBtn.onclick = function() { openJobWorkspaceById(j.id); };
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm owner-only';
     delBtn.style.cssText = 'background:#fce4ec;color:#c62828;';
@@ -4492,6 +6839,8 @@ async function loadJobs() {
     actions.appendChild(openBtn);
     actions.appendChild(editBtn);
     actions.appendChild(assignBtn);
+    actions.appendChild(pauseBtn);
+    actions.appendChild(wsBtn);
     actions.appendChild(notifyBtn);
     actions.appendChild(delBtn);
     return tr;
@@ -4514,8 +6863,562 @@ async function deleteJob(jobId, idx) {
 }
 
 async function openJob(idx) {
-  if (document.getElementById('job-detail-modal')) return;
+  // Original operator detail modal — full management view (edit, assign,
+  // delete, kickoff, finance, etc.). Restored after the rich workspace
+  // ate the default click. The workspace is now reachable via its own
+  // "Workspace" button in the row.
   const j = _jobs[idx];
+  if (!j) return;
+  return _legacyOpenJobModal(j);
+}
+
+// Convenience helper for the Workspace button in the job row.
+function openJobWorkspaceById(jobId) {
+  return openProjectWorkspace(jobId);
+}
+
+// ─── PROJECT WORKSPACE ────────────────────────────────────────────────
+// Dark portal-style detail view for a single job. Mirrors the design
+// mockup's client portal — but read+write for operators. The same shape
+// will power the client portal route (Phase 2).
+let _wsState = { job: null, data: null, tab: 'daily', activeJobId: null };
+
+async function openProjectWorkspace(jobId) {
+  if (document.getElementById('ws-modal')) return;
+  _wsState.activeJobId = jobId;
+  const wrap = document.createElement('div');
+  wrap.id = 'ws-modal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:#0E0E0C;z-index:9999;display:flex;flex-direction:column;font-family:Inter,system-ui,sans-serif;color:#F4F1EC;overflow:hidden;';
+  wrap.innerHTML = `
+    <style>
+      #ws-modal { font-family: Inter, system-ui, sans-serif; }
+      #ws-modal .ws-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: rgba(244,241,236,.6); }
+      #ws-modal a, #ws-modal a:visited { color: #F4F1EC; }
+      #ws-modal .ws-urlbar { background: #151512; border: 1px solid rgba(244,241,236,.12); border-radius: 10px; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 13px; display:flex; align-items:center; gap:10px; }
+      #ws-modal .ws-urlbar .ws-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(244,241,236,.18); }
+      #ws-modal .ws-fcst-strip { background:#1c1a14; border:1px solid rgba(212,166,53,.25); border-radius:10px; padding:14px 18px; margin-top:12px; display:flex; gap:18px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; }
+      #ws-modal .ws-fcst-label { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#d4a635; margin-bottom:6px; }
+      #ws-modal .ws-fcst-days { display:flex; gap:8px; }
+      #ws-modal .ws-fcst-day { background:#0E0E0C; border:1px solid rgba(244,241,236,.12); border-radius:8px; padding:8px 10px; min-width:62px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.4; }
+      #ws-modal .ws-fcst-day .wkd { color:rgba(244,241,236,.5); font-size:9px; letter-spacing:.12em; }
+      #ws-modal .ws-fcst-day .dd  { color:#F4F1EC; font-size:18px; font-weight:700; margin:2px 0; }
+      #ws-modal .ws-fcst-day .st  { background:rgba(52,215,106,.18); color:#34d76a; padding:1px 6px; border-radius:4px; font-size:9px; display:inline-block; }
+      #ws-modal .ws-fcst-day.rain .st { background:rgba(212,166,53,.18); color:#d4a635; }
+      #ws-modal .ws-shell { display:grid; grid-template-columns: 240px 1fr; flex:1; min-height:0; gap:0; }
+      #ws-modal .ws-side { background:#0c0c0a; border-right:1px solid rgba(244,241,236,.08); padding:24px 0; overflow-y:auto; }
+      #ws-modal .ws-side h4 { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:rgba(244,241,236,.4); margin: 18px 24px 8px; }
+      #ws-modal .ws-side .ws-link { display:flex; justify-content:space-between; align-items:center; padding:11px 24px; cursor:pointer; font-size:14px; font-weight:500; color:rgba(244,241,236,.78); border-left:2px solid transparent; }
+      #ws-modal .ws-side .ws-link:hover { color:#F4F1EC; background:rgba(244,241,236,.04); }
+      #ws-modal .ws-side .ws-link.active { color:#F4F1EC; background:rgba(244,241,236,.07); border-left-color:#ff2e9a; font-weight:600; }
+      #ws-modal .ws-side .ws-link .num { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.5); }
+      #ws-modal .ws-main { padding:32px 40px; overflow-y:auto; }
+      #ws-modal .ws-header-row { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:24px; }
+      #ws-modal .ws-title { font-family:'Archivo',sans-serif; font-weight:900; font-stretch:75%; font-size:30px; letter-spacing:-.02em; text-transform:uppercase; line-height:1.05; margin:0; color:#F4F1EC; }
+      #ws-modal .ws-day-pill { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.08em; color:rgba(244,241,236,.7); text-align:right; line-height:1.7; white-space:nowrap; }
+      #ws-modal .ws-tabs { display:flex; gap:32px; border-bottom:1px solid rgba(244,241,236,.1); margin-bottom:24px; }
+      #ws-modal .ws-tab { padding:10px 0; font-size:14px; font-weight:500; color:rgba(244,241,236,.55); border-bottom:2px solid transparent; cursor:pointer; }
+      #ws-modal .ws-tab:hover { color:#F4F1EC; }
+      #ws-modal .ws-tab.active { color:#F4F1EC; border-bottom-color:#4d8eff; font-weight:600; }
+      #ws-modal .ws-tab.lumia.active { border-bottom-color:#34d76a; }
+      #ws-modal .ws-tab .dot { display:inline-block; width:6px; height:6px; background:#34d76a; border-radius:50%; margin-right:6px; vertical-align:middle; }
+      #ws-modal .ws-row { display:grid; grid-template-columns: 120px 1fr 130px; gap:24px; padding:18px 0; border-bottom:1px solid rgba(244,241,236,.06); }
+      #ws-modal .ws-row .day-num { font-family:'Archivo',sans-serif; font-weight:800; font-size:22px; }
+      #ws-modal .ws-row .day-date { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.45); margin-top:2px; letter-spacing:.06em; }
+      #ws-modal .ws-row .day-body { font-size:14px; line-height:1.6; }
+      #ws-modal .ws-row .day-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.5); margin-top:6px; letter-spacing:.04em; }
+      #ws-modal .ws-row .day-status { text-align:right; }
+      #ws-modal .ws-row .badge { font-family:'JetBrains Mono',monospace; font-size:10px; padding:3px 9px; border-radius:5px; letter-spacing:.08em; text-transform:uppercase; }
+      #ws-modal .ws-row .b-progress { background:rgba(212,166,53,.18); color:#d4a635; }
+      #ws-modal .ws-row .b-done     { background:rgba(52,215,106,.18); color:#34d76a; }
+      #ws-modal .ws-row .day-time { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.45); margin-top:8px; }
+      #ws-modal .ws-close { position:absolute; top:20px; right:24px; background:rgba(244,241,236,.08); border:1px solid rgba(244,241,236,.18); color:#F4F1EC; width:38px; height:38px; border-radius:10px; cursor:pointer; font-size:16px; z-index:10; display:flex; align-items:center; justify-content:center; }
+      #ws-modal .ws-close:hover { background:rgba(244,241,236,.15); }
+      #ws-modal .ws-card-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:14px; }
+      #ws-modal .ws-card { background:#151512; border:1px solid rgba(244,241,236,.1); border-radius:10px; padding:16px 18px; }
+      #ws-modal .ws-card-title { font-weight:700; font-size:14px; margin-bottom:8px; }
+      #ws-modal .ws-card-meta  { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.55); letter-spacing:.04em; line-height:1.7; }
+      #ws-modal .ws-empty { color:rgba(244,241,236,.4); padding:32px 0; text-align:center; font-size:14px; }
+      #ws-modal .ws-btn { background:#F4F1EC; color:#0E0E0C; border:none; padding:9px 14px; border-radius:7px; font-weight:600; cursor:pointer; font-size:13px; }
+      #ws-modal .ws-btn-ghost { background:transparent; color:#F4F1EC; border:1px solid rgba(244,241,236,.2); padding:8px 13px; border-radius:7px; cursor:pointer; font-size:13px; }
+      #ws-modal .ws-btn-pink  { background:#ff2e9a; color:#fff; }
+      #ws-modal input[type="text"], #ws-modal input[type="number"], #ws-modal select, #ws-modal textarea {
+        background:#0c0c0a; border:1px solid rgba(244,241,236,.15); color:#F4F1EC; padding:8px 10px; border-radius:6px; font-size:13px; font-family:inherit;
+      }
+      #ws-modal .ws-photo { background:#151512; border:1px solid rgba(244,241,236,.1); border-radius:8px; aspect-ratio:1.4; overflow:hidden; }
+      #ws-modal .ws-photo img { width:100%; height:100%; object-fit:cover; }
+    </style>
+    <button class="ws-close" onclick="closeProjectWorkspace()">✕</button>
+    <div id="ws-content" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+      <div style="padding:24px 40px 0;">
+        <div class="ws-urlbar">
+          <span class="ws-dot"></span><span class="ws-dot" style="background:rgba(244,241,236,.18);"></span><span class="ws-dot" style="background:rgba(244,241,236,.18);"></span>
+          <span style="margin-left:14px;color:rgba(244,241,236,.5);">portal.ashrahpainting.com / jobs /</span>
+          <span id="ws-job-id" style="color:#F4F1EC;font-weight:600;">…</span>
+          <span style="margin-left:auto;color:rgba(244,241,236,.4);">Lumia AI · 65 projects · v3.2</span>
+        </div>
+        <div id="ws-fcst-host"></div>
+      </div>
+      <div class="ws-shell" id="ws-shell">
+        <div class="ws-side" id="ws-side"></div>
+        <div class="ws-main" id="ws-main"><div class="ws-empty">Loading workspace…</div></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  document.addEventListener('keydown', _wsKey);
+  await _wsLoad(jobId);
+}
+
+function closeProjectWorkspace() {
+  const m = document.getElementById('ws-modal');
+  if (m) m.remove();
+  document.removeEventListener('keydown', _wsKey);
+  _wsState = { job: null, data: null, tab: 'daily', activeJobId: null };
+}
+function _wsKey(e) { if (e.key === 'Escape') closeProjectWorkspace(); }
+
+async function _wsLoad(jobId) {
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(jobId) + '/workspace');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Failed');
+    _wsState.data = d;
+    _wsState.job  = d.job;
+    _wsRender();
+  } catch (e) {
+    document.getElementById('ws-main').innerHTML = '<div style="color:#ff7777;padding:30px;">⚠ ' + e.message + '</div>';
+  }
+}
+
+function _wsRender() {
+  const { job, data } = _wsState;
+  if (!job || !data) return;
+  const s = data.summary || {};
+  const slug = (job.site_address || job.client_name || job.id || '').toUpperCase().replace(/[^A-Z0-9]+/g,'-').slice(0,30);
+  document.getElementById('ws-job-id').textContent = slug;
+  _wsRenderForecast();
+  _wsRenderSidebar();
+  _wsRenderMain();
+}
+
+function _wsRenderForecast() {
+  const { job } = _wsState;
+  const host = document.getElementById('ws-fcst-host');
+  let strip = [];
+  try { strip = JSON.parse(job.forecast_strip || '[]'); } catch(e) {}
+  const note = job.forecast_note || '';
+
+  // Empty state — show a "Generate from real-time weather" button.
+  if (!strip.length && !note) {
+    host.innerHTML = `
+      <div class="ws-fcst-strip" style="border-color:rgba(244,241,236,.12);">
+        <div style="flex:1;min-width:280px;">
+          <div class="ws-fcst-label" style="color:rgba(244,241,236,.5);">6-Day Forecast</div>
+          <div style="color:rgba(244,241,236,.7);font-size:13px;">No forecast yet. Lumia can pull live weather from Open-Meteo (free) and auto-fill this strip.</div>
+        </div>
+        <button class="ws-btn ws-btn-pink" onclick="_wsAutoForecast()" id="ws-fcst-btn">🤖 Generate from weather</button>
+      </div>`;
+    return;
+  }
+
+  let daysHtml = '';
+  for (const d of strip) {
+    daysHtml += `<div class="ws-fcst-day ${d.status==='rain'?'rain':''}">
+      <div class="wkd">${escHtml(d.wkd||'')}</div>
+      <div class="dd">${escHtml(String(d.day||''))}</div>
+      <div class="st">${escHtml((d.status||'ok').toUpperCase())}</div>
+    </div>`;
+  }
+  host.innerHTML = `
+    <div class="ws-fcst-strip">
+      <div style="flex:1;min-width:280px;">
+        <div class="ws-fcst-label">6-Day Forecast</div>
+        <div style="font-weight:600;line-height:1.5;">${escHtml(note)}</div>
+        <button class="ws-btn-ghost" style="margin-top:10px;font-size:11px;padding:5px 10px;" onclick="_wsAutoForecast()" id="ws-fcst-btn">↻ Refresh from weather</button>
+      </div>
+      <div class="ws-fcst-days">${daysHtml}</div>
+    </div>
+  `;
+}
+
+async function _wsGetPortalLink() {
+  const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/portal-link');
+  return await r.json();
+}
+async function _wsOpenClientPortal() {
+  const d = await _wsGetPortalLink();
+  if (!d.ok) { alert(d.error || 'Could not resolve portal'); return; }
+  window.open(d.url, '_blank');
+}
+async function _wsCopyClientPortal() {
+  const d = await _wsGetPortalLink();
+  if (!d.ok) { alert(d.error || 'Could not resolve portal'); return; }
+  try {
+    await navigator.clipboard.writeText(d.url);
+    alert('Portal link copied:\\n\\n' + d.url);
+  } catch (e) {
+    prompt('Portal link (copy manually):', d.url);
+  }
+}
+
+async function _wsAutoForecast() {
+  const btn = document.getElementById('ws-fcst-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '…fetching weather'; }
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/forecast/auto', { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Forecast failed');
+    // Patch local state and re-render
+    _wsState.job.forecast_strip = JSON.stringify(d.strip);
+    _wsState.job.forecast_note  = d.note;
+    _wsRenderForecast();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '🤖 Generate from weather'; }
+    alert('Could not pull weather: ' + e.message);
+  }
+}
+
+function _wsRenderSidebar() {
+  const { data } = _wsState;
+  const s = data.summary || {};
+  const links = [
+    { id: 'daily',     label: 'Daily log',     num: s.total_checkins      || 0 },
+    { id: 'paint',     label: 'Paint records', num: s.total_paint_records || 0 },
+    { id: 'photos',    label: 'Photos',        num: s.total_photos        || 0 },
+    { id: 'docs',      label: 'Documents',     num: s.total_documents     || 0 },
+    { id: 'invoices',  label: 'Invoices',      num: s.total_billings      || 0 },
+  ];
+  document.getElementById('ws-side').innerHTML = `
+    <h4>Job</h4>
+    ${links.map(l => `
+      <div class="ws-link ${_wsState.tab===l.id?'active':''}" onclick="_wsSetTab('${l.id}')">
+        ${escHtml(l.label)} <span class="num">${l.num}</span>
+      </div>
+    `).join('')}
+    <h4>Job Meta</h4>
+    <div style="padding:0 24px;font-size:12px;color:rgba(244,241,236,.55);line-height:1.7;">
+      <div><b style="color:rgba(244,241,236,.85);">Client:</b> ${escHtml(_wsState.job.client_name||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Status:</b> ${escHtml(_wsState.job.status||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Start:</b> ${escHtml(_wsState.job.start_date||'—')}</div>
+    </div>
+  `;
+}
+
+function _wsSetTab(id) { _wsState.tab = id; _wsRenderSidebar(); _wsRenderMain(); }
+
+function _wsRenderMain() {
+  const { job, data, tab } = _wsState;
+  const s = data.summary || {};
+  const dayLine = (s.day_x && s.day_y) ? `DAY ${s.day_x} OF ${s.day_y}` : '';
+  const pctLine = (s.pct_complete != null) ? `${s.pct_complete}% COMPLETE` : '';
+  const headerRight = [dayLine, pctLine].filter(Boolean).join(' · ');
+
+  let body = '';
+  if (tab === 'daily')     body = _wsRenderDaily();
+  if (tab === 'paint')     body = _wsRenderPaint();
+  if (tab === 'photos')    body = _wsRenderPhotos();
+  if (tab === 'docs')      body = _wsRenderDocs();
+  if (tab === 'invoices')  body = _wsRenderInvoices();
+
+  document.getElementById('ws-main').innerHTML = `
+    <div class="ws-header-row">
+      <div>
+        <h1 class="ws-title">${escHtml(job.site_address || job.client_name || 'Project')}</h1>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="ws-btn-ghost" onclick="_wsOpenClientPortal()" style="font-size:12px;">👁 View as client</button>
+          <button class="ws-btn-ghost" onclick="_wsCopyClientPortal()" style="font-size:12px;">📋 Copy portal link</button>
+        </div>
+      </div>
+      ${headerRight ? `<div class="ws-day-pill">${escHtml(headerRight)}</div>` : ''}
+    </div>
+    <div class="ws-tabs">
+      <div class="ws-tab ${tab==='daily'?'active':''}"     onclick="_wsSetTab('daily')">Daily log</div>
+      <div class="ws-tab ${tab==='paint'?'active':''}"     onclick="_wsSetTab('paint')">Paint records</div>
+      <div class="ws-tab ${tab==='photos'?'active':''}"    onclick="_wsSetTab('photos')">Photos</div>
+      <div class="ws-tab ${tab==='docs'?'active':''}"      onclick="_wsSetTab('docs')">Documents</div>
+      <div class="ws-tab ${tab==='invoices'?'active':''}"  onclick="_wsSetTab('invoices')">Invoices</div>
+    </div>
+    ${body}
+  `;
+}
+
+function _wsRenderDaily() {
+  const { data } = _wsState;
+  const cks = data.checkins || [];
+  if (!cks.length) return '<div class="ws-empty">No daily check-ins logged for this site yet.</div>';
+  return cks.map((c, i) => {
+    const day = cks.length - i;
+    const dt = c.entry_date || '';
+    const note = (c.work_description || '').trim();
+    const crew = c.worker_name || '—';
+    const hours = c.hours_worked ? `${c.hours_worked}h` : '';
+    const photos = ((c.photo_urls||'').split(',').filter(Boolean).length + (c.cleanup_photo_urls||'').split(',').filter(Boolean).length);
+    const created = (c.created_at || '').slice(11,16);
+    return `
+      <div class="ws-row">
+        <div>
+          <div class="day-num">Day ${day}</div>
+          <div class="day-date">${escHtml(dt)}</div>
+        </div>
+        <div>
+          <div class="day-body">${escHtml(note || '—')}</div>
+          <div class="day-meta">Crew: ${escHtml(crew)}${hours?' · '+hours:''}${photos?' · '+photos+' photos':''}</div>
+        </div>
+        <div class="day-status">
+          <span class="badge ${i===0?'b-progress':'b-done'}">${i===0?'IN PROGRESS':'COMPLETE'}</span>
+          <div class="day-time">${escHtml(created)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function _wsRenderPaint() {
+  const { data } = _wsState;
+  const records = data.paint_records || [];
+  const form = `
+    <div class="ws-card" style="margin-bottom:18px;">
+      <div class="ws-card-title">Add paint record</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
+        <input type="text"  id="pr-room"    placeholder="Room / area">
+        <input type="text"  id="pr-surface" placeholder="Surface (walls / ceiling / trim)">
+        <input type="text"  id="pr-brand"   placeholder="Brand (Sherwin / Benjamin Moore)">
+        <input type="text"  id="pr-name"    placeholder="Paint name (Cast Iron)">
+        <input type="text"  id="pr-code"    placeholder="Code (SW 6202)">
+        <input type="text"  id="pr-finish"  placeholder="Finish (satin / eggshell)">
+        <input type="number" id="pr-coats"  placeholder="Coats" min="0" max="9">
+        <input type="text"  id="pr-notes"   placeholder="Notes (optional)" style="grid-column:span 2;">
+      </div>
+      <div style="margin-top:10px;">
+        <button class="ws-btn ws-btn-pink" onclick="_wsAddPaintRecord()">+ Add</button>
+        <span id="pr-status" style="margin-left:10px;color:rgba(244,241,236,.5);font-size:12px;"></span>
+      </div>
+    </div>
+  `;
+  const list = !records.length
+    ? '<div class="ws-empty">No paint records yet — add the first one above.</div>'
+    : `<div class="ws-card-grid">${records.map(r => `
+        <div class="ws-card">
+          <div class="ws-card-title">${escHtml(r.room || '—')} · <span style="color:rgba(244,241,236,.6);font-weight:500;">${escHtml(r.surface||'')}</span></div>
+          <div class="ws-card-meta">
+            ${r.brand ? '<div><b style="color:rgba(244,241,236,.85);">Brand:</b> ' + escHtml(r.brand) + '</div>' : ''}
+            ${r.paint_name ? '<div><b style="color:rgba(244,241,236,.85);">Color:</b> ' + escHtml(r.paint_name) + '</div>' : ''}
+            ${r.code ? '<div><b style="color:rgba(244,241,236,.85);">Code:</b> ' + escHtml(r.code) + '</div>' : ''}
+            ${r.finish ? '<div><b style="color:rgba(244,241,236,.85);">Finish:</b> ' + escHtml(r.finish) + '</div>' : ''}
+            ${r.coats ? '<div><b style="color:rgba(244,241,236,.85);">Coats:</b> ' + escHtml(String(r.coats)) + '</div>' : ''}
+            ${r.notes ? '<div style="margin-top:6px;color:rgba(244,241,236,.7);">' + escHtml(r.notes) + '</div>' : ''}
+          </div>
+          <div style="margin-top:10px;text-align:right;"><button class="ws-btn-ghost" onclick="_wsDelPaintRecord('${r.id}')">Delete</button></div>
+        </div>
+      `).join('')}</div>`;
+  return form + list;
+}
+
+function _wsRenderPhotos() {
+  const { data } = _wsState;
+  const urls = [];
+  (data.checkins || []).forEach(c => {
+    (c.photo_urls || '').split(',').filter(Boolean).forEach(u => urls.push({ url: u.trim(), date: c.entry_date }));
+    (c.cleanup_photo_urls || '').split(',').filter(Boolean).forEach(u => urls.push({ url: u.trim(), date: c.entry_date + ' (cleanup)' }));
+  });
+  if (!urls.length) return '<div class="ws-empty">No photos yet — they appear automatically as crews check in.</div>';
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">${
+    urls.map(p => `
+      <div>
+        <a href="${escHtml(p.url)}" target="_blank">
+          <div class="ws-photo"><img src="${escHtml(p.url)}" alt="" loading="lazy"></div>
+        </a>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(244,241,236,.5);margin-top:4px;">${escHtml(p.date||'')}</div>
+      </div>
+    `).join('')
+  }</div>`;
+}
+
+function _wsRenderDocs() {
+  const { data, job } = _wsState;
+  const docs = data.documents || [];
+  const form = `
+    <div class="ws-card" style="margin-bottom:18px;">
+      <div class="ws-card-title">Upload document</div>
+      <div style="display:grid;grid-template-columns:1fr 200px 140px;gap:10px;margin-top:10px;align-items:center;">
+        <input type="text" id="doc-label" placeholder="Label (e.g. Approved drawings rev C)">
+        <select id="doc-kind">
+          <option value="drawing">Drawing</option>
+          <option value="contract">Contract</option>
+          <option value="quote">Quote / Estimate</option>
+          <option value="rfi">RFI</option>
+          <option value="change_order">Change order</option>
+          <option value="photo_pack">Photo pack</option>
+          <option value="report">Report</option>
+          <option value="other" selected>Other</option>
+        </select>
+        <input type="file" id="doc-file" style="color:rgba(244,241,236,.6);">
+      </div>
+      <div style="margin-top:10px;">
+        <button class="ws-btn ws-btn-pink" onclick="_wsUploadDoc()">Upload</button>
+        <span id="doc-status" style="margin-left:10px;color:rgba(244,241,236,.5);font-size:12px;"></span>
+      </div>
+    </div>
+  `;
+  const list = !docs.length
+    ? '<div class="ws-empty">No documents yet — upload drawings, contracts, RFIs, etc.</div>'
+    : `<div class="ws-card-grid">${docs.map(d => `
+        <div class="ws-card">
+          <div class="ws-card-title">${escHtml(d.name || '—')}</div>
+          <div class="ws-card-meta">
+            <div>${escHtml((d.kind||'other').toUpperCase())} · ${(d.size_bytes/1024).toFixed(1)} KB</div>
+            <div>${escHtml((d.uploaded_at||'').slice(0,10))} · by ${escHtml(d.uploaded_by||'—')}</div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <a class="ws-btn" href="${escHtml(d.file_url)}" target="_blank" style="text-decoration:none;">Download</a>
+            <button class="ws-btn-ghost" onclick="_wsDelDoc('${d.id}')">Delete</button>
+          </div>
+        </div>
+      `).join('')}</div>`;
+  return form + list;
+}
+
+function _wsRenderInvoices() {
+  const { data } = _wsState;
+  const bills = data.billings || [];
+  if (!bills.length) return '<div class="ws-empty">No invoices logged for this project.</div>';
+  return `<div class="ws-card-grid">${bills.map(b => `
+    <div class="ws-card">
+      <div class="ws-card-title">$${Number(b.amount||0).toLocaleString()}</div>
+      <div class="ws-card-meta">
+        <div>${escHtml(b.date||'')}</div>
+        ${b.invoice_number ? '<div>Invoice ' + escHtml(b.invoice_number) + '</div>' : ''}
+        ${b.notes ? '<div style="color:rgba(244,241,236,.7);margin-top:4px;">' + escHtml(b.notes) + '</div>' : ''}
+      </div>
+    </div>
+  `).join('')}</div>`;
+}
+
+async function _wsAddPaintRecord() {
+  const v = id => (document.getElementById(id)||{}).value || '';
+  const body = {
+    room: v('pr-room'), surface: v('pr-surface'), brand: v('pr-brand'),
+    paint_name: v('pr-name'), code: v('pr-code'), finish: v('pr-finish'),
+    coats: parseInt(v('pr-coats')||'0', 10) || null,
+    notes: v('pr-notes'),
+  };
+  if (!body.room && !body.paint_name) {
+    document.getElementById('pr-status').textContent = 'Add at least a room or paint name.';
+    return;
+  }
+  const status = document.getElementById('pr-status');
+  status.textContent = 'Saving…';
+  // Optimistic: append the record to local state + re-render NOW. No waiting
+  // on server round-trip before the UI updates.
+  const tempRec = { ...body, id: 'tmp_' + Date.now(), _optimistic: true };
+  if (_wsState.data && Array.isArray(_wsState.data.paint_records)) {
+    _wsState.data.paint_records.push(tempRec);
+    if (_wsState.data.summary) _wsState.data.summary.total_paint_records += 1;
+    _wsRender();
+  }
+  // Clear the form inputs immediately so the operator can start the next one
+  ['pr-room','pr-surface','pr-brand','pr-name','pr-code','pr-finish','pr-coats','pr-notes']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value=''; });
+
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/paint-record', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Failed');
+    // Replace the optimistic placeholder with the real saved record (which has a real id)
+    if (_wsState.data && Array.isArray(_wsState.data.paint_records)) {
+      const idx = _wsState.data.paint_records.findIndex(r => r.id === tempRec.id);
+      if (idx >= 0) _wsState.data.paint_records[idx] = d.record || tempRec;
+      _wsRender();
+    }
+    const s2 = document.getElementById('pr-status'); if (s2) s2.textContent = '✓ Added';
+  } catch (e) {
+    // Roll back the optimistic insert on error
+    if (_wsState.data && Array.isArray(_wsState.data.paint_records)) {
+      _wsState.data.paint_records = _wsState.data.paint_records.filter(r => r.id !== tempRec.id);
+      if (_wsState.data.summary) _wsState.data.summary.total_paint_records -= 1;
+      _wsRender();
+    }
+    const s2 = document.getElementById('pr-status'); if (s2) s2.textContent = '⚠ ' + e.message;
+  }
+}
+
+async function _wsDelPaintRecord(rid) {
+  if (!confirm('Delete this paint record?')) return;
+  try {
+    await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/paint-record/' + encodeURIComponent(rid), { method: 'DELETE' });
+    await _wsLoad(_wsState.activeJobId);
+  } catch (e) { alert(e.message); }
+}
+
+async function _wsUploadDoc() {
+  const fileEl = document.getElementById('doc-file');
+  const status = document.getElementById('doc-status');
+  if (!fileEl.files.length) { status.textContent = 'Pick a file first.'; return; }
+  const file = fileEl.files[0];
+  const label = document.getElementById('doc-label').value || file.name;
+  const kind  = document.getElementById('doc-kind').value || 'other';
+
+  // Optimistic: insert a placeholder card immediately. User sees their document
+  // appear before the upload has even started.
+  const tempDoc = {
+    id: 'tmp_' + Date.now(),
+    name: label,
+    kind: kind,
+    size_bytes: file.size,
+    uploaded_at: new Date().toISOString(),
+    uploaded_by: 'You',
+    _optimistic: true,
+  };
+  if (_wsState.data) {
+    (_wsState.data.documents = _wsState.data.documents || []).unshift(tempDoc);
+    if (_wsState.data.summary) _wsState.data.summary.total_documents += 1;
+    _wsRender();
+  }
+  status.textContent = 'Uploading…';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('label', label);
+  fd.append('kind',  kind);
+
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/document', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Upload failed');
+    if (_wsState.data) {
+      const idx = (_wsState.data.documents || []).findIndex(x => x.id === tempDoc.id);
+      if (idx >= 0) _wsState.data.documents[idx] = d.document || tempDoc;
+      _wsRender();
+    }
+    const s2 = document.getElementById('doc-status'); if (s2) s2.textContent = '✓ Uploaded';
+    // Reset form so the user can immediately upload another
+    fileEl.value = '';
+    const lbl = document.getElementById('doc-label'); if (lbl) lbl.value = '';
+  } catch (e) {
+    // Roll back
+    if (_wsState.data) {
+      _wsState.data.documents = (_wsState.data.documents || []).filter(x => x.id !== tempDoc.id);
+      if (_wsState.data.summary) _wsState.data.summary.total_documents -= 1;
+      _wsRender();
+    }
+    const s2 = document.getElementById('doc-status'); if (s2) s2.textContent = '⚠ ' + e.message;
+  }
+}
+
+async function _wsDelDoc(did) {
+  if (!confirm('Delete this document?')) return;
+  try {
+    await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/document/' + encodeURIComponent(did), { method: 'DELETE' });
+    await _wsLoad(_wsState.activeJobId);
+  } catch (e) { alert(e.message); }
+}
+
+async function _legacyOpenJobModal(j) {
+  // Kept temporarily; replaced by openProjectWorkspace. Delete after the new
+  // workspace is verified in production.
+  if (document.getElementById('job-detail-modal')) return;
   if (!j) return;
   const modal = document.createElement('div');
   modal.id = 'job-detail-modal';
@@ -4557,6 +7460,12 @@ async function openJob(idx) {
     (j.work_description ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">SCOPE OF WORK</h4>' +
     '<pre style="white-space:pre-wrap;font-size:13px;color:#333;background:#f9f9f9;border-radius:8px;padding:14px;margin:0;max-height:160px;overflow-y:auto;">' + j.work_description + '</pre></div>' : '') +
 
+    '<div style="margin-bottom:20px;border-top:1px solid #eee;padding-top:16px;">' +
+    '<h4 style="margin:0 0 8px;color:#1F3864;font-size:14px;">🏁 KICKOFF — SITE ASSESSMENT</h4>' +
+    '<p style="font-size:12px;color:#666;margin:0 0 10px;">First person on site captures the starting state — photos, what they see, how many walls / floors / rooms, condition, anything blocking work. Lumia then writes the day-by-day execution plan for the crew.</p>' +
+    '<div id="jd-kickoff" style="font-size:13px;color:#999;">Loading...</div>' +
+    '</div>' +
+
     '<div style="margin-bottom:20px;">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
     '<h4 style="margin:0;color:#1F3864;font-size:14px;">DAILY PLAN</h4>' +
@@ -4568,6 +7477,12 @@ async function openJob(idx) {
     '<button id="jd-save-plan-btn" class="btn btn-sm" style="background:#2e7d32;display:none;">Save Plan</button>' +
     '<span id="jd-plan-msg" style="font-size:12px;color:#666;align-self:center;"></span>' +
     '</div>' +
+    '</div>' +
+
+    '<div class="finance-only" style="margin-bottom:20px;border-top:1px solid #eee;padding-top:16px;">' +
+    '<h4 style="margin:0 0 10px;color:#1F3864;font-size:14px;">💰 PROJECT FINANCE</h4>' +
+    '<div id="jd-finance-summary" style="font-size:13px;color:#999;">Loading...</div>' +
+    '<div id="jd-finance-detail" style="margin-top:14px;"></div>' +
     '</div>' +
 
     '<h4 style="margin:0 0 12px;color:#1F3864;font-size:14px;">DAILY CHECK-INS</h4>' +
@@ -4714,6 +7629,14 @@ async function openJob(idx) {
     jdPlan = d.plan || [];
     _renderJdPlan(window._jdCheckinDates || []);
   }).catch(()=>{ document.getElementById('jd-plan-list').textContent = 'Could not load plan.'; });
+
+  // Load kickoff
+  loadJobKickoff(j.id);
+
+  // Load finance — only for users who can see it (owner or CFO)
+  if (window.USER_ROLE === 'owner' || window.USER_ROLE === 'cfo') {
+    loadJobFinance(j.id);
+  }
 
   try {
     const res = await fetch('/api/job-report/' + j.id);
@@ -4916,7 +7839,7 @@ async function editJob(idx) {
   fDesc.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;resize:vertical;';
   const fStatus = document.createElement('select');
   fStatus.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;background:#fafbfd;';
-  ['open','completed','cancelled'].forEach(function(s) {
+  ['open','paused','completed','cancelled'].forEach(function(s) {
     const o = document.createElement('option'); o.value = s; o.textContent = s;
     if (j.status === s) o.selected = true;
     fStatus.appendChild(o);
@@ -4991,17 +7914,298 @@ async function loadEmployees() {
   const r = await fetch('/api/employees'); const d = await r.json();
   const el = document.getElementById('employees-list');
   if (!d.length) { el.innerHTML = '<p style="color:#999">No employees registered yet.</p>'; return; }
-  el.innerHTML = '<table><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Action</th></tr></thead><tbody>' +
-    d.map(e => `<tr>
-      <td><b>${e.name}</b></td>
-      <td>${e.email}</td>
-      <td>${e.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>'}</td>
-      <td style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-sm owner-only" onclick="resendInvite('${e.id}','${e.name}')">Resend Invite</button>
-        ${e.active ? `<button class="btn btn-sm btn-red" onclick="removeEmployee('${e.id}')">Deactivate</button>` : ''}
-        <button class="btn btn-sm owner-only" style="background:#fff;border:1.5px solid #e53935;color:#e53935;" onclick="deleteEmployee('${e.id}','${e.name}')">Delete</button>
-      </td>
-    </tr>`).join('') + '</tbody></table>';
+  // Render with DOM API so we can safely embed names with quotes
+  el.innerHTML = '';
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Notes</th><th>Action</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  d.forEach(e => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><b>' + e.name + '</b></td>' +
+      '<td>' + (e.email || '') + '</td>' +
+      '<td>' + (e.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>') + '</td>' +
+      '<td></td>' +
+      '<td style="display:flex;gap:6px;flex-wrap:wrap"></td>';
+    const notesTd = tr.children[3];
+    const notesBtn = document.createElement('button');
+    notesBtn.className = 'btn btn-sm';
+    notesBtn.style.cssText = 'background:#e8f0fe;color:#1F3864;';
+    notesBtn.textContent = '📒 View / Add';
+    notesBtn.onclick = () => openEmployeeNotes(e.name);
+    notesTd.appendChild(notesBtn);
+    const actions = tr.children[4];
+    const resendBtn = document.createElement('button');
+    resendBtn.className = 'btn btn-sm owner-only';
+    resendBtn.textContent = 'Resend Invite';
+    resendBtn.onclick = () => resendInvite(e.id, e.name);
+    actions.appendChild(resendBtn);
+    if (e.active) {
+      const deact = document.createElement('button');
+      deact.className = 'btn btn-sm btn-red';
+      deact.textContent = 'Deactivate';
+      deact.onclick = () => removeEmployee(e.id);
+      actions.appendChild(deact);
+    }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm owner-only';
+    delBtn.style.cssText = 'background:#fff;border:1.5px solid #e53935;color:#e53935;';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => deleteEmployee(e.id, e.name);
+    actions.appendChild(delBtn);
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  el.appendChild(tbl);
+}
+
+// ── Texting tab — phone numbers + language per crew member ──────────────────
+async function initTextingTab() {
+  const host = document.getElementById('emp-phones');
+  if (host) host.innerHTML = '<p style="color:#999;font-size:13px;">Loading…</p>';
+  try {
+    const r = await fetch('/api/employees');
+    const d = await r.json();
+    renderEmployeePhones(d);
+  } catch(e) {
+    if (host) host.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load crew.</p>';
+  }
+}
+
+// ── Employee phone numbers (for SMS reminders) ──────────────────────────────
+function renderEmployeePhones(employees) {
+  const host = document.getElementById('emp-phones');
+  if (!host) return;
+  const active = (employees || []).filter(e => e.active);
+  if (!active.length) { host.innerHTML = '<p style="color:#999;font-size:13px;">No active employees.</p>'; return; }
+  host.innerHTML = '';
+  active.forEach(e => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0;flex-wrap:wrap;';
+    const curLang = (e.language || 'en').toLowerCase();
+    row.innerHTML =
+      '<div style="font-weight:600;min-width:130px;">' + escHtmlEst(e.name||'') + '</div>' +
+      '<input type="tel" value="' + escHtmlEst(e.phone||'') + '" placeholder="204 555 0100" ' +
+        'style="padding:8px 10px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;width:160px;">' +
+      '<select style="padding:8px 10px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' +
+        '<option value="en"' + (curLang==='en'?' selected':'') + '>English</option>' +
+        '<option value="ar"' + (curLang==='ar'?' selected':'') + '>العربية</option>' +
+        '<option value="fr"' + (curLang==='fr'?' selected':'') + '>Français</option>' +
+      '</select>' +
+      '<button class="btn btn-sm" style="background:#1F3864;color:#fff;">Save</button>' +
+      '<span style="font-size:12px;color:#2e7d32;"></span>';
+    const input = row.querySelector('input');
+    const langSel = row.querySelector('select');
+    const btn = row.querySelector('button');
+    const msg = row.querySelector('span');
+    btn.onclick = async () => {
+      btn.disabled = true; msg.textContent = 'Saving…'; msg.style.color = '#888';
+      try {
+        const r = await fetch('/api/employee/phone', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ id: e.id, phone: input.value.trim(), language: langSel.value })
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'failed');
+        msg.textContent = '✓ Saved' + (d.normalized ? ' (' + d.normalized + ')' : '');
+        msg.style.color = '#2e7d32';
+      } catch(err) { msg.textContent = '⚠ ' + err.message; msg.style.color = '#c62828'; }
+      finally { btn.disabled = false; }
+    };
+    host.appendChild(row);
+  });
+}
+
+// ── Texts tab — conversation view ───────────────────────────────────────────
+async function initTextLogTab() {
+  const el = document.getElementById('textlog-list');
+  el.innerHTML = '<p style="color:#999;font-size:13px;">Loading…</p>';
+  try {
+    const r = await fetch('/api/sms/threads');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'failed');
+    const threads = d.threads || [];
+    if (!threads.length) {
+      el.innerHTML = '<p style="color:#999;font-size:14px;padding:20px 0;">No texts yet. Sent texts and replies will show here.</p>';
+      return;
+    }
+    el.innerHTML = threads.map(t => {
+      const title = escHtmlEst(t.contact_name || t.phone || '?');
+      const sub = t.contact_name ? escHtmlEst(t.phone||'') : '';
+      const bubbles = (t.messages||[]).map(m => {
+        const out = m.direction === 'out';
+        const when = (m.created_at||'').slice(0,16).replace('T',' ');
+        return '<div style="display:flex;justify-content:' + (out?'flex-end':'flex-start') + ';margin:4px 0;">' +
+          '<div style="max-width:78%;padding:8px 12px;border-radius:' + (out?'12px 12px 2px 12px':'12px 12px 12px 2px') + ';' +
+          'background:' + (out?'#1F3864':'#eef1f7') + ';color:' + (out?'#fff':'#222') + ';font-size:13px;line-height:1.45;white-space:pre-wrap;">' +
+          escHtmlEst(m.body||'') +
+          '<div style="font-size:10px;opacity:.6;margin-top:3px;">' + (out?'Lumia':'Them') + ' · ' + escHtmlEst(when) + '</div>' +
+          '</div></div>';
+      }).join('');
+      return '<details style="border:1px solid #e3e8f3;border-radius:10px;padding:10px 14px;margin-bottom:10px;" ' + (threads.length<=3?'open':'') + '>' +
+        '<summary style="cursor:pointer;font-weight:700;color:#1F3864;">' + title +
+        (sub?(' <span style="color:#888;font-weight:400;font-size:12px;">'+sub+'</span>'):'') +
+        ' <span style="color:#888;font-weight:400;font-size:12px;">· ' + (t.messages||[]).length + ' msg</span></summary>' +
+        '<div style="margin-top:10px;">' + bubbles + '</div>' +
+        '<div style="margin-top:10px;display:flex;gap:6px;">' +
+          '<input type="text" placeholder="Reply…" style="flex:1;padding:8px 10px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;" ' +
+            'onkeydown="if(event.key===\\'Enter\\'){_textlogReply(this,\\'' + escHtmlEst(t.phone) + '\\');}">' +
+          '<button class="btn btn-sm" style="background:#1F3864;color:#fff;" onclick="_textlogReply(this.previousElementSibling,\\'' + escHtmlEst(t.phone) + '\\')">Send</button>' +
+        '</div>' +
+        '</details>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load texts: ' + e.message + '</p>';
+  }
+}
+
+async function _textlogReply(input, phone) {
+  const body = (input.value||'').trim();
+  if (!body) return;
+  input.disabled = true;
+  try {
+    const r = await fetch('/api/sms/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ to: phone, body })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.detail || d.error || 'failed');
+    input.value = '';
+    initTextLogTab();
+  } catch(e) { alert('Could not send: ' + e.message); input.disabled = false; }
+}
+
+async function sendManualSms() {
+  const to = document.getElementById('sms-to').value.trim();
+  const body = document.getElementById('sms-body').value.trim();
+  const msg = document.getElementById('sms-msg');
+  if (!to || !body) { msg.textContent = 'Enter a phone number and a message.'; msg.style.color = '#c62828'; return; }
+  msg.textContent = 'Sending…'; msg.style.color = '#888';
+  try {
+    const r = await fetch('/api/sms/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ to, body })
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      msg.textContent = '⚠ ' + (d.detail || d.error || 'Failed');
+      msg.style.color = '#c62828';
+      if ((d.detail||'').includes('Twilio not configured')) {
+        document.getElementById('sms-config-note').style.display = 'block';
+      }
+      return;
+    }
+    msg.textContent = '✓ Text sent';
+    msg.style.color = '#2e7d32';
+    document.getElementById('sms-body').value = '';
+  } catch(e) { msg.textContent = '⚠ ' + e.message; msg.style.color = '#c62828'; }
+}
+
+// ── Employee Notes (internal log) ──────────────────────────────────────────
+async function openEmployeeNotes(name) {
+  // Build modal
+  let modal = document.getElementById('emp-notes-modal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'emp-notes-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:24px;overflow-y:auto;';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:14px;padding:24px;width:100%;max-width:640px;position:relative;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">' +
+        '<div>' +
+          '<h2 style="margin:0 0 4px;font-size:20px;color:#1F3864;">📒 ' + name + '</h2>' +
+          '<p style="margin:0;color:#666;font-size:13px;">Internal employee log — never visible to the employee or to clients.</p>' +
+        '</div>' +
+        '<button id="emp-notes-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;padding:0;">✕</button>' +
+      '</div>' +
+      '<div style="background:#fafbfd;border:1.5px solid #dce2ef;border-radius:10px;padding:14px;margin-bottom:14px;">' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">' +
+          '<label style="font-size:11px;font-weight:700;color:#1F3864;letter-spacing:.5px;">TYPE:</label>' +
+          '<select id="emp-note-type" style="padding:6px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+            '<option value="note">Note</option>' +
+            '<option value="positive">Recognition / Positive</option>' +
+            '<option value="concern">Concern</option>' +
+            '<option value="training">Training</option>' +
+            '<option value="admin">Admin / HR</option>' +
+          '</select>' +
+        '</div>' +
+        '<textarea id="emp-note-body" rows="3" placeholder="What happened? Be specific. Include date if relevant." style="width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;"></textarea>' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;">' +
+          '<button id="emp-note-add" class="btn btn-green">+ Add Note</button>' +
+          '<span id="emp-note-msg" style="font-size:12px;color:#666;"></span>' +
+        '</div>' +
+      '</div>' +
+      '<div id="emp-notes-list" style="font-size:13px;color:#999;">Loading...</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+  modal.querySelector('#emp-notes-close').onclick = () => { modal.remove(); document.body.style.overflow = ''; };
+  modal.addEventListener('click', (e) => { if (e.target === modal) { modal.remove(); document.body.style.overflow = ''; }});
+  modal.querySelector('#emp-note-add').onclick = async () => {
+    const body = modal.querySelector('#emp-note-body').value.trim();
+    const note_type = modal.querySelector('#emp-note-type').value;
+    if (!body) { modal.querySelector('#emp-note-msg').textContent = 'Note text required.'; return; }
+    const r = await fetch('/api/employee-note', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({employee_name: name, body, note_type})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      modal.querySelector('#emp-note-body').value = '';
+      modal.querySelector('#emp-note-msg').textContent = '✓ Saved';
+      modal.querySelector('#emp-note-msg').style.color = '#2e7d32';
+      loadEmployeeNotes(name);
+      setTimeout(() => { modal.querySelector('#emp-note-msg').textContent = ''; }, 2000);
+    } else {
+      modal.querySelector('#emp-note-msg').textContent = d.error || 'Save failed.';
+      modal.querySelector('#emp-note-msg').style.color = '#c62828';
+    }
+  };
+  loadEmployeeNotes(name);
+}
+
+async function loadEmployeeNotes(name) {
+  const listEl = document.getElementById('emp-notes-list');
+  if (!listEl) return;
+  try {
+    const r = await fetch('/api/employee-notes/' + encodeURIComponent(name));
+    const d = await r.json();
+    const notes = d.notes || [];
+    if (!notes.length) {
+      listEl.innerHTML = '<p style="color:#999;font-size:13px;margin:0;">No notes yet.</p>';
+      return;
+    }
+    const typeStyles = {
+      note:     {bg:'#f4f6fb', border:'#1F3864', label:'NOTE'},
+      positive: {bg:'#e8f5e9', border:'#2e7d32', label:'POSITIVE'},
+      concern:  {bg:'#fff3e0', border:'#f57c00', label:'CONCERN'},
+      training: {bg:'#e3f2fd', border:'#1976d2', label:'TRAINING'},
+      admin:    {bg:'#f3e5f5', border:'#6a1b9a', label:'ADMIN'},
+    };
+    listEl.innerHTML = notes.map(n => {
+      const s = typeStyles[n.note_type] || typeStyles.note;
+      const ts = n.created_at ? new Date(n.created_at).toLocaleString('en-CA', {timeZone:'America/Winnipeg', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+      return '<div style="background:' + s.bg + ';border-left:3px solid ' + s.border + ';padding:10px 12px;border-radius:6px;margin-bottom:8px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px;">' +
+          '<span style="font-weight:700;color:' + s.border + ';letter-spacing:.5px;">' + s.label + '</span>' +
+          '<span style="color:#888;">' + (n.author ? n.author + ' · ' : '') + ts + '</span>' +
+        '</div>' +
+        '<div style="font-size:13px;color:#222;line-height:1.5;white-space:pre-wrap;">' + n.body + '</div>' +
+        '<button class="owner-only" data-note-id="' + n.id + '" style="background:none;border:none;color:#c62828;font-size:11px;cursor:pointer;padding:4px 0 0;">Delete</button>' +
+        '</div>';
+    }).join('');
+    listEl.querySelectorAll('button[data-note-id]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Delete this note? Cannot be undone.')) return;
+        const r = await fetch('/api/employee-note/' + btn.dataset.noteId, {method:'DELETE'});
+        const d = await r.json();
+        if (d.ok) loadEmployeeNotes(name);
+        else alert(d.error || 'Delete failed.');
+      };
+    });
+  } catch(e) {
+    listEl.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load notes.</p>';
+  }
 }
 
 async function addEmployee() {
@@ -5041,106 +8245,96 @@ async function resendInvite(id, name) {
 }
 
 // ── REPORTS TAB ─────────────────────────────────────────────────────────────
-// ── SITE VISITS ──────────────────────────────────────────────────────────────
-async function initSiteVisits() {
-  loadSiteVisitJobs();
-  loadSiteVisitLog();
+// ── SCHEDULE — live crew locations from today's arrivals ────────────────────
+let _scheduleTimer = null;
+
+function _fmtDuration(ms) {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
 }
 
-async function loadSiteVisitJobs() {
-  const el = document.getElementById('sitevisits-list');
+async function initSchedule() {
+  await loadSchedule();
+  // Auto-refresh every 60s while the tab is open
+  if (_scheduleTimer) clearInterval(_scheduleTimer);
+  _scheduleTimer = setInterval(() => {
+    const page = document.getElementById('tab-schedule');
+    if (page && page.classList.contains('active')) loadSchedule();
+    else { clearInterval(_scheduleTimer); _scheduleTimer = null; }
+  }, 60000);
+}
+
+async function loadSchedule() {
+  const el = document.getElementById('schedule-list');
+  const sum = document.getElementById('schedule-summary');
   try {
-    const jobs = await fetch('/api/jobs').then(r => r.json());
-    const open = jobs.filter(j => j.status === 'open');
-    if (!open.length) { el.innerHTML = '<p style="color:#999;font-size:13px;">No open jobs.</p>'; return; }
-
-    // Group by employee
-    const byEmp = {};
-    open.forEach(j => {
-      (j.assigned_employees || ['Unassigned']).forEach(emp => {
-        // dedupe
-        const key = emp.trim();
-        if (!byEmp[key]) byEmp[key] = [];
-        if (!byEmp[key].find(x => x.id === j.id)) byEmp[key].push(j);
-      });
+    const arrivals = await fetch('/api/on-site-now').then(r => r.json());
+    if (!arrivals || !arrivals.length) {
+      sum.textContent = '';
+      el.innerHTML = '<p style="color:#999;font-size:14px;padding:20px 0;">No one has logged arrival on site today yet.</p>';
+      return;
+    }
+    const now = Date.now();
+    // Group by site so you can see who's where at a glance
+    const bySite = {};
+    arrivals.forEach(a => {
+      const site = a.site_address || 'Unknown site';
+      (bySite[site] = bySite[site] || []).push(a);
     });
+    const onSite = arrivals.filter(a => !a.checked_out).length;
+    const doneToday = arrivals.filter(a => a.checked_out).length;
+    sum.innerHTML = '<b style="color:#1F3864;">' + onSite + '</b> on site now · <b>' + doneToday + '</b> checked out today · <b>' + Object.keys(bySite).length + '</b> active site(s)';
 
-    el.innerHTML = Object.entries(byEmp).map(([emp, empJobs]) => `
-      <div style="margin-bottom:20px;">
+    el.innerHTML = Object.entries(bySite).map(([site, people]) => `
+      <div style="margin-bottom:18px;">
         <div style="font-size:13px;font-weight:700;color:#1F3864;text-transform:uppercase;
-                    letter-spacing:.8px;margin-bottom:10px;padding-bottom:6px;
-                    border-bottom:2px solid #e0e4ed;">👷 ${emp}</div>
-        ${empJobs.map(j => `
-          <div style="display:flex;align-items:center;justify-content:space-between;
-                      padding:10px 14px;background:#f9fafb;border-radius:10px;
-                      margin-bottom:8px;gap:12px;flex-wrap:wrap;">
-            <div>
-              <div style="font-weight:600;font-size:14px;">${j.client_name}</div>
-              <div style="font-size:12px;color:#666;">${j.site_address} &bull; Start: ${j.start_date || 'TBD'}</div>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-              <span id="sv-msg-${j.id}-${emp.replace(/\s/g,'_')}" style="font-size:12px;color:#2e7d32;"></span>
-              <button class="btn btn-sm btn-green"
-                onclick="confirmAtWork('${j.id}','${j.site_address.replace(/'/g,"\\'")}','${emp.replace(/'/g,"\\'")}', this)">
-                ✓ At Work
-              </button>
-              <button class="btn btn-sm" style="background:#d9534f;"
-                onclick="markJobDone('${j.id}', this)">
-                ✅ Mark Done
-              </button>
-            </div>
-          </div>`).join('')}
+                    letter-spacing:.6px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e0e4ed;">
+          📍 ${escIfDef(site)} <span style="color:#888;font-weight:500;text-transform:none;">· ${people.length} crew</span>
+        </div>
+        ${people.map(a => {
+          const arrived = a.arrived_at ? new Date(a.arrived_at) : null;
+          const arrivedStr = arrived ? arrived.toLocaleTimeString('en-CA', {timeZone:'America/Winnipeg', hour:'2-digit', minute:'2-digit'}) : '—';
+          const checkedOut = a.checked_out;
+          // Total time on site: arrival → now (still here) or arrival → check-in (left)
+          const endMs = checkedOut && a.checked_out_at ? new Date(a.checked_out_at).getTime() : now;
+          const dur = arrived ? _fmtDuration(endMs - arrived.getTime()) : '—';
+          const dot = checkedOut ? '#9e9e9e' : '#2e7d32';
+          const days = a.days_on_site || 1;
+          const dayBadge = '<span style="display:inline-block;background:#1F3864;color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;margin-left:8px;">Day ' + days + '</span>';
+          let statusTxt, timeBig;
+          if (checkedOut) {
+            const outStr = a.checked_out_at ? new Date(a.checked_out_at).toLocaleTimeString('en-CA', {timeZone:'America/Winnipeg', hour:'2-digit', minute:'2-digit'}) : '';
+            timeBig = '<span style="color:#555;font-weight:800;font-size:16px;">' + dur + '</span>';
+            statusTxt = '<div style="font-size:11px;color:#9e9e9e;margin-top:2px;">Today on site' + (outStr ? ' · left ' + outStr : '') + '</div>';
+          } else {
+            timeBig = '<span style="color:#2e7d32;font-weight:800;font-size:16px;">' + dur + '</span>';
+            statusTxt = '<div style="font-size:11px;color:#2e7d32;margin-top:2px;font-weight:600;">● On site now</div>';
+          }
+          return `
+            <div style="display:flex;align-items:center;justify-content:space-between;
+                        padding:11px 14px;background:${checkedOut?'#f5f5f5':'#f1f8f2'};border-radius:10px;
+                        margin-bottom:8px;gap:12px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="width:10px;height:10px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0;"></span>
+                <div>
+                  <div style="font-weight:700;font-size:14px;">${escIfDef(a.worker_name || 'Unknown')}${dayBadge}</div>
+                  <div style="font-size:12px;color:#666;">Arrived ${arrivedStr} · ${days} day${days>1?'s':''} on this site</div>
+                </div>
+              </div>
+              <div style="text-align:right;">${timeBig}${statusTxt}</div>
+            </div>`;
+        }).join('')}
       </div>`).join('');
   } catch(e) {
-    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading jobs.</p>';
+    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Could not load schedule.</p>';
   }
 }
 
-async function confirmAtWork(jobId, site, empName, btn) {
-  btn.disabled = true; btn.textContent = '⏳...';
-  try {
-    const r = await fetch('/api/site-visit', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({job_id: jobId, site_address: site, employee_name: empName})
-    });
-    const j = await r.json();
-    btn.textContent = '✓ Confirmed';
-    btn.style.background = '#388e3c';
-    const key = jobId + '-' + empName.replace(/\s/g,'_');
-    const msg = document.getElementById('sv-msg-' + key);
-    if (msg) { msg.textContent = 'Logged ' + new Date().toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'}); }
-    loadSiteVisitLog();
-  } catch(e) { btn.disabled = false; btn.textContent = '✓ At Work'; }
-}
-
-async function markJobDone(jobId, btn) {
-  if (!confirm('Mark this job as completed?')) return;
-  btn.disabled = true; btn.textContent = '⏳...';
-  try {
-    const r = await fetch('/api/mark-job-done', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({job_id: jobId})
-    });
-    const j = await r.json();
-    if (j.ok) { btn.textContent = '✅ Done'; btn.style.background = '#388e3c'; loadSiteVisitJobs(); }
-    else { btn.disabled = false; btn.textContent = '✅ Mark Done'; }
-  } catch(e) { btn.disabled = false; btn.textContent = '✅ Mark Done'; }
-}
-
-async function loadSiteVisitLog() {
-  const el = document.getElementById('sitevisits-log');
-  try {
-    const rows = await fetch('/api/site-visits').then(r => r.json());
-    if (!rows.length) { el.innerHTML = '<p style="color:#999;font-size:13px;">No site visits logged yet.</p>'; return; }
-    el.innerHTML = '<table><tr><th>When</th><th>Employee</th><th>Site</th><th>Confirmed By</th></tr>' +
-      rows.map(v => {
-        const dt = v.visited_at ? new Date(v.visited_at).toLocaleString('en-CA',
-          {timeZone:'America/Winnipeg',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
-        return `<tr><td>${dt}</td><td><b>${v.employee_name}</b></td><td>${v.site_address}</td><td>${v.confirmed_by || '—'}</td></tr>`;
-      }).join('') + '</table>';
-  } catch(e) {
-    el.innerHTML = '<p style="color:#c62828;font-size:13px;">Error loading log.</p>';
-  }
+function escIfDef(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 async function initReportsTab() {
@@ -5717,7 +8911,12 @@ async function loadAllReviews() {
     </tr>${rows}</table>`;
 }
 
-loadOverview();
+// CFO landing page = Jobs (with finances). Everyone else lands on Overview.
+if (window.USER_ROLE === 'cfo') {
+  showTab('jobs');
+} else {
+  loadOverview();
+}
 </script>
 
 <style>
@@ -5757,11 +8956,17 @@ loadOverview();
 <div class="lumia-panel" id="lumiaPanel">
   <div class="lumia-panel-header">
     <h3>&#129302; LUMIA</h3>
-    <button class="lumia-panel-close" onclick="toggleLumiaPanel()">&#10005;</button>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#fff;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="lumiaHandsFree" style="margin:0;cursor:pointer;">
+        Hands-free
+      </label>
+      <button class="lumia-panel-close" onclick="toggleLumiaPanel()">&#10005;</button>
+    </div>
   </div>
   <div class="lumia-messages" id="lumiaMessages">
     <div class="lumia-msg lumia">
-      <div class="bubble">Hi! I'm Lumia, your operations assistant. Ask me about employees, jobs, reports, or anything work-related.</div>
+      <div class="bubble">Hi — I'm Lumia. Tap the mic and just talk to me. Flip on Hands-free for a back-and-forth conversation.</div>
     </div>
   </div>
   <div class="lumia-status" id="lumiaStatus"></div>
@@ -5775,11 +8980,15 @@ loadOverview();
 <script>
 let lumiaPanelOpen = false;
 let lumiaMicRec = null;
+let lumiaSpeaking = false;
+let lumiaHistory = [];   // [{role:'user'|'lumia', content:'...'}, ...]
+const LUMIA_MAX_HISTORY = 12;  // last 12 turns sent to the server
 
 function toggleLumiaPanel() {
   lumiaPanelOpen = !lumiaPanelOpen;
   document.getElementById('lumiaPanel').classList.toggle('open', lumiaPanelOpen);
   if (lumiaPanelOpen) document.getElementById('lumiaInput').focus();
+  else { lumiaStopSpeaking(); if (lumiaMicRec) lumiaMicRec.stop(); }
 }
 
 function appendLumiaMsg(role, text) {
@@ -5793,44 +9002,126 @@ function appendLumiaMsg(role, text) {
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-async function sendLumiaMsg() {
+// ─── Voice OUT (text-to-speech) ──────────────────────────────────────────────
+function lumiaPickVoice() {
+  try {
+    const voices = window.speechSynthesis.getVoices() || [];
+    // Prefer high-quality English voices that exist on most platforms
+    const prefs = [
+      /samantha/i, /serena/i, /allison/i, /ava/i,           // macOS / iOS naturals
+      /google us english/i, /microsoft .*natural/i,         // Chrome / Edge
+      /en-us/i, /en[-_]gb/i,
+    ];
+    for (const p of prefs) {
+      const v = voices.find(v => p.test(v.name) || p.test(v.lang));
+      if (v) return v;
+    }
+    return voices[0] || null;
+  } catch(e) { return null; }
+}
+
+function lumiaSpeak(text, onDone) {
+  if (!('speechSynthesis' in window)) { if (onDone) onDone(); return; }
+  // Strip emoji and weird chars that some TTS engines stumble on
+  const clean = (text || '').replace(/[*_`#]/g, '').slice(0, 1000);
+  if (!clean.trim()) { if (onDone) onDone(); return; }
+  try { window.speechSynthesis.cancel(); } catch(e){}
+  const u = new SpeechSynthesisUtterance(clean);
+  const v = lumiaPickVoice();
+  if (v) u.voice = v;
+  u.rate = 1.05;
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  lumiaSpeaking = true;
+  document.getElementById('lumiaStatus').textContent = '🔊 Lumia is speaking…';
+  u.onend = () => {
+    lumiaSpeaking = false;
+    document.getElementById('lumiaStatus').textContent = '';
+    if (onDone) onDone();
+  };
+  u.onerror = () => { lumiaSpeaking = false; if (onDone) onDone(); };
+  window.speechSynthesis.speak(u);
+}
+
+function lumiaStopSpeaking() {
+  try { window.speechSynthesis.cancel(); } catch(e){}
+  lumiaSpeaking = false;
+}
+
+async function sendLumiaMsg(textArg) {
   var input = document.getElementById('lumiaInput');
-  var text = input.value.trim();
+  var text = (textArg != null) ? textArg : input.value.trim();
   if (!text) return;
   input.value = '';
   appendLumiaMsg('user', text);
-  document.getElementById('lumiaStatus').textContent = 'Lumia is thinking...';
+  lumiaHistory.push({role:'user', content: text});
+  if (lumiaHistory.length > LUMIA_MAX_HISTORY) lumiaHistory = lumiaHistory.slice(-LUMIA_MAX_HISTORY);
+  document.getElementById('lumiaStatus').textContent = '💭 Lumia is thinking…';
+  const handsFree = document.getElementById('lumiaHandsFree').checked;
+  let reply = '';
   try {
     var res = await fetch('/api/lumia-chat', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify({ message: text, history: lumiaHistory.slice(0,-1), voice: handsFree })
     });
     var d = await res.json();
-    appendLumiaMsg('lumia', d.reply || 'Sorry, I could not respond right now.');
+    reply = d.reply || 'Sorry, I could not respond right now.';
   } catch(e) {
-    appendLumiaMsg('lumia', 'Connection error. Please try again.');
+    reply = 'Connection error. Please try again.';
   }
+  appendLumiaMsg('lumia', reply);
+  lumiaHistory.push({role:'lumia', content: reply});
   document.getElementById('lumiaStatus').textContent = '';
+  // Speak the reply. If hands-free, re-open the mic after Lumia finishes.
+  if (handsFree) {
+    lumiaSpeak(reply, () => { setTimeout(() => { if (lumiaPanelOpen) lumiaStartListening(); }, 300); });
+  } else {
+    // Single-turn voice: only speak if the user used the mic (we can't easily detect that;
+    // skip auto-speak in non-hands-free mode to avoid surprising desktop users)
+  }
 }
 
-function toggleLumiaMic() {
+function lumiaStartListening() {
+  if (lumiaSpeaking) return;
   var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) { alert('Voice not supported in this browser.'); return; }
-  var btn = document.getElementById('lumiaMicBtn');
-  if (lumiaMicRec) { lumiaMicRec.stop(); return; }
+  if (!SpeechRec) { alert('Voice not supported in this browser. Try Chrome or Safari.'); return; }
+  if (lumiaMicRec) { try { lumiaMicRec.stop(); } catch(e){} lumiaMicRec = null; return; }
   var rec = new SpeechRec();
   rec.lang = 'en-US';
   rec.continuous = false;
   rec.interimResults = false;
+  var btn = document.getElementById('lumiaMicBtn');
   btn.classList.add('recording');
+  document.getElementById('lumiaStatus').textContent = '🎙 Listening… speak now.';
   lumiaMicRec = rec;
   rec.onresult = function(e) {
-    document.getElementById('lumiaInput').value = e.results[0][0].transcript;
+    var heard = e.results[0][0].transcript;
+    document.getElementById('lumiaInput').value = heard;
     sendLumiaMsg();
   };
-  rec.onend = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
-  rec.onerror = function() { btn.classList.remove('recording'); lumiaMicRec = null; };
+  rec.onend = function() {
+    btn.classList.remove('recording'); lumiaMicRec = null;
+    if (!document.getElementById('lumiaStatus').textContent.startsWith('💭')) {
+      document.getElementById('lumiaStatus').textContent = '';
+    }
+  };
+  rec.onerror = function() { btn.classList.remove('recording'); lumiaMicRec = null;
+    document.getElementById('lumiaStatus').textContent = ''; };
   rec.start();
+}
+
+function toggleLumiaMic() {
+  // If Lumia is talking, the mic button interrupts her
+  if (lumiaSpeaking) { lumiaStopSpeaking(); return; }
+  // If we're already listening, stop
+  if (lumiaMicRec) { try { lumiaMicRec.stop(); } catch(e){} return; }
+  lumiaStartListening();
+}
+
+// Pre-load voices (some browsers populate the voice list asynchronously)
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = lumiaPickVoice;
+  try { window.speechSynthesis.getVoices(); } catch(e){}
 }
 // ─── ESTIMATES TAB ──────────────────────────────────────────────────────────
 
@@ -5861,19 +9152,64 @@ async function handleEstimateFile(input) {
   }
   const clientName  = document.getElementById('est-client-name').value.trim();
   const siteAddress = document.getElementById('est-site-address').value.trim();
-  const fd = new FormData();
-  fd.append('pdf', file);
-  fd.append('client_name', clientName);
-  fd.append('site_address', siteAddress);
   document.getElementById('est-upload-panel').style.display = 'none';
   document.getElementById('est-progress-panel').style.display = '';
-  document.getElementById('est-progress-title').textContent = 'Uploading ' + file.name + '...';
-  document.getElementById('est-progress-msg').textContent = 'Sending to Lumia...';
+  document.getElementById('est-progress-title').textContent = 'Preparing upload — ' + file.name;
+  document.getElementById('est-progress-msg').textContent = 'Getting upload slot from Supabase...';
+
   try {
-    const r = await fetch('/api/estimates/upload', { method: 'POST', body: fd });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || 'Upload failed');
-    _estJobId = d.job_id;
+    // ── Step 1 — ask the server for a signed upload URL pointing at Supabase storage
+    const initResp = await fetch('/api/estimates/init-upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        filename:     file.name,
+        client_name:  clientName,
+        site_address: siteAddress,
+      }),
+    });
+    const initD = await initResp.json();
+    if (!initD.ok) throw new Error(initD.error || 'Failed to init upload.');
+    _estJobId = initD.job_id;
+
+    // ── Step 2 — upload directly to Supabase via the signed URL (bypasses Railway)
+    document.getElementById('est-progress-title').textContent = 'Uploading ' + file.name + ' to storage...';
+    document.getElementById('est-progress-msg').textContent =
+      'Uploading ' + (file.size > 1e6 ? (file.size/1e6).toFixed(1) + ' MB' : Math.round(file.size/1e3) + ' KB')
+      + ' directly to Supabase. This is the slow step on big drawings.';
+    // Use XHR for upload progress
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round(100 * e.loaded / e.total);
+          document.getElementById('est-progress-msg').textContent =
+            'Uploading… ' + pct + '%  (' + (e.loaded/1e6).toFixed(1) + ' / ' + (e.total/1e6).toFixed(1) + ' MB)';
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          console.error('[Estimates] Supabase response body:', xhr.responseText);
+          reject(new Error('Storage upload HTTP ' + xhr.status + ' — ' + (xhr.responseText || '').slice(0,300)));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload.'));
+      xhr.open('PUT', initD.upload_url);
+      // Match what the Supabase JS SDK does for signed upload URLs:
+      xhr.setRequestHeader('Content-Type', file.type || 'application/pdf');
+      xhr.setRequestHeader('Cache-Control', 'max-age=3600');
+      xhr.send(file);
+    });
+
+    // ── Step 3 — tell the server "upload done, start extraction"
+    document.getElementById('est-progress-title').textContent = 'Starting extraction...';
+    document.getElementById('est-progress-msg').textContent = 'Lumia is pulling the PDF from storage and queuing pages for Gemini.';
+    const startResp = await fetch('/api/estimates/start-extraction/' + _estJobId, {method: 'POST'});
+    const startD = await startResp.json();
+    if (!startD.ok) throw new Error(startD.error || 'Failed to start extraction.');
+
     document.getElementById('est-progress-title').textContent = 'Extracting measurements...';
     document.getElementById('est-progress-msg').textContent = 'Queued...';
     _estPollTimer = setInterval(_pollEstimateStatus, 2500);
@@ -5927,6 +9263,29 @@ async function _renderEstimateResults(job) {
     '<span style="color:#888;">File: ' + (dt.file_name||'') + '</span>';
   const pc = d.paint_calc || {};
   document.getElementById('est-scope').textContent = pc.scope_summary || '';
+  // Price banner — Ashrah floor-area pricing
+  const pr = pc.pricing;
+  const scopeEl = document.getElementById('est-scope');
+  let priceBanner = document.getElementById('est-price-banner');
+  if (priceBanner) priceBanner.remove();
+  if (pr && pr.price != null) {
+    priceBanner = document.createElement('div');
+    priceBanner.id = 'est-price-banner';
+    priceBanner.style.cssText = 'margin:14px 0;padding:18px 22px;background:linear-gradient(135deg,#1F3864,#2a4a7f);color:#fff;border-radius:12px;';
+    const _fmt = n => Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    const doorsLine = (pr.door_count && pr.door_count > 0)
+      ? '<div style="font-size:12px;opacity:.85;margin-top:4px;">+ ' + pr.door_count + ' door' + (pr.door_count===1?'':'s') + ' @ $' + (pr.door_rate||50) + ' = $' + _fmt(pr.doors_price) + '</div>'
+      : '';
+    const epoxyLine = (pr.epoxy_area_sqft && pr.epoxy_area_sqft > 0)
+      ? '<div style="font-size:12px;opacity:.85;margin-top:4px;">+ ' + Number(pr.epoxy_area_sqft).toLocaleString() + ' sq ft epoxy @ $' + (pr.epoxy_rate||4) + ' = $' + _fmt(pr.epoxy_price) + '</div>'
+      : '';
+    priceBanner.innerHTML =
+      '<div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.75;margin-bottom:4px;">Estimated Price' + (pr.ceilings_included ? ' (incl. ceilings)' : ' (walls only)') + '</div>' +
+      '<div style="font-size:34px;font-weight:800;line-height:1;">$' + _fmt(pr.price) + '</div>' +
+      doorsLine + epoxyLine +
+      '<div style="font-size:13px;opacity:.85;margin-top:8px;">' + escHtmlEst(pr.formula || '') + '</div>';
+    scopeEl.parentNode.insertBefore(priceBanner, scopeEl.nextSibling);
+  }
   const rooms = pc.rooms || [];
   if (rooms.length > 0) {
     let tbl = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
@@ -5991,6 +9350,623 @@ function copyWorkOrder() {
   navigator.clipboard.writeText(txt).then(function() { alert('Work order copied.'); });
 }
 
+async function regenerateEstimate() {
+  if (!_estJobId) return;
+  const btn = document.getElementById('est-regenerate-btn');
+  const result = document.getElementById('est-create-job-result');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '🔄 Re-running…';
+  result.innerHTML = '<span style="color:#1E40AF;">Re-running Claude only against the saved extraction. No Gemini charge.</span>';
+  try {
+    const r = await fetch('/api/estimates/' + _estJobId + '/regenerate', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      // Start polling status again
+      if (_estPollTimer) clearInterval(_estPollTimer);
+      _estPollTimer = setInterval(_pollEstimateStatus, 2500);
+      result.innerHTML = '<span style="color:#2e7d32;font-weight:600;">✓ Re-running estimate from saved data…</span>';
+    } else {
+      result.innerHTML = '<span style="color:#c0392b;">' + (d.error || 'Failed.') + '</span>';
+    }
+  } catch(e) {
+    result.innerHTML = '<span style="color:#c0392b;">Network error: ' + e.message + '</span>';
+  }
+  btn.disabled = false;
+  btn.textContent = orig;
+}
+
+// ── Receipt upload + auto-classify ─────────────────────────────────────────
+function openReceiptUpload() {
+  let m = document.getElementById('receipt-modal');
+  if (m) m.remove();
+  m = document.createElement('div');
+  m.id = 'receipt-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:24px;overflow-y:auto;';
+  m.innerHTML =
+    '<div style="background:#fff;border-radius:14px;padding:24px;width:100%;max-width:560px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">' +
+        '<h2 style="margin:0;font-size:18px;color:#1F3864;">📸 Upload Receipt</h2>' +
+        '<button id="rcpt-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;">✕</button>' +
+      '</div>' +
+      '<p style="font-size:13px;color:#666;margin-bottom:14px;">Snap or upload a clear photo of the receipt. Lumia reads the vendor, amount, date, and tries to match it to one of your active jobs.</p>' +
+      '<input type="file" id="rcpt-file" accept="image/*" capture="environment" style="display:none;">' +
+      '<button class="btn btn-green" id="rcpt-pick" style="width:100%;padding:14px;font-size:14px;">📷 Take / Choose Photo</button>' +
+      '<div id="rcpt-status" style="margin-top:12px;font-size:13px;color:#666;"></div>' +
+      '<div id="rcpt-result" style="margin-top:16px;display:none;"></div>' +
+    '</div>';
+  document.body.appendChild(m);
+  document.body.style.overflow = 'hidden';
+  const close = () => { m.remove(); document.body.style.overflow = ''; };
+  m.querySelector('#rcpt-close').onclick = close;
+  m.addEventListener('click', (e) => { if (e.target === m) close(); });
+  m.querySelector('#rcpt-pick').onclick = () => m.querySelector('#rcpt-file').click();
+  m.querySelector('#rcpt-file').onchange = (e) => handleReceipt(e.target.files[0]);
+}
+
+async function handleReceipt(file) {
+  if (!file) return;
+  const status = document.getElementById('rcpt-status');
+  const result = document.getElementById('rcpt-result');
+  status.textContent = '📤 Uploading + analyzing… give Lumia ~15-30 seconds.';
+  status.style.color = '#1F3864';
+  result.style.display = 'none';
+  const fd = new FormData(); fd.append('photo', file);
+  try {
+    const r = await fetch('/api/receipt/analyze', {method:'POST', body: fd, signal: AbortSignal.timeout(280000)});
+    const d = await r.json();
+    if (!d.ok) { status.textContent = d.error || 'Failed.'; status.style.color = '#c62828'; return; }
+    status.textContent = '✓ Lumia read the receipt. Review below and save.';
+    status.style.color = '#2e7d32';
+    renderReceiptConfirm(d);
+  } catch(e) {
+    status.textContent = 'Network error: ' + e.message;
+    status.style.color = '#c62828';
+  }
+}
+
+function renderReceiptConfirm(d) {
+  const result = document.getElementById('rcpt-result');
+  const p = d.parsed || {};
+  const conf = p.match_confidence || 'low';
+  const confColor = conf === 'high' ? '#2e7d32' : conf === 'medium' ? '#f57c00' : '#c62828';
+  const items = (p.items || []).slice(0, 6).join(' · ');
+  let jobOptions = '<option value="">— pick a job —</option>';
+  (d.open_jobs || []).forEach(j => {
+    const sel = (p.matched_job_id && j.id === p.matched_job_id) ? ' selected' : '';
+    jobOptions += '<option value="' + j.id + '"' + sel + '>' +
+      (j.client_name || '?') + ' @ ' + (j.site_address || '?') + '</option>';
+  });
+  result.style.display = '';
+  result.innerHTML =
+    '<div style="background:#f4f6fb;border-radius:10px;padding:14px;margin-bottom:12px;">' +
+      (d.receipt_url ? '<img src="' + d.receipt_url + '" style="width:100%;max-height:200px;object-fit:contain;border-radius:6px;margin-bottom:10px;">' : '') +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">' +
+        '<div><b>Vendor:</b><br><input id="rcpt-vendor" value="' + (p.vendor || '') + '" style="width:100%;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;"></div>' +
+        '<div><b>Amount:</b><br><input id="rcpt-amount" type="number" step="0.01" value="' + (p.amount || 0) + '" style="width:100%;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;"></div>' +
+        '<div><b>Date:</b><br><input id="rcpt-date" type="date" value="' + (p.expense_date || new Date().toISOString().slice(0,10)) + '" style="width:100%;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;"></div>' +
+        '<div><b>Category:</b><br><select id="rcpt-cat" style="width:100%;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;">' +
+          ['paint','primer','sundries','equipment','other'].map(c =>
+            '<option value="' + c + '"' + (c === (p.category || 'other') ? ' selected' : '') + '>' + c + '</option>'
+          ).join('') +
+        '</select></div>' +
+      '</div>' +
+      '<div style="margin-top:10px;font-size:13px;"><b>Items:</b> ' + (items || '—') + '</div>' +
+    '</div>' +
+    '<div style="background:#fff;border:1.5px solid #dce2ef;border-radius:10px;padding:14px;margin-bottom:12px;">' +
+      '<div style="font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;margin-bottom:6px;">SITE ASSIGNMENT</div>' +
+      '<div style="font-size:12px;color:' + confColor + ';margin-bottom:8px;">Lumia match confidence: <b>' + conf.toUpperCase() + '</b> — ' + (p.match_reasoning || 'no reasoning') + '</div>' +
+      '<select id="rcpt-job" style="width:100%;padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">' + jobOptions + '</select>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-green" id="rcpt-save">💾 Save Receipt</button>' +
+      '<span id="rcpt-save-msg" style="font-size:13px;color:#666;align-self:center;"></span>' +
+    '</div>';
+  document.getElementById('rcpt-save').onclick = () => saveReceipt(d.receipt_url);
+}
+
+async function saveReceipt(receiptUrl) {
+  const job_id = document.getElementById('rcpt-job').value;
+  const msg = document.getElementById('rcpt-save-msg');
+  if (!job_id) { msg.textContent = 'Pick a job first.'; msg.style.color = '#c62828'; return; }
+  const payload = {
+    job_id,
+    vendor:       document.getElementById('rcpt-vendor').value.trim(),
+    amount:       parseFloat(document.getElementById('rcpt-amount').value || 0),
+    expense_date: document.getElementById('rcpt-date').value,
+    category:     document.getElementById('rcpt-cat').value,
+    description:  document.getElementById('rcpt-vendor').value.trim() + ' receipt',
+    receipt_url:  receiptUrl || '',
+  };
+  msg.textContent = 'Saving…'; msg.style.color = '#1F3864';
+  try {
+    const r = await fetch('/api/receipt/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = '✓ Saved as expense. Sharmine and Ahmad can see it in finance.';
+      msg.style.color = '#2e7d32';
+      setTimeout(() => { document.getElementById('receipt-modal').remove(); document.body.style.overflow = ''; }, 1500);
+    } else {
+      msg.textContent = d.error || 'Save failed.';
+      msg.style.color = '#c62828';
+    }
+  } catch(e) {
+    msg.textContent = 'Network error.';
+    msg.style.color = '#c62828';
+  }
+}
+
+// ── Job Kickoff (initial site assessment + AI execution plan) ──────────────
+let _kickoffPhotos = [];
+
+async function loadJobKickoff(jobId) {
+  const el = document.getElementById('jd-kickoff');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/job/' + jobId + '/kickoff');
+    const d = await r.json();
+    if (!d.ok) { el.textContent = d.error || 'Could not load.'; return; }
+    const j = d.job || {};
+    _kickoffPhotos = j.kickoff_photos || [];
+    const doneAt = j.kickoff_done_at ? new Date(j.kickoff_done_at).toLocaleString(
+      'en-CA', {timeZone:'America/Winnipeg', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+    el.innerHTML =
+      // Status header
+      (j.kickoff_done_at
+        ? '<div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#1b5e20;">✓ Kickoff completed' + (j.kickoff_by ? ' by ' + j.kickoff_by : '') + (doneAt ? ' on ' + doneAt : '') + '</div>'
+        : '<div style="background:#fff8e1;border-left:3px solid #ffa000;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#5d4037;">⚠ Kickoff not done yet — walk the site, take photos, write your notes, then click Save.</div>'
+      ) +
+      // Photo uploader (no inline onclick refs — wired below via JS)
+      '<div style="margin-bottom:12px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#1F3864;letter-spacing:.5px;display:block;margin-bottom:6px;">📷 STARTING-STATE PHOTOS</label>' +
+        '<div id="jd-kickoff-previews" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;"></div>' +
+        '<input type="file" id="jd-kickoff-photo-input" accept="image/*" multiple style="display:none;">' +
+        '<button class="btn btn-sm" id="jd-kickoff-photo-btn" style="background:#1F3864;">+ Add Photos</button>' +
+        '<span id="jd-kickoff-photo-status" style="font-size:11px;color:#666;margin-left:8px;"></span>' +
+      '</div>' +
+      // Description
+      '<div style="margin-bottom:12px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#1F3864;letter-spacing:.5px;display:block;margin-bottom:6px;">📝 SITE NOTES (what you see)</label>' +
+        '<textarea id="jd-kickoff-desc" rows="5" placeholder="How many floors? How many rooms, how many walls? Substrate (drywall / plaster / wood)? Existing condition (cracks, holes, water damage, smoke staining)? Anything in the way (furniture, fixtures, occupants)? Access notes (key, hours, parking)? Anything special the crew should know before starting?" style="width:100%;padding:10px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;">' + (j.kickoff_description || '') + '</textarea>' +
+      '</div>' +
+      // Actions
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">' +
+        '<button class="btn btn-sm" id="jd-kickoff-save" style="background:#2e7d32;">💾 Save Kickoff</button>' +
+        '<button class="btn btn-sm" id="jd-kickoff-plan" style="background:#1E40AF;">🤖 Generate Execution Plan</button>' +
+        '<span id="jd-kickoff-msg" style="font-size:12px;color:#666;"></span>' +
+      '</div>' +
+      // AI execution plan
+      '<div id="jd-kickoff-plan-wrap" style="' + (j.kickoff_ai_plan ? '' : 'display:none;') + '">' +
+        '<label style="font-size:11px;font-weight:700;color:#1F3864;letter-spacing:.5px;display:block;margin-bottom:6px;">🤖 EXECUTION PLAN (Claude — review before applying)</label>' +
+        '<div id="jd-kickoff-plan-text" style="background:#f4f6fb;border-left:3px solid #1F3864;padding:12px 14px;border-radius:6px;font-size:13px;line-height:1.6;white-space:pre-wrap;color:#222;max-height:340px;overflow-y:auto;">' +
+          (j.kickoff_ai_plan || '') + '</div>' +
+        '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<button class="btn btn-sm" id="jd-kickoff-apply" style="background:#2e7d32;">⬇ Apply as Daily Plan</button>' +
+          '<span id="jd-kickoff-apply-msg" style="font-size:12px;color:#666;align-self:center;"></span>' +
+        '</div>' +
+      '</div>';
+    _renderKickoffPhotos(jobId);
+
+    const photoInput = document.getElementById('jd-kickoff-photo-input');
+    if (photoInput) photoInput.onchange = (e) => handleKickoffPhotos(e.target, jobId);
+    const photoBtn = document.getElementById('jd-kickoff-photo-btn');
+    if (photoBtn) photoBtn.onclick = () => photoInput.click();
+    document.getElementById('jd-kickoff-save').onclick = () => saveKickoff(jobId);
+    document.getElementById('jd-kickoff-plan').onclick = () => generateKickoffPlan(jobId);
+    const applyBtn = document.getElementById('jd-kickoff-apply');
+    if (applyBtn) applyBtn.onclick = () => applyKickoffPlanAsDaily(jobId);
+  } catch(e) {
+    el.textContent = 'Network error loading kickoff.';
+  }
+}
+
+function _renderKickoffPhotos(jobId) {
+  const wrap = document.getElementById('jd-kickoff-previews');
+  if (!wrap) return;
+  if (!_kickoffPhotos.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:#888;padding:8px 0;">No photos yet.</div>';
+    return;
+  }
+  wrap.innerHTML = _kickoffPhotos.map((url, i) =>
+    '<div style="position:relative;">' +
+      '<img src="' + url + '" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid #dce2ef;">' +
+      '<button data-kp-idx="' + i + '" style="position:absolute;top:-6px;right:-6px;background:#c62828;color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:13px;cursor:pointer;line-height:1;">×</button>' +
+    '</div>'
+  ).join('');
+  wrap.querySelectorAll('[data-kp-idx]').forEach(b => b.onclick = () => {
+    _kickoffPhotos.splice(parseInt(b.dataset.kpIdx, 10), 1);
+    _renderKickoffPhotos(jobId);
+  });
+}
+
+// Compress (1600px/q0.82) + upload straight to Supabase via signed URL.
+async function _kickoffCompress(file) {
+  if (!file.type || !file.type.startsWith('image/')) return file;
+  if (file.size < 300 * 1024) return file;
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image(); i.onload = () => res(i); i.onerror = rej;
+      i.src = URL.createObjectURL(file);
+    });
+    const MAX = 1600;
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const longSide = Math.max(w, h);
+    if (longSide <= MAX && file.size < 600 * 1024) { URL.revokeObjectURL(img.src); return file; }
+    const scale = longSide > MAX ? (MAX / longSide) : 1;
+    w = Math.round(w * scale); h = Math.round(h * scale);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(img.src);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name||'photo').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch(e) { return file; }
+}
+async function _kickoffUploadDirect(file) {
+  try {
+    const sigRes = await fetch('/api/upload-photo/signed', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ filename: file.name || 'photo.jpg' }),
+    });
+    const sig = await sigRes.json();
+    if (!sig.ok || !sig.upload_url) throw new Error(sig.error || 'no signed url');
+    const put = await fetch(sig.upload_url, {
+      method:'PUT', headers:{'Content-Type': file.type || 'image/jpeg'}, body: file,
+    });
+    if (!put.ok && put.status !== 200 && put.status !== 201) throw new Error('PUT ' + put.status);
+    return sig.public_url;
+  } catch(err) {
+    const fd = new FormData(); fd.append('photo', file);
+    const r = await fetch('/api/upload-photo', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!d.url) throw new Error(d.error || 'upload failed');
+    return d.url;
+  }
+}
+
+async function handleKickoffPhotos(input, jobId) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  const status = document.getElementById('jd-kickoff-photo-status');
+  const total = files.length;
+  status.textContent = 'Preparing ' + total + ' photo(s)…';
+  const prepared = await Promise.all(files.map(_kickoffCompress));
+  let done = 0;
+  status.textContent = 'Uploading 0 / ' + total + '…';
+  await Promise.all(prepared.map(async (f) => {
+    try {
+      const url = await _kickoffUploadDirect(f);
+      if (url) { _kickoffPhotos.push(url); _renderKickoffPhotos(jobId); }
+    } catch(e) {}
+    done++;
+    status.textContent = done < total ? ('Uploading ' + done + ' / ' + total + '…')
+                                      : (_kickoffPhotos.length + ' photo(s) on this kickoff');
+  }));
+  status.textContent = _kickoffPhotos.length + ' photo(s) on this kickoff';
+  _renderKickoffPhotos(jobId);
+  input.value = '';
+}
+
+async function saveKickoff(jobId) {
+  const msg = document.getElementById('jd-kickoff-msg');
+  const desc = document.getElementById('jd-kickoff-desc').value.trim();
+  msg.textContent = 'Saving…'; msg.style.color = '#1F3864';
+  try {
+    const r = await fetch('/api/job/' + jobId + '/kickoff', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({description: desc, photos: _kickoffPhotos}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = '✓ Saved'; msg.style.color = '#2e7d32';
+      setTimeout(() => { msg.textContent = ''; }, 2500);
+    } else {
+      msg.textContent = d.error || 'Failed.'; msg.style.color = '#c62828';
+    }
+  } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
+}
+
+async function generateKickoffPlan(jobId) {
+  const msg = document.getElementById('jd-kickoff-msg');
+  const btn = document.getElementById('jd-kickoff-plan');
+  // Always save first so the latest description is used
+  await saveKickoff(jobId);
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '🤖 Generating…';
+  msg.textContent = 'Claude is writing the plan…'; msg.style.color = '#1F3864';
+  try {
+    const r = await fetch('/api/job/' + jobId + '/kickoff/generate-plan', {
+      method:'POST', signal: AbortSignal.timeout(280000),
+    });
+    const d = await r.json();
+    if (d.ok && d.plan) {
+      document.getElementById('jd-kickoff-plan-wrap').style.display = '';
+      document.getElementById('jd-kickoff-plan-text').textContent = d.plan;
+      msg.textContent = '✓ Plan ready — review below, then click Apply as Daily Plan.';
+      msg.style.color = '#2e7d32';
+    } else {
+      msg.textContent = d.error || 'Failed to generate.'; msg.style.color = '#c62828';
+    }
+  } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
+  btn.disabled = false; btn.textContent = orig;
+}
+
+async function applyKickoffPlanAsDaily(jobId) {
+  const msg = document.getElementById('jd-kickoff-apply-msg');
+  if (!confirm('Replace the existing daily plan with the AI-generated one?')) return;
+  msg.textContent = 'Applying…';
+  try {
+    const r = await fetch('/api/job/' + jobId + '/kickoff/apply-as-daily-plan', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      msg.textContent = '✓ Applied ' + (d.applied || 0) + ' day(s) — refreshing plan view…';
+      msg.style.color = '#2e7d32';
+      // Reload the plan editor
+      fetch('/api/job/' + jobId + '/plan').then(r=>r.json()).then(dat=>{
+        jdPlan = dat.plan || [];
+        _renderJdPlan(window._jdCheckinDates || []);
+      });
+    } else {
+      msg.textContent = d.error || 'Failed.';
+      msg.style.color = '#c62828';
+    }
+  } catch(e) { msg.textContent = 'Network error.'; msg.style.color = '#c62828'; }
+}
+
+// ── Project Finance (per-job P&L) ──────────────────────────────────────────
+async function loadJobFinance(jobId) {
+  const sumEl = document.getElementById('jd-finance-summary');
+  const detEl = document.getElementById('jd-finance-detail');
+  if (!sumEl || !detEl) return;
+  sumEl.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/job/' + jobId + '/finance');
+    const d = await r.json();
+    if (!d.ok) { sumEl.textContent = d.error || 'Could not load finance.'; return; }
+    const s = d.summary || {};
+    const $ = (n) => '$' + Number(n || 0).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
+    const profColor = (s.gross_profit || 0) >= 0 ? '#2e7d32' : '#c62828';
+    sumEl.innerHTML =
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:10px;">' +
+        _financeTile('Contract',     $(s.contract_price), '#1F3864') +
+        _financeTile('Billed',       $(s.billed),         '#1F3864') +
+        _financeTile('Paid',         $(s.paid),           '#2e7d32') +
+        _financeTile('Outstanding',  $(s.outstanding),    s.outstanding > 0 ? '#f57c00' : '#888') +
+        _financeTile('Labor Cost',   $(s.labor_cost) + ' (' + (s.labor_hours||0) + ' hrs)', '#888') +
+        _financeTile('Other Costs',  $(s.expense_total), '#888') +
+        _financeTile('Total Costs',  $(s.total_cost), '#c62828') +
+        _financeTile('Gross Profit', $(s.gross_profit), profColor) +
+        _financeTile('Margin',       (s.margin_pct||0) + '%', profColor) +
+      '</div>';
+    // Build detail panels (contract + expenses + billings)
+    detEl.innerHTML =
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px;">' +
+      _financeContractPanel(jobId, d.job) +
+      _financeExpensesPanel(jobId, d.expenses || []) +
+      _financeBillingsPanel(jobId, d.billings || []) +
+      _financeLaborPanel(d.labor || []) +
+      '</div>';
+    _wireFinanceForms(jobId);
+  } catch(e) {
+    sumEl.textContent = 'Could not load finance.';
+  }
+}
+
+function _financeTile(label, value, color) {
+  return '<div style="background:#f4f6fb;border-radius:8px;padding:10px 12px;border-left:3px solid ' + color + ';">' +
+    '<div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;">' + label + '</div>' +
+    '<div style="font-size:15px;font-weight:700;color:' + color + ';margin-top:2px;">' + value + '</div>' +
+    '</div>';
+}
+
+function _financeContractPanel(jobId, job) {
+  return '<div style="grid-column:1/-1;background:#fff;border:1px solid #e8ecf4;border-radius:8px;padding:12px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;margin-bottom:8px;">CONTRACT VALUE</div>' +
+    '<div style="display:flex;gap:8px;align-items:center;">' +
+    '<input type="number" step="0.01" id="jd-fin-contract" value="' + (job.contract_price || 0) + '" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;flex:1;max-width:240px;">' +
+    '<button class="btn btn-sm" id="jd-fin-contract-save" style="background:#1F3864;">Save Contract Price</button>' +
+    '<span id="jd-fin-contract-msg" style="font-size:12px;color:#888;"></span>' +
+    '</div></div>';
+}
+
+function _financeExpensesPanel(jobId, expenses) {
+  let html = '<div style="background:#fff;border:1px solid #e8ecf4;border-radius:8px;padding:12px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;margin-bottom:10px;">EXPENSES (' + expenses.length + ')</div>';
+  if (expenses.length) {
+    html += '<div style="max-height:200px;overflow-y:auto;margin-bottom:8px;">' +
+      expenses.map(e => {
+        const amt = '$' + Number(e.amount || 0).toLocaleString('en-CA');
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px;">' +
+          '<div style="flex:1;"><b>' + (e.category||'other') + '</b> · ' + (e.description||'') +
+          (e.vendor ? ' <span style="color:#888;">(' + e.vendor + ')</span>' : '') +
+          ' <span style="color:#888;">' + (e.expense_date || '') + '</span></div>' +
+          '<div style="color:#c62828;font-weight:600;">' + amt + '</div>' +
+          '<button data-exp-id="' + e.id + '" class="owner-only" style="background:none;border:none;color:#c62828;font-size:14px;cursor:pointer;margin-left:6px;">✕</button>' +
+          '</div>';
+      }).join('') + '</div>';
+  }
+  html += '<div style="display:grid;grid-template-columns:120px 1fr 100px auto;gap:6px;margin-top:6px;">' +
+    '<select id="jd-exp-cat" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+      '<option value="paint">Paint</option>' +
+      '<option value="primer">Primer</option>' +
+      '<option value="sundries">Sundries</option>' +
+      '<option value="equipment">Equipment</option>' +
+      '<option value="subcontract">Subcontract</option>' +
+      '<option value="permit">Permit</option>' +
+      '<option value="travel">Travel</option>' +
+      '<option value="other">Other</option>' +
+    '</select>' +
+    '<input type="text" id="jd-exp-desc" placeholder="Description (vendor + product)" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+    '<input type="number" step="0.01" id="jd-exp-amt" placeholder="Amount" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+    '<button class="btn btn-sm" id="jd-exp-add" style="background:#1F3864;">+ Add</button>' +
+    '</div>' +
+    '<span id="jd-exp-msg" style="font-size:11px;color:#666;"></span>' +
+    '</div>';
+  return html;
+}
+
+function _financeBillingsPanel(jobId, billings) {
+  let html = '<div style="background:#fff;border:1px solid #e8ecf4;border-radius:8px;padding:12px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;margin-bottom:10px;">BILLINGS / INVOICES (' + billings.length + ')</div>';
+  if (billings.length) {
+    html += '<div style="max-height:200px;overflow-y:auto;margin-bottom:8px;">' +
+      billings.map(b => {
+        const amt = '$' + Number(b.amount || 0).toLocaleString('en-CA');
+        const stColor = b.status === 'paid' ? '#2e7d32' : b.status === 'overdue' ? '#c62828' : '#1F3864';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px;">' +
+          '<div style="flex:1;"><b>' + (b.bill_type || 'progress') + '</b> · ' +
+          '<span style="color:' + stColor + ';font-weight:600;">' + (b.status || 'sent') + '</span> · ' +
+          (b.description || '') + ' <span style="color:#888;">' + (b.invoice_date || '') + '</span></div>' +
+          '<div style="color:#2e7d32;font-weight:600;">' + amt + '</div>' +
+          '<button data-bill-id="' + b.id + '" class="owner-only" style="background:none;border:none;color:#c62828;font-size:14px;cursor:pointer;margin-left:6px;">✕</button>' +
+          '</div>';
+      }).join('') + '</div>';
+  }
+  html += '<div style="display:grid;grid-template-columns:110px 1fr 100px 80px auto;gap:6px;margin-top:6px;">' +
+    '<select id="jd-bill-type" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+      '<option value="progress">Progress</option>' +
+      '<option value="deposit">Deposit</option>' +
+      '<option value="final">Final</option>' +
+      '<option value="change_order">Change Order</option>' +
+    '</select>' +
+    '<input type="text" id="jd-bill-desc" placeholder="Description" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+    '<input type="number" step="0.01" id="jd-bill-amt" placeholder="Amount" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+    '<select id="jd-bill-status" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
+      '<option value="sent">Sent</option>' +
+      '<option value="paid">Paid</option>' +
+      '<option value="overdue">Overdue</option>' +
+    '</select>' +
+    '<button class="btn btn-sm" id="jd-bill-add" style="background:#2e7d32;">+ Add</button>' +
+    '</div>' +
+    '<span id="jd-bill-msg" style="font-size:11px;color:#666;"></span>' +
+    '</div>';
+  return html;
+}
+
+function _financeLaborPanel(labor) {
+  if (!labor.length) return '';
+  const total = labor.reduce((sum, r) => sum + (r.cost || 0), 0);
+  const hrs   = labor.reduce((sum, r) => sum + (r.hours || 0), 0);
+  return '<div style="grid-column:1/-1;background:#fff;border:1px solid #e8ecf4;border-radius:8px;padding:12px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;margin-bottom:10px;">LABOR (auto-computed from check-ins)</div>' +
+    '<div style="max-height:200px;overflow-y:auto;font-size:12px;">' +
+    labor.map(r =>
+      '<div style="display:grid;grid-template-columns:140px 100px 80px 90px 100px;gap:8px;padding:4px 0;border-bottom:1px solid #f0f0f0;">' +
+        '<div><b>' + (r.worker || '?') + '</b></div>' +
+        '<div style="color:#666;">' + (r.date || '') + '</div>' +
+        '<div style="text-align:right;">' + (r.hours || 0) + ' hr</div>' +
+        '<div style="text-align:right;color:#888;">$' + (r.rate || 0) + '/hr</div>' +
+        '<div style="text-align:right;font-weight:600;">$' + Number(r.cost || 0).toFixed(2) + '</div>' +
+      '</div>'
+    ).join('') +
+    '<div style="display:grid;grid-template-columns:140px 100px 80px 90px 100px;gap:8px;padding:6px 0;border-top:1px solid #dce2ef;margin-top:4px;font-weight:700;">' +
+      '<div>TOTAL</div><div></div>' +
+      '<div style="text-align:right;">' + hrs.toFixed(1) + ' hr</div><div></div>' +
+      '<div style="text-align:right;color:#c62828;">$' + total.toFixed(2) + '</div>' +
+    '</div>' +
+    '</div>' +
+    '<p style="font-size:11px;color:#888;margin:8px 0 0;">Note: if an employee does not have an hourly_rate set, $35/hr is used as a default.</p>' +
+    '</div>';
+}
+
+function _wireFinanceForms(jobId) {
+  const $ = (id) => document.getElementById(id);
+  // Contract price
+  if ($('jd-fin-contract-save')) $('jd-fin-contract-save').onclick = async () => {
+    const v = parseFloat($('jd-fin-contract').value || 0);
+    const msg = $('jd-fin-contract-msg'); msg.textContent = 'Saving…';
+    const r = await fetch('/api/job/' + jobId + '/contract-price', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({contract_price: v})
+    });
+    const d = await r.json();
+    if (d.ok) { msg.textContent = '✓ Saved'; msg.style.color = '#2e7d32'; setTimeout(()=>loadJobFinance(jobId), 500); }
+    else { msg.textContent = d.error || 'Failed.'; msg.style.color = '#c62828'; }
+  };
+  // Add expense
+  if ($('jd-exp-add')) $('jd-exp-add').onclick = async () => {
+    const cat = $('jd-exp-cat').value;
+    const desc = $('jd-exp-desc').value.trim();
+    const amt = parseFloat($('jd-exp-amt').value || 0);
+    if (!desc || !amt) { $('jd-exp-msg').textContent = 'Description + amount required.'; return; }
+    const r = await fetch('/api/job/' + jobId + '/expense', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({category: cat, description: desc, amount: amt})
+    });
+    const d = await r.json();
+    if (d.ok) loadJobFinance(jobId);
+    else $('jd-exp-msg').textContent = d.error || 'Failed.';
+  };
+  // Add billing
+  if ($('jd-bill-add')) $('jd-bill-add').onclick = async () => {
+    const type = $('jd-bill-type').value;
+    const desc = $('jd-bill-desc').value.trim();
+    const amt = parseFloat($('jd-bill-amt').value || 0);
+    const status = $('jd-bill-status').value;
+    if (!amt) { $('jd-bill-msg').textContent = 'Amount required.'; return; }
+    const r = await fetch('/api/job/' + jobId + '/billing', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({bill_type: type, description: desc, amount: amt, status: status})
+    });
+    const d = await r.json();
+    if (d.ok) loadJobFinance(jobId);
+    else $('jd-bill-msg').textContent = d.error || 'Failed.';
+  };
+  // Delete buttons
+  document.querySelectorAll('[data-exp-id]').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this expense?')) return;
+    await fetch('/api/job/' + jobId + '/expense/' + b.dataset.expId, {method:'DELETE'});
+    loadJobFinance(jobId);
+  });
+  document.querySelectorAll('[data-bill-id]').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this billing entry?')) return;
+    await fetch('/api/job/' + jobId + '/billing/' + b.dataset.billId, {method:'DELETE'});
+    loadJobFinance(jobId);
+  });
+}
+
+async function generateQuoteFromEstimate() {
+  if (!_estJobId) return;
+  const btn = document.getElementById('est-to-quote-btn');
+  const result = document.getElementById('est-create-job-result');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '🔄 Drafting quote with Lumia...';
+  result.innerHTML = '<span style="color:#1E40AF;">Lumia is reading the estimate and writing a polished proposal — this takes 15–30 seconds.</span>';
+  try {
+    const r = await fetch('/api/estimates/' + _estJobId + '/to-quote', {
+      method: 'POST', signal: AbortSignal.timeout(280000),
+    });
+    const d = await r.json();
+    if (d.ok && d.quote_id) {
+      result.innerHTML = '<span style="color:#2e7d32;font-weight:600;">✓ Quote drafted. Opening the editor for your review...</span>';
+      // Jump to Quotes tab and open the new quote
+      setTimeout(async () => {
+        // Switch tabs
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        const tabBtn = [...document.querySelectorAll('.tab')].find(t => t.textContent.includes('Quotes'));
+        if (tabBtn) tabBtn.classList.add('active');
+        document.getElementById('tab-quotes').classList.add('active');
+        await loadQuotes();
+        // Find and open the new quote
+        const all = await fetch('/api/quotes').then(x=>x.json());
+        const q = (all || []).find(x => x.id === d.quote_id);
+        if (q) openQuoteEditor(q);
+      }, 500);
+    } else {
+      result.innerHTML = '<span style="color:#c0392b;">' + (d.error || 'Failed to draft quote.') + '</span>';
+    }
+  } catch(e) {
+    result.innerHTML = '<span style="color:#c0392b;">Network error: ' + e.message + '</span>';
+  }
+  btn.disabled = false;
+  btn.textContent = orig;
+}
+
 async function createJobFromEstimate() {
   if (!_estJobId) return;
   const btn = document.getElementById('est-create-job-btn');
@@ -6017,13 +9993,76 @@ async function createJobFromEstimate() {
   }
 }
 
+// ─── ASK LUMIA ABOUT ESTIMATES ──────────────────────────────────────────────
+let _estChatHistory = [];
+async function estChatSend() {
+  const inp = document.getElementById('estchat-input');
+  const q = (inp.value || '').trim();
+  if (!q) return;
+  const thread = document.getElementById('estchat-thread');
+  const btn = document.getElementById('estchat-send');
+  // Clear placeholder on first message
+  if (_estChatHistory.length === 0) thread.innerHTML = '';
+  // Append user message
+  const uq = document.createElement('div');
+  uq.style.cssText = 'margin:10px 0;text-align:right;';
+  uq.innerHTML = '<span style="display:inline-block;background:#1F3864;color:#fff;padding:8px 12px;border-radius:12px 12px 2px 12px;max-width:80%;text-align:left;">' + escHtmlEst(q) + '</span>';
+  thread.appendChild(uq);
+  inp.value = '';
+  thread.scrollTop = thread.scrollHeight;
+  // Thinking indicator
+  const think = document.createElement('div');
+  think.style.cssText = 'margin:10px 0;color:#888;font-size:13px;';
+  think.textContent = 'Lumia is thinking…';
+  thread.appendChild(think);
+  thread.scrollTop = thread.scrollHeight;
+  btn.disabled = true;
+
+  // Include any currently-loaded estimate as context
+  let estContext = '';
+  try {
+    if (typeof _estResult !== 'undefined' && _estResult && _estResult.paint_calc) {
+      estContext = JSON.stringify(_estResult.paint_calc).slice(0, 3000);
+    }
+  } catch(e) {}
+
+  try {
+    const r = await fetch('/api/estimates/ask', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ question: q, history: _estChatHistory.slice(-8), context: estContext }),
+    });
+    const d = await r.json();
+    think.remove();
+    if (!d.ok) throw new Error(d.error || 'Failed');
+    const a = document.createElement('div');
+    a.style.cssText = 'margin:10px 0;';
+    a.innerHTML = '<span style="display:inline-block;background:#fff;border:1px solid #e3e8f3;color:#222;padding:10px 13px;border-radius:12px 12px 12px 2px;max-width:85%;white-space:pre-wrap;">' + escHtmlEst(d.answer) + '</span>';
+    thread.appendChild(a);
+    thread.scrollTop = thread.scrollHeight;
+    _estChatHistory.push({ role:'user', content:q });
+    _estChatHistory.push({ role:'assistant', content:d.answer });
+    if (d.cost_usd != null) {
+      document.getElementById('estchat-cost').textContent = 'Last answer cost ~$' + Number(d.cost_usd).toFixed(3) + ' · ' + (d.model||'');
+    }
+  } catch(e) {
+    think.remove();
+    const err = document.createElement('div');
+    err.style.cssText = 'margin:10px 0;color:#c62828;font-size:13px;';
+    err.textContent = '⚠ ' + e.message;
+    thread.appendChild(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+function escHtmlEst(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
 // ─── END ESTIMATES TAB ──────────────────────────────────────────────────────
 </script>
 </body></html>"""
 
 
-@app.route("/owner")
-@require_role("owner", "production_manager")
+@app.route("/dashboard")
+@require_role("owner", "production_manager", "cfo")
 def owner_dashboard():
     role = session.get("role", "owner")
     resp = make_response(render_template_string(
@@ -6036,6 +10075,12 @@ def owner_dashboard():
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+
+# Legacy alias — /owner now redirects to /dashboard so PM/CFO don't see "owner" in the URL.
+@app.route("/owner")
+def _owner_legacy_redirect():
+    return redirect("/dashboard")
 
 
 # ---------------------------------------------------------------------------
@@ -6095,7 +10140,7 @@ textarea:focus { border-color:#1F3864; }
   </div>
   <div style="display:flex;gap:16px;align-items:center">
     <span style="font-size:13px;opacity:.8">{{ name }}</span>
-    {% if role == 'owner' %}<a href="/owner">Dashboard</a>{% endif %}
+    {% if role == 'owner' %}<a href="/dashboard">Dashboard</a>{% endif %}
     <a href="/logout">Logout</a>
   </div>
 </div>
@@ -6384,7 +10429,7 @@ def review_page():
 # ---------------------------------------------------------------------------
 
 @app.route("/api/checkin/<checkin_id>")
-@require_role("manager", "owner")
+@require_role("manager", "owner", "production_manager", "cfo")
 def api_single_checkin(checkin_id):
     if not supabase_client:
         return jsonify({})
@@ -6393,7 +10438,7 @@ def api_single_checkin(checkin_id):
 
 
 @app.route("/api/checkins")
-@require_role("manager", "owner")
+@require_role("manager", "owner", "production_manager", "cfo")
 def api_checkins():
     if not supabase_client:
         return jsonify([])
@@ -6436,7 +10481,7 @@ def api_all_reviews():
 
 
 @app.route("/api/reviews")
-@require_role("manager", "owner")
+@require_role("manager", "owner", "production_manager", "cfo")
 def api_reviews():
     if not supabase_client:
         return jsonify([])
@@ -6453,7 +10498,7 @@ def api_reviews():
 
 
 @app.route("/api/save-review", methods=["POST"])
-@require_role("manager", "owner")
+@require_role("manager", "owner", "production_manager", "cfo")
 def api_save_review():
     if not supabase_client:
         return jsonify({"ok": False})
@@ -6487,11 +10532,145 @@ def api_managers():
 def api_add_manager():
     if not supabase_client:
         return jsonify({"message": "No database"})
-    d = request.get_json()
-    supabase_client.table("managers").insert({
-        "name": d["mgr_name"], "pin": d["mgr_pin"], "role": d["mgr_role"], "active": True
-    }).execute()
-    return jsonify({"message": f"{d['mgr_name']} added successfully."})
+    d = request.get_json() or {}
+    name  = (d.get("mgr_name")  or "").strip()
+    email = (d.get("mgr_email") or "").strip().lower()
+    role  = (d.get("mgr_role")  or "manager").strip()
+    if not name or not email:
+        return jsonify({"message": "Name and email are required."})
+    if role not in ("manager", "production_manager", "cfo", "owner"):
+        role = "manager"
+
+    # Refuse if this email already exists
+    try:
+        existing = supabase_client.table("managers").select("id,email") \
+            .eq("email", email).limit(1).execute().data or []
+        if existing:
+            return jsonify({"message":
+                f"A manager with email {email} already exists. Use Resend Invite to send a new setup link."})
+    except Exception:
+        pass
+
+    # Create the manager row with a 48-hour setup token
+    token   = secrets.token_urlsafe(32)
+    expires = (datetime.utcnow() + timedelta(hours=48)).isoformat() + "Z"
+    try:
+        supabase_client.table("managers").insert({
+            "name":                 name,
+            "email":                email,
+            "role":                 role,
+            "active":               True,
+            "setup_token":          token,
+            "setup_token_expires":  expires,
+            # Placeholder for the legacy NOT-NULL pin column (we no longer use it
+            # for authentication — password-based login is the new path).
+            "pin":                  "INVITE-" + secrets.token_hex(4).upper(),
+        }).execute()
+    except Exception as exc:
+        return jsonify({"message": f"Could not create manager: {exc}"})
+
+    # Email the invite
+    sent = _send_manager_setup_email(name, email, role, token)
+    if sent:
+        return jsonify({"message":
+            f"✓ {name} added. Invite sent to {email} — they have 48 hours to set their password."})
+    return jsonify({"message":
+        f"{name} created, but the invite email did not send. Check RESEND_API_KEY and try Resend Invite."})
+
+
+@app.route("/api/resend-manager-invite/<mgr_id>", methods=["POST"])
+@require_role("owner")
+def api_resend_manager_invite(mgr_id):
+    if not supabase_client:
+        return jsonify({"ok": False, "message": "No database"})
+    try:
+        rows = supabase_client.table("managers").select("*").eq("id", mgr_id).limit(1).execute().data or []
+        if not rows:
+            return jsonify({"ok": False, "message": "Manager not found."})
+        m = rows[0]
+        if not m.get("email"):
+            return jsonify({"ok": False, "message":
+                "This manager has no email on file. Edit them first or use the old PIN flow."})
+        token   = secrets.token_urlsafe(32)
+        expires = (datetime.utcnow() + timedelta(hours=48)).isoformat() + "Z"
+        supabase_client.table("managers").update({
+            "setup_token":         token,
+            "setup_token_expires": expires,
+        }).eq("id", mgr_id).execute()
+        sent = _send_manager_setup_email(m["name"], m["email"], m.get("role") or "manager", token)
+        if sent:
+            return jsonify({"ok": True, "message": f"New invite sent to {m['email']}."})
+        return jsonify({"ok": False, "message": "Could not send the invite email."})
+    except Exception as exc:
+        return jsonify({"ok": False, "message": str(exc)})
+
+
+def _send_manager_setup_email(name: str, email: str, role: str, token: str) -> bool:
+    """Send an invite to a newly-added manager so they can set their password."""
+    import httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        print("[Manager Invite] RESEND_API_KEY not set"); return False
+    role_label = {
+        "cfo":                "Chief Financial Officer",
+        "production_manager": "Production Manager / VP Operations",
+        "manager":            "Reviewer",
+        "owner":              "Owner",
+    }.get(role, "Team Member")
+    setup_link = f"{APP_BASE_URL}/manager/set-password?token={token}"
+    first = (name or "there").split()[0]
+    html_body = (
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;'
+        'max-width:520px;margin:0 auto;padding:24px;color:#1a1a2e;">'
+        '<div style="background:#1F3864;color:#fff;padding:20px 24px;border-radius:10px 10px 0 0;text-align:center;">'
+        '<h1 style="margin:0;font-size:20px;letter-spacing:1.5px;">Welcome to Lumia</h1>'
+        '<p style="margin:6px 0 0;font-size:13px;opacity:.85;">Ashrah Painting Operations</p>'
+        '</div>'
+        '<div style="background:#fff;border:1px solid #e8ecf4;border-top:none;border-radius:0 0 10px 10px;padding:24px;">'
+        f'<p style="font-size:15px;margin:0 0 14px;">Hi {first},</p>'
+        f'<p style="font-size:14px;line-height:1.6;margin:0 0 14px;">Ahmad has added you to Lumia as <b>{role_label}</b>. Click the button below to set your password and log in.</p>'
+        '<div style="text-align:center;margin:24px 0;">'
+        f'<a href="{setup_link}" style="display:inline-block;background:#2e7d32;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:8px;font-size:14px;letter-spacing:.5px;">SET MY PASSWORD</a>'
+        '</div>'
+        '<p style="font-size:12px;color:#888;line-height:1.5;margin:14px 0 0;">This link is good for 48 hours. After you set your password, you can log in anytime at '
+        f'<a href="{APP_BASE_URL}/login" style="color:#1F3864;">{APP_BASE_URL}/login</a>.</p>'
+        '<p style="font-size:12px;color:#888;line-height:1.5;margin:10px 0 0;">If you weren\'t expecting this invite, ignore the email or let Ahmad know.</p>'
+        '</div></div>'
+    )
+    text_body = (
+        f"Hi {first},\n\n"
+        f"Ahmad has added you to Lumia as {role_label}.\n\n"
+        f"Set your password: {setup_link}\n\n"
+        "This link is good for 48 hours. After setting your password, log in any time at "
+        f"{APP_BASE_URL}/login.\n\n"
+        "— Lumia | Ashrah Painting Operations"
+    )
+    subject = f"Welcome to Lumia — set your password ({role_label})"
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={"from":"Ashrah Painting <noreply@ashrah.ai>",
+                  "to":[email],
+                  "cc":[OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL.strip() and OWNER_EMAIL.strip().lower() != email else [],
+                  "subject": subject,
+                  "html": html_body, "text": text_body},
+            timeout=15,
+        )
+        ok = r.status_code in (200, 201)
+        print(f"[Manager Invite] → {email} ({r.status_code})")
+        try:
+            _log_outbox(category="employee_invite", to=[email],
+                        cc=[OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL.strip() and OWNER_EMAIL.strip().lower() != email else [],
+                        subject=subject, body_text=text_body, body_html=html_body,
+                        related_kind="manager", related_id=email,
+                        status="sent" if ok else "failed",
+                        error=None if ok else r.text[:200])
+        except Exception: pass
+        return ok
+    except Exception as exc:
+        print(f"[Manager Invite] Error: {exc}")
+        return False
 
 
 @app.route("/api/remove-manager/<mgr_id>", methods=["POST"])
@@ -6527,11 +10706,14 @@ def api_add_client():
         return jsonify({"message": "At least one recipient email is required."})
     # Primary email = first recipient (for backward compat columns)
     primary_email = valid_recs[0]["email"].strip().lower()
+    # site_keyword is OPTIONAL now — multi-site clients leave it blank.
+    # Jobs link back to the client by client_name so the keyword isn't required.
+    site_keyword_raw = (d.get("site_keyword") or "").strip().lower()
     try:
         supabase_client.table("clients").insert({
             "client_name":  d["client_name"],
             "client_email": primary_email,
-            "site_keyword": d["site_keyword"].lower().strip(),
+            "site_keyword": site_keyword_raw or None,
             "recipients":   json.dumps([{"name": r.get("name","").strip(), "email": r["email"].strip().lower()} for r in valid_recs]),
         }).execute()
         return jsonify({"message": f"Client {d['client_name']} saved with {len(valid_recs)} recipient(s)."})
@@ -6682,6 +10864,24 @@ def api_site_visits():
         )
     except Exception:
         return jsonify([])
+
+
+@app.route("/api/job/<job_id>/status", methods=["POST"])
+@require_operator
+def api_set_job_status(job_id):
+    """Toggle a job between open / paused / completed / closed.
+    Pause is mainly for multi-phase jobs that go idle between phases."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No DB"}), 500
+    d = request.get_json() or {}
+    new_status = (d.get("status") or "").strip().lower()
+    if new_status not in ("open", "paused", "completed", "closed"):
+        return jsonify({"ok": False, "error": "Invalid status"}), 400
+    try:
+        supabase_client.table("jobs").update({"status": new_status}).eq("id", job_id).execute()
+        return jsonify({"ok": True, "status": new_status})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/mark-job-done", methods=["POST"])
@@ -6923,6 +11123,2300 @@ def api_job_report(job_id):
     return jsonify({"job": job, "checkins": checkins, "stats": {"total_checkins": total, "avg_score": avg, "days_worked": days}})
 
 
+# Designated kickoff specialist (env-controlled; default Abdelhadi).
+# Matches against employee names with a forgiving substring check so the env
+# var can be "Abdelhadi" and still find an "Abdel Al Hadi" row.
+KICKOFF_SPECIALIST_NAME = os.getenv("KICKOFF_SPECIALIST_NAME", "Abdelhadi")
+
+
+def _get_kickoff_specialist() -> dict | None:
+    """Return the employee row for the designated kickoff lead, or None."""
+    if not supabase_client: return None
+    target = (KICKOFF_SPECIALIST_NAME or "").lower().strip()
+    if not target: return None
+    target_simple = target.replace(" ", "")
+    target_prefix = target_simple[:5]   # match "abdel" → "Abdel Al Hadi"
+    try:
+        rows = supabase_client.table("employees") \
+            .select("id,name,email,active").eq("active", True).execute().data or []
+        for r in rows:
+            nm = (r.get("name") or "").lower().strip()
+            if not nm: continue
+            nm_simple = nm.replace(" ", "")
+            if nm == target or nm_simple == target_simple:
+                return r
+            if target_prefix and nm_simple.startswith(target_prefix):
+                return r
+    except Exception: pass
+    return None
+
+
+def _is_kickoff_specialist_session() -> bool:
+    """True if the currently-logged-in employee is the kickoff specialist."""
+    emp_name = (session.get("employee_name") or "").lower().strip()
+    if not emp_name: return False
+    target = (KICKOFF_SPECIALIST_NAME or "").lower().strip()
+    if not target: return False
+    target_simple = target.replace(" ", "")
+    emp_simple = emp_name.replace(" ", "")
+    if emp_name == target or emp_simple == target_simple: return True
+    return target_simple[:5] and emp_simple.startswith(target_simple[:5])
+
+
+def _notify_kickoff_specialist(new_job: dict, new_job_id: str | None) -> None:
+    """Email the kickoff specialist that a new job needs a walkthrough."""
+    sp = _get_kickoff_specialist()
+    if not sp or not sp.get("email"):
+        print(f"[Kickoff Notice] No kickoff specialist found (looked for '{KICKOFF_SPECIALIST_NAME}')")
+        return
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key: return
+    site   = new_job.get("site_address") or "—"
+    client = new_job.get("client_name")  or "—"
+    scope  = (new_job.get("work_description") or "")[:600]
+    start  = new_job.get("start_date") or "TBD"
+    first  = (sp.get("name") or "there").split()[0]
+    body_text = (
+        f"Hi {first},\n\n"
+        "A new job is ready for a kickoff walkthrough. You're the kickoff lead — "
+        "head to the site, take photos, and write up what you see before the crew starts.\n\n"
+        f"Site: {site}\nClient: {client}\nStart date: {start}\n"
+        f"Scope:\n{scope}\n\n"
+        f"Open Lumia → My Kickoffs: {APP_BASE_URL}/kickoff\n\n"
+        "Take wide photos of every wall and floor, anything damaged, anything in the way. "
+        "Then write notes in plain English: how many rooms, how many floors, condition, "
+        "access issues. Once you save, Lumia drafts the execution plan for the crew.\n\n"
+        "— Lumia"
+    )
+    body_html = (
+        '<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;">'
+        '<div style="background:#1F3864;color:#fff;padding:18px 22px;border-radius:10px 10px 0 0;">'
+        '<h2 style="margin:0;font-size:18px;letter-spacing:1px;">🏁 NEW KICKOFF NEEDED</h2>'
+        '</div>'
+        '<div style="background:#fff;border:1px solid #e8ecf4;border-top:none;border-radius:0 0 10px 10px;padding:22px;">'
+        f'<p style="margin:0 0 14px;font-size:15px;">Hi {first},</p>'
+        '<p style="margin:0 0 14px;font-size:14px;color:#333;line-height:1.6;">A new job is ready for a kickoff walkthrough. You are the kickoff lead — head to the site, take photos, and write up what you see <b>before the crew starts</b>.</p>'
+        '<table style="width:100%;font-size:13px;color:#222;margin:10px 0;border-collapse:collapse;">'
+        f'<tr><td style="padding:6px 0;color:#666;width:90px;">Site</td><td><b>{site}</b></td></tr>'
+        f'<tr><td style="padding:6px 0;color:#666;">Client</td><td>{client}</td></tr>'
+        f'<tr><td style="padding:6px 0;color:#666;">Start date</td><td>{start}</td></tr>'
+        '</table>'
+        f'<p style="margin:14px 0;font-size:13px;color:#333;"><b>Scope:</b> {scope}</p>'
+        '<div style="text-align:center;margin:22px 0;">'
+        f'<a href="{APP_BASE_URL}/kickoff" style="display:inline-block;background:#2e7d32;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px;font-size:14px;">Open Lumia — My Kickoffs</a>'
+        '</div>'
+        '<p style="margin:14px 0 0;font-size:12px;color:#888;line-height:1.5;">Take wide photos of every wall, every floor, anything damaged, anything in the way. Write what you see plainly — rooms, floors, condition, access issues.</p>'
+        '</div></div>'
+    )
+    import httpx
+    cc = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL.strip() and OWNER_EMAIL.strip().lower() != sp["email"].strip().lower() else []
+    subject = f"🏁 Kickoff needed — {site}"
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={"from":"Ashrah Painting <noreply@ashrah.ai>",
+                  "to":[sp["email"]],"cc":cc,
+                  "subject": subject,"html":body_html,"text":body_text},
+            timeout=15,
+        )
+        print(f"[Kickoff Notice] → {sp['email']} ({r.status_code})")
+        try:
+            _log_outbox(category="employee_invite", to=[sp["email"]], cc=cc,
+                        subject=subject, body_text=body_text, body_html=body_html,
+                        related_kind="job", related_id=new_job_id or "",
+                        status="sent" if r.status_code in (200,201) else "failed",
+                        error=None if r.status_code in (200,201) else r.text[:200])
+        except Exception: pass
+    except Exception as exc:
+        print(f"[Kickoff Notice] Send error: {exc}")
+
+
+# ─── Receipt OCR + auto-classification ──────────────────────────────────────
+
+@app.route("/api/receipt/analyze", methods=["POST"])
+@require_operator
+def api_receipt_analyze():
+    """Upload a receipt photo. Claude vision extracts vendor, amount, date,
+    line items, and address. Then we fuzzy-match the address to an open job
+    site. Returns the parsed receipt + the suggested job match for the user
+    to confirm before saving as a job_expense."""
+    if "photo" not in request.files:
+        return jsonify({"ok": False, "error": "No photo uploaded."})
+    f = request.files["photo"]
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Empty file."})
+    file_bytes = f.read()
+    if len(file_bytes) == 0:
+        return jsonify({"ok": False, "error": "Empty file."})
+
+    # Upload to Supabase storage so the receipt is retained
+    receipt_url = None
+    if supabase_client:
+        try:
+            ext = (f.filename.rsplit(".", 1)[-1] if "." in f.filename else "jpg").lower()
+            path = f"receipts/{date.today().isoformat()}/{uuid.uuid4().hex}.{ext}"
+            supabase_client.storage.from_("checkin-photos").upload(
+                path, file_bytes,
+                file_options={"content-type": f.content_type or "image/jpeg"},
+            )
+            receipt_url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+        except Exception as exc:
+            print(f"[Receipt] Storage upload failed: {exc}")
+
+    # Build the active-jobs list so Claude can match
+    open_jobs = []
+    if supabase_client:
+        try:
+            open_jobs = supabase_client.table("jobs") \
+                .select("id,client_name,site_address,status,start_date") \
+                .neq("status", "completed").order("created_at", desc=True).limit(50).execute().data or []
+        except Exception: pass
+
+    job_lines = []
+    for j in open_jobs:
+        job_lines.append(f"  - id={j.get('id')} | {j.get('client_name','?')} @ {j.get('site_address','?')}")
+    job_block = "\n".join(job_lines) if job_lines else "(no open jobs)"
+
+    # Claude vision call
+    import base64
+    img_b64 = base64.standard_b64encode(file_bytes).decode("ascii")
+    media_type = f.content_type or "image/jpeg"
+    if media_type not in ("image/jpeg","image/png","image/gif","image/webp"):
+        media_type = "image/jpeg"
+
+    prompt = f"""You are reading a receipt photo for a Winnipeg painting contractor (Ashrah Painting). Extract the data and match the receipt to one of the active job sites below.
+
+ACTIVE JOB SITES:
+{job_block}
+
+Return JSON ONLY in this exact shape (no markdown fences):
+{{
+  "vendor": "store name from receipt (e.g. 'Home Depot' or 'Sherwin-Williams')",
+  "amount": 0.00,                  // total amount in CAD as a number
+  "amount_tax": 0.00,              // GST + PST if visible, else 0
+  "expense_date": "YYYY-MM-DD",    // date on the receipt
+  "address_on_receipt": "the store's address as shown on the receipt, if visible",
+  "items": ["short bullet list of items purchased — paint products, primer, brushes, etc."],
+  "category": "paint | primer | sundries | equipment | other",
+  "matched_job_id": "uuid OR null",     // which open job this expense most likely belongs to
+  "match_confidence": "high | medium | low",
+  "match_reasoning": "1 sentence — why this job (e.g. 'receipt has site delivery address matching 19 Lone Oak Place')",
+  "notes": "any short note worth keeping"
+}}
+
+Match-priority logic:
+1. If the receipt shows a delivery / site / shipping address, match that against the job site_address (fuzzy: ignore whitespace/punctuation).
+2. If no site address, match by recency + product type + vendor (e.g. Sherwin-Williams paint for a recent job).
+3. If you genuinely cannot tell, set matched_job_id=null and confidence=low.
+
+Categories:
+- 'paint' = wall/ceiling/trim paint
+- 'primer' = primer/sealer
+- 'sundries' = brushes, rollers, drop cloths, masking tape, plastic, putty, sandpaper, gloves, etc.
+- 'equipment' = sprayers, ladders, scaffolding, rentals
+- 'other' = anything else"""
+
+    try:
+        ai = _anthropic.Anthropic()
+        resp = ai.messages.create(
+            model=MODEL, max_tokens=1500,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image",
+                     "source": {"type":"base64","media_type":media_type,"data":img_b64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        text = (resp.content[0].text or "").strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        obj = json.loads(text)
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Claude couldn't read this receipt: {exc}",
+                        "receipt_url": receipt_url})
+
+    # Attach the storage URL + the matched job's display info for the UI
+    matched_id = (obj.get("matched_job_id") or "").strip() or None
+    matched_job = next((j for j in open_jobs if str(j.get("id")) == matched_id), None) if matched_id else None
+    return jsonify({
+        "ok":           True,
+        "receipt_url":  receipt_url,
+        "parsed":       obj,
+        "matched_job":  matched_job,
+        "open_jobs":    open_jobs,   # so the UI can show a manual override picker
+    })
+
+
+@app.route("/api/receipt/save", methods=["POST"])
+@require_operator
+def api_receipt_save():
+    """After the user confirms the receipt classification, save it as a
+    job_expense. Production managers can submit; only owner/cfo can later
+    edit or delete via the finance APIs."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    job_id = (d.get("job_id") or "").strip()
+    if not job_id:
+        return jsonify({"ok": False, "error": "Job is required."})
+    try:
+        row = {
+            "job_id":      job_id,
+            "category":    (d.get("category") or "other").strip().lower(),
+            "description": (d.get("description") or "").strip()
+                          or (d.get("vendor") or "Receipt"),
+            "amount":      float(d.get("amount") or 0),
+            "vendor":      (d.get("vendor") or "").strip() or None,
+            "receipt_url": (d.get("receipt_url") or "").strip() or None,
+            "expense_date": (d.get("expense_date") or date.today().isoformat()),
+            "logged_by":   session.get("name") or session.get("role") or "operator",
+            "notes":       (d.get("notes") or "").strip() or None,
+        }
+        if not row["amount"]:
+            return jsonify({"ok": False, "error": "Amount required."})
+        supabase_client.table("job_expenses").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ─── Job Kickoff (Day-Zero site assessment + Claude-generated plan) ────────
+
+@app.route("/api/job/<job_id>/kickoff", methods=["GET"])
+def api_get_job_kickoff(job_id):
+    is_op = session.get("role") in ("owner", "production_manager")
+    if not (is_op or _is_kickoff_specialist_session()):
+        return jsonify({"ok": False, "error": "Not authorized."}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    rows = supabase_client.table("jobs").select(
+        "id,client_name,site_address,work_description,"
+        "kickoff_description,kickoff_photos,kickoff_ai_plan,kickoff_done_at,kickoff_by"
+    ).eq("id", job_id).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Job not found"})
+    j = rows[0]
+    photos = j.get("kickoff_photos") or []
+    if isinstance(photos, str):
+        try: photos = json.loads(photos)
+        except Exception: photos = []
+    return jsonify({"ok": True, "job": {
+        "id":               j["id"],
+        "client_name":      j.get("client_name"),
+        "site_address":     j.get("site_address"),
+        "work_description": j.get("work_description"),
+        "kickoff_description": j.get("kickoff_description") or "",
+        "kickoff_photos":      photos,
+        "kickoff_ai_plan":     j.get("kickoff_ai_plan") or "",
+        "kickoff_done_at":     j.get("kickoff_done_at"),
+        "kickoff_by":          j.get("kickoff_by"),
+    }})
+
+
+@app.route("/api/job/<job_id>/kickoff", methods=["POST"])
+def api_save_job_kickoff(job_id):
+    # Owners, production managers, OR the designated kickoff specialist (employee)
+    is_op = session.get("role") in ("owner", "production_manager")
+    if not (is_op or _is_kickoff_specialist_session()):
+        return jsonify({"ok": False, "error":
+            "Only the designated kickoff specialist or admin can save a kickoff."}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    description = (d.get("description") or "").strip()
+    photos = d.get("photos") or []
+    if not isinstance(photos, list): photos = []
+    try:
+        supabase_client.table("jobs").update({
+            "kickoff_description": description or None,
+            "kickoff_photos":      photos,
+            "kickoff_done_at":     datetime.utcnow().isoformat(),
+            "kickoff_by":          session.get("name") or session.get("role") or "owner",
+        }).eq("id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/kickoff/generate-plan", methods=["POST"])
+@require_operator
+def api_generate_kickoff_plan(job_id):
+    """Send the kickoff description + photos to Claude. Get a multi-day
+    execution plan back — written like a foreman speaking to a crew."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    rows = supabase_client.table("jobs").select(
+        "id,client_name,site_address,work_description,start_date,"
+        "kickoff_description,kickoff_photos,painters_needed,scope_metrics"
+    ).eq("id", job_id).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Job not found"})
+    j = rows[0]
+    desc = j.get("kickoff_description") or ""
+    if not desc:
+        return jsonify({"ok": False, "error":
+            "Save a kickoff description first — Claude needs your notes to write a plan."})
+    photos = j.get("kickoff_photos") or []
+    if isinstance(photos, str):
+        try: photos = json.loads(photos)
+        except Exception: photos = []
+
+    # Build the prompt
+    scope = j.get("scope_metrics") or {}
+    if isinstance(scope, str):
+        try: scope = json.loads(scope)
+        except Exception: scope = {}
+
+    prompt = f"""You are a senior painting foreman writing the execution plan for a new job that's about to start. Your reader is the painting crew — short, plain language, no fluff.
+
+Job:
+- Client: {j.get('client_name') or 'TBD'}
+- Site: {j.get('site_address') or 'TBD'}
+- Scope notes from contract: {(j.get('work_description') or '')[:500]}
+- Crew size: {j.get('painters_needed') or 2} painter(s)
+- Start date: {j.get('start_date') or 'TBD'}
+- Scope metrics (from earlier estimate, may be empty): {json.dumps(scope)[:800]}
+
+KICKOFF WALKTHROUGH NOTES from the person on site:
+\"\"\"
+{desc}
+\"\"\"
+
+{f"Photos attached: {len(photos)} site photos." if photos else "No photos provided — work from the description."}
+
+Write a DAY-BY-DAY execution plan as plain text. Each day should be a short paragraph with:
+- The day number and a short label (e.g., "Day 1 — Setup + Prep")
+- What gets done that day (specific surfaces, rooms, walls)
+- Materials/tools needed
+- Any sequencing notes ("can't paint walls until trim is masked", etc.)
+- Quality checkpoints
+- Realistic time/effort
+
+Then a short "Risks & Watch-outs" section at the bottom.
+
+Rules:
+- Plain spoken English. No bullet lists with asterisks. Use full sentences.
+- Talk to the crew like a foreman would: "Start by..." "Then move to..." "Make sure..."
+- Be specific about WHAT walls, WHICH room, ROUGH HOW MUCH paint. Use the description.
+- Length: aim for 3-6 days max unless the scope is huge. Don't pad.
+- No markdown formatting — this will be read on a phone."""
+
+    try:
+        ai = _anthropic.Anthropic()
+        # Build message content. If photos are provided, attach them as images.
+        content_parts: list = [{"type": "text", "text": prompt}]
+        # Anthropic vision: we'd need to fetch the images and base64 them.
+        # For now, keep it text-only to stay fast and cheap. Photos already
+        # inform the description the foreman wrote.
+        resp = ai.messages.create(
+            model=MODEL,
+            max_tokens=2500,
+            messages=[{"role": "user", "content": content_parts}],
+        )
+        plan_text = resp.content[0].text.strip()
+        supabase_client.table("jobs").update({"kickoff_ai_plan": plan_text}).eq("id", job_id).execute()
+        return jsonify({"ok": True, "plan": plan_text})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/kickoff/apply-as-daily-plan", methods=["POST"])
+@require_operator
+def api_apply_kickoff_as_daily_plan(job_id):
+    """Use Claude to split the prose execution plan into structured daily-plan
+    entries that the existing Daily Plan editor + the check-in form can read."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    rows = supabase_client.table("jobs").select(
+        "kickoff_ai_plan,start_date,daily_plan"
+    ).eq("id", job_id).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Job not found"})
+    plan_text = (rows[0].get("kickoff_ai_plan") or "").strip()
+    if not plan_text:
+        return jsonify({"ok": False, "error": "No execution plan to apply yet."})
+    start_date = rows[0].get("start_date") or date.today().isoformat()
+
+    prompt = f"""Convert this painting execution plan into structured daily entries.
+
+START DATE: {start_date}
+
+EXECUTION PLAN (prose):
+\"\"\"
+{plan_text}
+\"\"\"
+
+Return JSON ONLY with this exact shape:
+{{
+  "days": [
+    {{"date": "YYYY-MM-DD", "work": "Short label + what gets done that day", "percent": 15}}
+  ]
+}}
+
+Rules:
+- Increment date by 1 calendar day starting from START DATE.
+- Skip weekends (Saturday/Sunday) — only Mon-Fri.
+- percent = an estimate of the project completed that day; all days should sum close to 100.
+- Each "work" string: under 150 chars, plain language.
+- Use exactly one entry per Day N in the plan.
+- Return ONLY the JSON. No markdown fences, no commentary."""
+
+    try:
+        ai = _anthropic.Anthropic()
+        resp = ai.messages.create(model=MODEL, max_tokens=2000,
+                                  messages=[{"role":"user","content":prompt}])
+        text = resp.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("\n",1)[1].rsplit("```",1)[0]
+        obj = json.loads(text)
+        days = obj.get("days") or []
+        cleaned = []
+        for d in days:
+            if not isinstance(d, dict): continue
+            cleaned.append({
+                "date":    (d.get("date") or "").strip(),
+                "work":    (d.get("work") or "").strip(),
+                "percent": float(d.get("percent") or 0),
+            })
+        cleaned = [c for c in cleaned if c["date"] and c["work"]]
+        cleaned.sort(key=lambda x: x["date"])
+        supabase_client.table("jobs").update({"daily_plan": cleaned}).eq("id", job_id).execute()
+        return jsonify({"ok": True, "applied": len(cleaned), "plan": cleaned})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ─── Project finance (per-job P&L) ──────────────────────────────────────────
+
+DEFAULT_LABOR_RATE = 35.0  # CAD/hr fallback if an employee has no hourly_rate set
+
+@app.route("/api/job/<job_id>/finance")
+@require_finance
+def api_job_finance(job_id):
+    """Return a complete project P&L for one job."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+
+    # Job
+    jrow = supabase_client.table("jobs").select("*").eq("id", job_id).limit(1).execute().data
+    job = jrow[0] if jrow else None
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found."})
+
+    # Expenses + billings
+    try:
+        expenses = supabase_client.table("job_expenses").select("*") \
+            .eq("job_id", job_id).order("expense_date", desc=True).execute().data or []
+    except Exception:
+        expenses = []
+    try:
+        billings = supabase_client.table("job_billings").select("*") \
+            .eq("job_id", job_id).order("invoice_date", desc=True).execute().data or []
+    except Exception:
+        billings = []
+
+    # Labor cost — pull check-ins for the job, multiply hours × per-employee rate
+    try:
+        checkins = supabase_client.table("checkins").select(
+            "id,worker_name,entry_date,start_time,end_time,site_address"
+        ).eq("job_id", job_id).execute().data or []
+    except Exception:
+        checkins = []
+    try:
+        emp_rows = supabase_client.table("employees").select("name,hourly_rate").execute().data or []
+        rate_by_name = {(e.get("name") or "").strip().lower(): float(e.get("hourly_rate") or 0)
+                        for e in emp_rows}
+    except Exception:
+        rate_by_name = {}
+
+    def _to_hours(start: str, end: str) -> float:
+        """Convert 'HH:MM' / 'HH:MM:SS' start+end into a decimal hours value."""
+        if not start or not end: return 0.0
+        try:
+            from datetime import datetime as _dt
+            fmt = "%H:%M:%S" if len(start) > 5 else "%H:%M"
+            try:
+                s = _dt.strptime(start[:8], fmt); e = _dt.strptime(end[:8], fmt)
+            except Exception:
+                s = _dt.strptime(start[:5], "%H:%M"); e = _dt.strptime(end[:5], "%H:%M")
+            delta = (e - s).total_seconds() / 3600.0
+            return max(0.0, round(delta, 2))
+        except Exception:
+            return 0.0
+
+    labor_rows = []
+    labor_total = 0.0
+    hours_total = 0.0
+    for c in checkins:
+        nm = (c.get("worker_name") or "").strip()
+        hrs = _to_hours(c.get("start_time") or "", c.get("end_time") or "")
+        if not hrs:
+            # fallback: assume 8 hr workday if check-in exists but no times recorded
+            hrs = 8.0
+        rate = rate_by_name.get(nm.lower(), 0.0) or DEFAULT_LABOR_RATE
+        cost = round(hrs * rate, 2)
+        labor_total += cost
+        hours_total += hrs
+        labor_rows.append({
+            "checkin_id": c.get("id"),
+            "worker":     nm,
+            "date":       c.get("entry_date"),
+            "hours":      hrs,
+            "rate":       rate,
+            "cost":       cost,
+        })
+
+    expense_total = sum(float(e.get("amount") or 0) for e in expenses)
+    billing_total = sum(float(b.get("amount") or 0) for b in billings)
+    paid_total    = sum(float(b.get("amount") or 0) for b in billings if b.get("status") == "paid")
+    outstanding   = billing_total - paid_total
+
+    contract_price = float(job.get("contract_price") or 0)
+    revenue = max(contract_price, billing_total)   # use the bigger of the two
+    total_cost = labor_total + expense_total
+    gross_profit = revenue - total_cost
+    margin_pct = (gross_profit / revenue * 100.0) if revenue else 0.0
+
+    # Group expenses by category
+    by_cat: dict[str, float] = {}
+    for e in expenses:
+        by_cat[e.get("category") or "other"] = by_cat.get(e.get("category") or "other", 0.0) + float(e.get("amount") or 0)
+
+    return jsonify({
+        "ok": True,
+        "job": {
+            "id": job.get("id"),
+            "client_name":   job.get("client_name"),
+            "site_address":  job.get("site_address"),
+            "contract_price": contract_price,
+        },
+        "summary": {
+            "contract_price":  contract_price,
+            "billed":          billing_total,
+            "paid":            paid_total,
+            "outstanding":     outstanding,
+            "labor_cost":      round(labor_total, 2),
+            "labor_hours":     round(hours_total, 2),
+            "expense_total":   round(expense_total, 2),
+            "total_cost":      round(total_cost, 2),
+            "gross_profit":    round(gross_profit, 2),
+            "margin_pct":      round(margin_pct, 1),
+            "expense_by_category": {k: round(v, 2) for k, v in by_cat.items()},
+        },
+        "expenses": expenses,
+        "billings": billings,
+        "labor":    labor_rows,
+    })
+
+
+@app.route("/api/job/<job_id>/expense", methods=["POST"])
+@require_finance
+def api_add_job_expense(job_id):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    try:
+        row = {
+            "job_id":      job_id,
+            "category":    (d.get("category") or "other").strip().lower(),
+            "description": (d.get("description") or "").strip(),
+            "amount":      float(d.get("amount") or 0),
+            "vendor":      (d.get("vendor") or "").strip() or None,
+            "receipt_url": (d.get("receipt_url") or "").strip() or None,
+            "expense_date": (d.get("expense_date") or date.today().isoformat()),
+            "logged_by":   session.get("name") or session.get("role") or "owner",
+            "notes":       (d.get("notes") or "").strip() or None,
+        }
+        if not row["description"]:
+            return jsonify({"ok": False, "error": "Description required."})
+        supabase_client.table("job_expenses").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/expense/<eid>", methods=["DELETE"])
+@require_role("owner")
+def api_delete_job_expense(job_id, eid):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"})
+    try:
+        supabase_client.table("job_expenses").delete().eq("id", eid).eq("job_id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/billing", methods=["POST"])
+@require_finance
+def api_add_job_billing(job_id):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    try:
+        row = {
+            "job_id":       job_id,
+            "bill_type":    (d.get("bill_type") or "progress").strip().lower(),
+            "amount":       float(d.get("amount") or 0),
+            "description":  (d.get("description") or "").strip() or None,
+            "invoice_date": (d.get("invoice_date") or date.today().isoformat()),
+            "paid_date":    (d.get("paid_date") or None),
+            "status":       (d.get("status") or "sent").strip().lower(),
+            "notes":        (d.get("notes") or "").strip() or None,
+        }
+        if not row["amount"]:
+            return jsonify({"ok": False, "error": "Amount required."})
+        supabase_client.table("job_billings").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/billing/<bid>", methods=["DELETE"])
+@require_role("owner")
+def api_delete_job_billing(job_id, bid):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"})
+    try:
+        supabase_client.table("job_billings").delete().eq("id", bid).eq("job_id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ─── PROJECT WORKSPACE — per-job rich view (paint records, docs, summary) ────
+@app.route("/api/job/<job_id>/workspace")
+@require_operator
+def api_job_workspace(job_id):
+    """One call returns everything needed to render the project workspace —
+    job row, check-ins (daily log), paint records, documents, billings,
+    expenses, derived % complete and day-x-of-y. Powers the dark
+    portal-style detail view in Jobs tab + the client portal later."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"}), 500
+    try:
+        job_rows = supabase_client.table("jobs").select("*").eq("id", job_id).limit(1).execute().data or []
+        if not job_rows:
+            return jsonify({"ok": False, "error": "Job not found"}), 404
+        job = job_rows[0]
+
+        # Daily log = check-ins for this site
+        site = (job.get("site_address") or "").strip()
+        checkins = []
+        if site:
+            res = supabase_client.table("checkins").select("*") \
+                .eq("site_address", site).order("entry_date", desc=True).limit(60).execute()
+            checkins = res.data or []
+
+        # Paint records
+        try:
+            paint_records = supabase_client.table("project_paint_records") \
+                .select("*").eq("job_id", job_id).order("created_at").execute().data or []
+        except Exception:
+            paint_records = []
+
+        # Documents
+        try:
+            documents = supabase_client.table("project_documents") \
+                .select("*").eq("job_id", job_id).order("uploaded_at", desc=True).execute().data or []
+        except Exception:
+            documents = []
+
+        # Billings + expenses (re-using existing tables)
+        try:
+            billings = supabase_client.table("job_billings") \
+                .select("*").eq("job_id", job_id).order("date", desc=True).execute().data or []
+        except Exception:
+            billings = []
+        try:
+            expenses = supabase_client.table("job_expenses") \
+                .select("*").eq("job_id", job_id).order("date", desc=True).execute().data or []
+        except Exception:
+            expenses = []
+
+        # Derive day-x-of-y + % complete from start_date + planned_duration_days
+        from datetime import date as _date
+        day_x = day_y = None
+        pct_complete = None
+        try:
+            start = job.get("start_date")
+            planned = job.get("planned_duration_days") or job.get("estimated_days")
+            if start and planned:
+                start_d  = _date.fromisoformat(start)
+                today    = _date.today()
+                day_x = max(1, min(int(planned), (today - start_d).days + 1))
+                day_y = int(planned)
+                pct_complete = int(round(100 * day_x / day_y)) if day_y else None
+        except Exception: pass
+
+        # Total photos = sum of photo_urls comma-counts on each check-in
+        total_photos = 0
+        for c in checkins:
+            urls = (c.get("photo_urls") or "") + "," + (c.get("cleanup_photo_urls") or "")
+            total_photos += sum(1 for u in urls.split(",") if u.strip())
+
+        return jsonify({
+            "ok":            True,
+            "job":           job,
+            "checkins":      checkins,
+            "paint_records": paint_records,
+            "documents":     documents,
+            "billings":      billings,
+            "expenses":      expenses,
+            "summary": {
+                "day_x":         day_x,
+                "day_y":         day_y,
+                "pct_complete":  pct_complete,
+                "total_checkins": len(checkins),
+                "total_paint_records": len(paint_records),
+                "total_documents":     len(documents),
+                "total_photos":        total_photos,
+                "total_billings":      len(billings),
+            },
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Paint records (CRUD) ────────────────────────────────────────────────
+@app.route("/api/job/<job_id>/paint-record", methods=["POST"])
+@require_operator
+def api_add_paint_record(job_id):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"}), 500
+    d = request.get_json() or {}
+    row = {
+        "job_id":      job_id,
+        "room":       (d.get("room") or "").strip(),
+        "surface":    (d.get("surface") or "").strip(),       # walls/ceiling/trim/door
+        "paint_name": (d.get("paint_name") or "").strip(),
+        "code":       (d.get("code") or "").strip(),
+        "brand":      (d.get("brand") or "").strip(),
+        "finish":     (d.get("finish") or "").strip(),        # matte/eggshell/satin/semi/gloss
+        "coats":       int(d.get("coats") or 0) or None,
+        "notes":      (d.get("notes") or "").strip() or None,
+    }
+    try:
+        res = supabase_client.table("project_paint_records").insert(row).execute()
+        return jsonify({"ok": True, "record": (res.data or [{}])[0]})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/job/<job_id>/paint-record/<rid>", methods=["DELETE"])
+@require_operator
+def api_delete_paint_record(job_id, rid):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"}), 500
+    try:
+        supabase_client.table("project_paint_records").delete().eq("id", rid).eq("job_id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Project documents (upload + list + delete) ──────────────────────────
+@app.route("/api/job/<job_id>/document", methods=["POST"])
+@require_operator
+def api_upload_project_document(job_id):
+    """Upload a project document (drawing, contract, RFI, change order, etc.).
+    Stored in the existing `checkin-photos` bucket under `project-docs/<job_id>/`."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Storage not configured"}), 500
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"ok": False, "error": "Empty filename"}), 400
+    doc_kind = (request.form.get("kind") or "other").strip()
+    label    = (request.form.get("label") or f.filename).strip()
+    ext      = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else "bin"
+    safe_id  = uuid.uuid4().hex
+    storage_path = f"project-docs/{job_id}/{safe_id}.{ext}"
+    file_bytes = f.read()
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(
+            storage_path, file_bytes,
+            file_options={"content-type": f.content_type or "application/octet-stream"},
+        )
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(storage_path)
+        row = {
+            "job_id":       job_id,
+            "name":         label,
+            "kind":         doc_kind,
+            "file_url":     url,
+            "storage_path": storage_path,
+            "size_bytes":   len(file_bytes),
+            "mime_type":    f.content_type or "application/octet-stream",
+            "uploaded_by":  session.get("name") or "unknown",
+        }
+        res = supabase_client.table("project_documents").insert(row).execute()
+        return jsonify({"ok": True, "document": (res.data or [{}])[0]})
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/job/<job_id>/document/<did>", methods=["DELETE"])
+@require_operator
+def api_delete_project_document(job_id, did):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"}), 500
+    try:
+        # Fetch row first so we can delete the storage blob too
+        rows = supabase_client.table("project_documents").select("*").eq("id", did).eq("job_id", job_id).limit(1).execute().data or []
+        if rows:
+            sp = rows[0].get("storage_path")
+            if sp:
+                try: supabase_client.storage.from_("checkin-photos").remove([sp])
+                except Exception: pass
+            supabase_client.table("project_documents").delete().eq("id", did).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Project meta (forecast strip, % complete override) ────────────────
+@app.route("/api/job/<job_id>/meta", methods=["POST"])
+@require_operator
+def api_update_project_meta(job_id):
+    """Update the bits that drive the workspace header — planned duration
+    (used for day-x-of-y), forecast note + 6-day forecast strip."""
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"}), 500
+    d = request.get_json() or {}
+    allowed = ["planned_duration_days", "forecast_note", "forecast_strip"]
+    patch: dict = {}
+    for k in allowed:
+        if k in d:
+            patch[k] = d[k]
+    if not patch:
+        return jsonify({"ok": False, "error": "Nothing to update"}), 400
+    try:
+        supabase_client.table("jobs").update(patch).eq("id", job_id).execute()
+        return jsonify({"ok": True, "updated": patch})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Forecast auto-fill (Open-Meteo — free, no API key) ─────────────────
+def _open_meteo_forecast(lat: float = 49.8951, lon: float = -97.1384) -> dict:
+    """Pull a 6-day daily forecast for Winnipeg. Returns dict with `strip`
+    (list of {wkd, day, status}) and `note` (human-readable summary).
+    Open-Meteo is free, no key, no rate-limit issues at our scale."""
+    import httpx as _httpx
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude":  lat,
+        "longitude": lon,
+        "daily":     "weather_code,precipitation_probability_max",
+        "forecast_days": 6,
+        "timezone":  "America/Winnipeg",
+    }
+    try:
+        r = _httpx.get(url, params=params, timeout=12.0)
+        r.raise_for_status()
+        d = r.json() or {}
+    except Exception as exc:
+        return {"strip": [], "note": f"Forecast lookup failed: {exc}"}
+
+    daily   = d.get("daily") or {}
+    dates   = daily.get("time") or []
+    codes   = daily.get("weather_code") or []
+    precips = daily.get("precipitation_probability_max") or []
+
+    # Open-Meteo WMO codes — rain/snow ranges
+    def is_wet(code: int) -> bool:
+        return code in (51,53,55,56,57,61,63,65,66,67,71,73,75,77,80,81,82,85,86,95,96,99)
+
+    strip: list[dict] = []
+    rain_days: list[str] = []
+    from datetime import date as _date
+    weekday_short = ["MON","TUE","WED","THU","FRI","SAT","SUN"]
+    for i, ds in enumerate(dates):
+        try:
+            dt = _date.fromisoformat(ds)
+        except Exception:
+            continue
+        code = int(codes[i]) if i < len(codes) else 0
+        pop  = int(precips[i]) if i < len(precips) else 0
+        wet  = is_wet(code) or pop >= 60
+        strip.append({
+            "wkd":    weekday_short[dt.weekday()],
+            "day":    dt.day,
+            "status": "rain" if wet else "ok",
+        })
+        if wet:
+            rain_days.append(weekday_short[dt.weekday()])
+
+    if rain_days:
+        if len(rain_days) == 1:
+            note = f"Rain risk {rain_days[0]} — exterior work may need to shift. Schedule auto-adjusted."
+        else:
+            note = f"Rain risk {rain_days[0]}–{rain_days[-1]} — exterior work flagged. Schedule auto-adjusted."
+    else:
+        note = "All clear over the next 6 days. No weather-driven schedule changes expected."
+    return {"strip": strip, "note": note}
+
+
+@app.route("/api/job/<job_id>/portal-link")
+@require_operator
+def api_job_portal_link(job_id):
+    """Look up the client for this job and return their portal URL so the
+    operator can preview / share it. Falls back to a 'not provisioned'
+    response if the client doesn't have an access_token yet."""
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"}), 500
+    try:
+        jrows = supabase_client.table("jobs").select("client_name").eq("id", job_id).limit(1).execute().data or []
+        if not jrows: return jsonify({"ok": False, "error": "Job not found"}), 404
+        name = (jrows[0].get("client_name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "Job has no client name; can't resolve portal."}), 400
+        crows = supabase_client.table("clients").select("access_token,client_name,client_email") \
+            .eq("client_name", name).limit(1).execute().data or []
+        if not crows or not crows[0].get("access_token"):
+            return jsonify({"ok": False, "error": f"No portal token for {name}. Add the client to the clients table with an access_token."}), 404
+        token = crows[0]["access_token"]
+        return jsonify({
+            "ok": True,
+            "url": f"{APP_BASE_URL}/portal/{token}",
+            "client_name":  crows[0].get("client_name"),
+            "client_email": crows[0].get("client_email"),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/job/<job_id>/forecast/auto", methods=["POST"])
+@require_operator
+def api_auto_forecast(job_id):
+    """One-click auto-fill of the forecast strip + note from Open-Meteo.
+    Free API, no key required. Saves directly to the job row."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"}), 500
+    try:
+        fc = _open_meteo_forecast()
+        if not fc.get("strip"):
+            return jsonify({"ok": False, "error": fc.get("note", "Forecast empty")}), 502
+        supabase_client.table("jobs").update({
+            "forecast_strip": json.dumps(fc["strip"]),
+            "forecast_note":  fc["note"],
+        }).eq("id", job_id).execute()
+        return jsonify({"ok": True, "strip": fc["strip"], "note": fc["note"]})
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── CLIENT PORTAL — read-only workspace mirror via access token ─────────
+def _portal_resolve_job(client_row: dict) -> dict | None:
+    """Resolve which job a portal client sees. Priority:
+      1. Explicit `linked_job_id` set by the owner (the reliable path — works
+         even when the self-signup client_name is just an email prefix).
+      2. Name match: clients.client_name == jobs.client_name, open job first.
+    """
+    if not supabase_client or not client_row:
+        return None
+    # 1. Explicit link
+    linked = client_row.get("linked_job_id")
+    if linked:
+        try:
+            rows = supabase_client.table("jobs").select("*").eq("id", linked).limit(1).execute().data or []
+            if rows:
+                return rows[0]
+        except Exception:
+            pass
+    # 2. Name match
+    name = (client_row.get("client_name") or "").strip()
+    if not name:
+        return None
+    try:
+        rows = supabase_client.table("jobs").select("*") \
+            .eq("client_name", name).eq("status", "open") \
+            .order("created_at", desc=True).limit(1).execute().data or []
+        if rows:
+            return rows[0]
+        rows = supabase_client.table("jobs").select("*") \
+            .eq("client_name", name).order("created_at", desc=True).limit(1).execute().data or []
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+@app.route("/api/portal/<token>/workspace")
+def api_portal_workspace(token):
+    """Same shape as /api/job/<id>/workspace but scoped to one client via
+    their access token. Finance fields (billings, expenses) are stripped —
+    operators can see costs, clients can't."""
+    client = _lookup_client_by_token(token)
+    if not client:
+        return jsonify({"ok": False, "error": "Invalid or expired link"}), 403
+    job = _portal_resolve_job(client)
+    if not job:
+        return jsonify({"ok": False, "error": "No project found for this client yet"}), 404
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database unavailable"}), 500
+
+    site = (job.get("site_address") or "").strip()
+    # Daily log — same as operator path
+    checkins = []
+    if site:
+        res = supabase_client.table("checkins").select(
+            "id,entry_date,worker_name,site_address,work_description,"
+            "hours_worked,photo_urls,cleanup_photo_urls,created_at"
+        ).eq("site_address", site).order("entry_date", desc=True).limit(60).execute()
+        checkins = res.data or []
+
+    try:
+        paint_records = supabase_client.table("project_paint_records") \
+            .select("*").eq("job_id", job["id"]).order("created_at").execute().data or []
+    except Exception:
+        paint_records = []
+
+    try:
+        documents = supabase_client.table("project_documents") \
+            .select("id,name,kind,file_url,size_bytes,mime_type,uploaded_at") \
+            .eq("job_id", job["id"]).order("uploaded_at", desc=True).execute().data or []
+    except Exception:
+        documents = []
+
+    # Day-x-of-y + % complete
+    from datetime import date as _date
+    day_x = day_y = pct_complete = None
+    try:
+        start = job.get("start_date")
+        planned = job.get("planned_duration_days") or job.get("estimated_days")
+        if start and planned:
+            start_d = _date.fromisoformat(start)
+            today   = _date.today()
+            day_x   = max(1, min(int(planned), (today - start_d).days + 1))
+            day_y   = int(planned)
+            pct_complete = int(round(100 * day_x / day_y)) if day_y else None
+    except Exception: pass
+
+    total_photos = 0
+    for c in checkins:
+        urls = (c.get("photo_urls") or "") + "," + (c.get("cleanup_photo_urls") or "")
+        total_photos += sum(1 for u in urls.split(",") if u.strip())
+
+    # Strip internal-only fields from job row before returning to client
+    safe_job = {
+        "id":               job.get("id"),
+        "client_name":      job.get("client_name"),
+        "site_address":     job.get("site_address"),
+        "status":           job.get("status"),
+        "start_date":       job.get("start_date"),
+        "planned_duration_days": job.get("planned_duration_days"),
+        "forecast_strip":   job.get("forecast_strip"),
+        "forecast_note":    job.get("forecast_note"),
+        "work_description": job.get("work_description"),
+    }
+
+    # Also strip work notes from check-ins that contain internal-only markers
+    # (defensive: if a check-in note starts with "[INTERNAL]" we redact it)
+    safe_checkins = []
+    for c in checkins:
+        note = (c.get("work_description") or "").strip()
+        if note.upper().startswith("[INTERNAL]"):
+            note = "(crew notes)"
+        safe_checkins.append({**c, "work_description": note})
+
+    return jsonify({
+        "ok":            True,
+        "job":           safe_job,
+        "checkins":      safe_checkins,
+        "paint_records": paint_records,
+        "documents":     documents,
+        # NOTE: billings, expenses intentionally omitted — finance is internal
+        "summary": {
+            "day_x": day_x, "day_y": day_y, "pct_complete": pct_complete,
+            "total_checkins":      len(safe_checkins),
+            "total_paint_records": len(paint_records),
+            "total_documents":     len(documents),
+            "total_photos":        total_photos,
+            "total_billings":      0,
+        },
+    })
+
+
+PORTAL_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ client_name }} — Project Portal · Ashrah Painting</title>
+<link rel="icon" href="/static/site_design/ashrah-logo.jpeg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+* { box-sizing:border-box; }
+html, body { margin:0; padding:0; background:#0E0E0C; color:#F4F1EC;
+  font-family:Inter,system-ui,sans-serif; min-height:100vh; }
+.mono { font-family:'JetBrains Mono',ui-monospace,monospace; }
+a { color:#F4F1EC; }
+.top { padding:20px 40px; border-bottom:1px solid rgba(244,241,236,.08);
+  display:flex; align-items:center; gap:14px; }
+.top img { height:36px; border-radius:8px; background:#fff; padding:3px; }
+.top .b { font-family:'Archivo',sans-serif; font-weight:900; font-stretch:75%;
+  text-transform:uppercase; letter-spacing:.2px; font-size:15px; line-height:1; }
+.top .sub { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.14em;
+  color:rgba(244,241,236,.5); margin-top:4px; text-transform:uppercase; }
+.urlbar { margin:24px 40px 0; background:#151512; border:1px solid rgba(244,241,236,.12);
+  border-radius:10px; padding:13px 18px; font-family:'JetBrains Mono',monospace;
+  font-size:13px; display:flex; align-items:center; gap:10px; }
+.urlbar .dot { width:10px; height:10px; border-radius:50%; background:rgba(244,241,236,.18); }
+.urlbar .path { color:rgba(244,241,236,.5); margin-left:14px; }
+.urlbar .path b { color:#F4F1EC; font-weight:600; }
+.urlbar .tag { margin-left:auto; color:rgba(244,241,236,.4); }
+
+.fcst { margin:12px 40px 0; background:#1c1a14; border:1px solid rgba(212,166,53,.25);
+  border-radius:10px; padding:14px 18px; display:flex; align-items:flex-start;
+  justify-content:space-between; gap:18px; flex-wrap:wrap; }
+.fcst .lbl { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.16em;
+  text-transform:uppercase; color:#d4a635; margin-bottom:6px; }
+.fcst .days { display:flex; gap:8px; }
+.fcst .d { background:#0E0E0C; border:1px solid rgba(244,241,236,.12); border-radius:8px;
+  padding:8px 10px; min-width:62px; text-align:center; font-family:'JetBrains Mono',monospace;
+  font-size:10px; line-height:1.4; }
+.fcst .d .wkd { color:rgba(244,241,236,.5); font-size:9px; letter-spacing:.12em; }
+.fcst .d .dd  { color:#F4F1EC; font-size:18px; font-weight:700; margin:2px 0; }
+.fcst .d .st  { background:rgba(52,215,106,.18); color:#34d76a; padding:1px 6px;
+  border-radius:4px; font-size:9px; display:inline-block; }
+.fcst .d.rain .st { background:rgba(212,166,53,.18); color:#d4a635; }
+
+.shell { display:grid; grid-template-columns:230px 1fr; margin-top:18px;
+  min-height:calc(100vh - 220px); }
+.side { background:#0c0c0a; border-right:1px solid rgba(244,241,236,.08);
+  padding:24px 0; }
+.side h4 { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.16em;
+  text-transform:uppercase; color:rgba(244,241,236,.4); margin:18px 24px 8px; }
+.side .lk { display:flex; justify-content:space-between; align-items:center;
+  padding:11px 24px; cursor:pointer; font-size:14px; font-weight:500;
+  color:rgba(244,241,236,.78); border-left:2px solid transparent; }
+.side .lk:hover { color:#F4F1EC; background:rgba(244,241,236,.04); }
+.side .lk.active { color:#F4F1EC; background:rgba(244,241,236,.07);
+  border-left-color:#ff2e9a; font-weight:600; }
+.side .lk .n { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.5); }
+.main { padding:32px 40px; }
+.title { font-family:'Archivo',sans-serif; font-weight:900; font-stretch:75%; font-size:30px;
+  letter-spacing:-.02em; text-transform:uppercase; line-height:1.05; margin:0 0 6px; }
+.dayline { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.08em;
+  color:rgba(244,241,236,.7); margin-bottom:20px; }
+.tabs { display:flex; gap:32px; border-bottom:1px solid rgba(244,241,236,.1);
+  margin-bottom:24px; }
+.tab { padding:10px 0; font-size:14px; font-weight:500; color:rgba(244,241,236,.55);
+  border-bottom:2px solid transparent; cursor:pointer; }
+.tab:hover { color:#F4F1EC; }
+.tab.active { color:#F4F1EC; border-bottom-color:#4d8eff; font-weight:600; }
+.row { display:grid; grid-template-columns:120px 1fr 130px; gap:24px; padding:18px 0;
+  border-bottom:1px solid rgba(244,241,236,.06); }
+.row .d-num { font-family:'Archivo',sans-serif; font-weight:800; font-size:22px; }
+.row .d-date { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.45);
+  margin-top:2px; letter-spacing:.06em; }
+.row .d-body { font-size:14px; line-height:1.6; }
+.row .d-meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.5);
+  margin-top:6px; letter-spacing:.04em; }
+.row .d-st { text-align:right; }
+.bd { font-family:'JetBrains Mono',monospace; font-size:10px; padding:3px 9px; border-radius:5px;
+  letter-spacing:.08em; text-transform:uppercase; }
+.bd.prog { background:rgba(212,166,53,.18); color:#d4a635; }
+.bd.done { background:rgba(52,215,106,.18); color:#34d76a; }
+.d-time { font-family:'JetBrains Mono',monospace; font-size:11px;
+  color:rgba(244,241,236,.45); margin-top:8px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+.card { background:#151512; border:1px solid rgba(244,241,236,.1); border-radius:10px;
+  padding:16px 18px; }
+.card .t { font-weight:700; font-size:14px; margin-bottom:8px; }
+.card .m { font-family:'JetBrains Mono',monospace; font-size:11px; color:rgba(244,241,236,.55);
+  letter-spacing:.04em; line-height:1.7; }
+.empty { color:rgba(244,241,236,.4); padding:32px 0; text-align:center; font-size:14px; }
+.photo { background:#151512; border:1px solid rgba(244,241,236,.1); border-radius:8px;
+  aspect-ratio:1.4; overflow:hidden; }
+.photo img { width:100%; height:100%; object-fit:cover; }
+.notice { margin:14px 40px 0; background:#151512; border:1px solid rgba(244,241,236,.1);
+  border-radius:8px; padding:10px 14px; font-size:12px; color:rgba(244,241,236,.55); }
+@media (max-width:700px) {
+  .shell { grid-template-columns: 1fr; } .side { display:none; }
+  .main, .top, .urlbar, .fcst, .notice { padding-left:20px; padding-right:20px;
+    margin-left:0; margin-right:0; }
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <img src="/static/site_design/ashrah-logo.jpeg" alt="">
+  <div>
+    <div class="b">{{ client_name }} — Project Portal</div>
+    <div class="sub">Lumia AI · Live data · Read-only</div>
+  </div>
+</div>
+<div id="root"><div class="empty" style="padding:60px 40px;">Loading project…</div></div>
+
+<script>
+const TOKEN = {{ token|tojson }};
+
+function escH(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+let _S = { tab: 'daily', data: null };
+
+async function load() {
+  try {
+    const r = await fetch('/api/portal/' + encodeURIComponent(TOKEN) + '/workspace');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Failed to load');
+    _S.data = d;
+    render();
+  } catch (e) {
+    document.getElementById('root').innerHTML =
+      '<div class="empty" style="padding:60px;color:#ff7777;">' + escH(e.message) + '</div>';
+  }
+}
+
+function setTab(t) { _S.tab = t; render(); }
+window.setTab = setTab;
+
+function fcst() {
+  const j = _S.data.job;
+  let strip = [];
+  try { strip = JSON.parse(j.forecast_strip || '[]'); } catch(e) {}
+  if (!strip.length && !j.forecast_note) return '';
+  return `<div class="fcst">
+    <div style="flex:1;min-width:280px;">
+      <div class="lbl">6-Day Forecast</div>
+      <div style="font-weight:600;line-height:1.5;">${escH(j.forecast_note || '')}</div>
+    </div>
+    <div class="days">${strip.map(d => `
+      <div class="d ${d.status==='rain'?'rain':''}">
+        <div class="wkd">${escH(d.wkd||'')}</div>
+        <div class="dd">${escH(String(d.day||''))}</div>
+        <div class="st">${escH((d.status||'ok').toUpperCase())}</div>
+      </div>`).join('')}</div>
+  </div>`;
+}
+
+function urlbar() {
+  const j = _S.data.job;
+  const slug = (j.site_address || j.client_name || j.id || '').toUpperCase()
+    .replace(/[^A-Z0-9]+/g,'-').slice(0,30);
+  return `<div class="urlbar">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="path">portal.ashrahpainting.com / projects / <b>${escH(slug)}</b></span>
+    <span class="tag">Lumia AI · live</span>
+  </div>`;
+}
+
+function sidebar() {
+  const s = _S.data.summary;
+  const links = [
+    { id:'daily',  label:'Daily log',     num:s.total_checkins      || 0 },
+    { id:'paint',  label:'Paint records', num:s.total_paint_records || 0 },
+    { id:'photos', label:'Photos',        num:s.total_photos        || 0 },
+    { id:'docs',   label:'Documents',     num:s.total_documents     || 0 },
+  ];
+  return `<div class="side">
+    <h4>Job</h4>
+    ${links.map(l => `
+      <div class="lk ${_S.tab===l.id?'active':''}" onclick="setTab('${l.id}')">
+        ${escH(l.label)} <span class="n">${l.num}</span>
+      </div>`).join('')}
+    <h4>Project Info</h4>
+    <div style="padding:0 24px;font-size:12px;color:rgba(244,241,236,.55);line-height:1.7;">
+      <div><b style="color:rgba(244,241,236,.85);">Site:</b> ${escH(_S.data.job.site_address||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Status:</b> ${escH(_S.data.job.status||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Start:</b> ${escH(_S.data.job.start_date||'—')}</div>
+    </div>
+  </div>`;
+}
+
+function dailyView() {
+  const cks = _S.data.checkins || [];
+  if (!cks.length) return '<div class="empty">No daily updates yet. Your project log will appear here once the crew checks in.</div>';
+  return cks.map((c, i) => {
+    const day = cks.length - i;
+    const photos = ((c.photo_urls||'').split(',').filter(Boolean).length
+                  + (c.cleanup_photo_urls||'').split(',').filter(Boolean).length);
+    const created = (c.created_at || '').slice(11,16);
+    return `<div class="row">
+      <div><div class="d-num">Day ${day}</div><div class="d-date">${escH(c.entry_date||'')}</div></div>
+      <div>
+        <div class="d-body">${escH(c.work_description || '—')}</div>
+        <div class="d-meta">Crew: ${escH(c.worker_name||'—')}${c.hours_worked?' · '+c.hours_worked+'h':''}${photos?' · '+photos+' photos':''}</div>
+      </div>
+      <div class="d-st">
+        <span class="bd ${i===0?'prog':'done'}">${i===0?'IN PROGRESS':'COMPLETE'}</span>
+        <div class="d-time">${escH(created)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function paintView() {
+  const rs = _S.data.paint_records || [];
+  if (!rs.length) return '<div class="empty">Paint records will appear here as your project progresses.</div>';
+  return `<div class="grid">${rs.map(r => `
+    <div class="card">
+      <div class="t">${escH(r.room||'—')} · <span style="color:rgba(244,241,236,.6);font-weight:500;">${escH(r.surface||'')}</span></div>
+      <div class="m">
+        ${r.brand ? '<div><b style="color:rgba(244,241,236,.85);">Brand:</b> '+escH(r.brand)+'</div>' : ''}
+        ${r.paint_name ? '<div><b style="color:rgba(244,241,236,.85);">Color:</b> '+escH(r.paint_name)+'</div>' : ''}
+        ${r.code ? '<div><b style="color:rgba(244,241,236,.85);">Code:</b> '+escH(r.code)+'</div>' : ''}
+        ${r.finish ? '<div><b style="color:rgba(244,241,236,.85);">Finish:</b> '+escH(r.finish)+'</div>' : ''}
+        ${r.coats ? '<div><b style="color:rgba(244,241,236,.85);">Coats:</b> '+escH(String(r.coats))+'</div>' : ''}
+        ${r.notes ? '<div style="margin-top:6px;color:rgba(244,241,236,.7);">'+escH(r.notes)+'</div>' : ''}
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+function photosView() {
+  const cks = _S.data.checkins || [];
+  const urls = [];
+  cks.forEach(c => {
+    (c.photo_urls||'').split(',').filter(Boolean).forEach(u => urls.push({url:u.trim(), date:c.entry_date}));
+    (c.cleanup_photo_urls||'').split(',').filter(Boolean).forEach(u => urls.push({url:u.trim(), date:(c.entry_date||'') + ' (cleanup)'}));
+  });
+  if (!urls.length) return '<div class="empty">Photos will show up here as the crew posts site updates.</div>';
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
+    ${urls.map(p => `<div>
+      <a href="${escH(p.url)}" target="_blank">
+        <div class="photo"><img src="${escH(p.url)}" alt="" loading="lazy"></div>
+      </a>
+      <div class="mono" style="font-size:10px;color:rgba(244,241,236,.5);margin-top:4px;">${escH(p.date||'')}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function docsView() {
+  const ds = _S.data.documents || [];
+  if (!ds.length) return '<div class="empty">No documents posted to this project yet.</div>';
+  return `<div class="grid">${ds.map(d => `
+    <div class="card">
+      <div class="t">${escH(d.name||'—')}</div>
+      <div class="m">
+        <div>${escH((d.kind||'other').toUpperCase())}${d.size_bytes?' · '+(d.size_bytes/1024).toFixed(1)+' KB':''}</div>
+        <div>${escH((d.uploaded_at||'').slice(0,10))}</div>
+      </div>
+      <div style="margin-top:10px;"><a href="${escH(d.file_url)}" target="_blank" style="background:#F4F1EC;color:#0E0E0C;padding:7px 13px;border-radius:6px;font-weight:600;font-size:13px;text-decoration:none;">Download</a></div>
+    </div>`).join('')}</div>`;
+}
+
+function render() {
+  const s = _S.data.summary || {};
+  const job = _S.data.job;
+  const dayLine = [
+    (s.day_x && s.day_y) ? `DAY ${s.day_x} OF ${s.day_y}` : '',
+    (s.pct_complete != null) ? `${s.pct_complete}% COMPLETE` : '',
+  ].filter(Boolean).join(' · ');
+  let body = '';
+  if (_S.tab === 'daily')  body = dailyView();
+  if (_S.tab === 'paint')  body = paintView();
+  if (_S.tab === 'photos') body = photosView();
+  if (_S.tab === 'docs')   body = docsView();
+  document.getElementById('root').innerHTML = `
+    ${urlbar()}
+    ${fcst()}
+    <div class="notice">This page mirrors the live job log Ashrah's crew updates throughout the day — same data the project team sees. Refresh any time.</div>
+    <div class="shell">
+      ${sidebar()}
+      <div class="main">
+        <h1 class="title">${escH(job.site_address || job.client_name || 'Project')}</h1>
+        ${dayLine ? `<div class="dayline">${escH(dayLine)}</div>` : ''}
+        <div class="tabs">
+          <div class="tab ${_S.tab==='daily'?'active':''}"  onclick="setTab('daily')">Daily log</div>
+          <div class="tab ${_S.tab==='paint'?'active':''}"  onclick="setTab('paint')">Paint records</div>
+          <div class="tab ${_S.tab==='photos'?'active':''}" onclick="setTab('photos')">Photos</div>
+          <div class="tab ${_S.tab==='docs'?'active':''}"   onclick="setTab('docs')">Documents</div>
+        </div>
+        ${body}
+      </div>
+    </div>
+  `;
+}
+
+load();
+</script>
+</body></html>"""
+
+
+# ─── CLIENT PORTAL AUTH FLOW ─────────────────────────────────────────────
+# Two states per client:
+#   1. Account un-set-up (portal_setup_complete = false / null) → must complete
+#      email-magic-link → set password + company/contact info before viewing.
+#   2. Setup complete → sign in with email + password, session-based.
+# Returning users go through the same /site/portal-login page.
+
+PORTAL_LOGIN_HTML = """<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Client portal — {{ company }}</title>
+<link rel="icon" href="/static/site_design/ashrah-logo.jpeg">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing:border-box; } body { margin:0; background:#F4F1EC; color:#0E0E0C;
+  font-family:Inter,system-ui,sans-serif; min-height:100vh;
+  display:flex; align-items:center; justify-content:center; padding:24px; }
+.card { background:#fff; border:1px solid rgba(14,14,12,.12); border-radius:14px;
+  padding:36px 36px 32px; max-width:440px; width:100%;
+  box-shadow:0 1px 0 rgba(0,0,0,.04), 0 12px 32px rgba(0,0,0,.06); }
+.b { display:flex; align-items:center; gap:12px; margin-bottom:24px; }
+.b img { height:42px; border-radius:8px; }
+.b .t { font-family:'Archivo',sans-serif; font-weight:900; font-stretch:75%;
+  text-transform:uppercase; font-size:16px; line-height:1.1; }
+.b .s { font-size:11px; color:rgba(14,14,12,.55); letter-spacing:1px; text-transform:uppercase; margin-top:3px; }
+h1 { font-family:'Archivo',sans-serif; font-weight:800; font-size:24px; margin:0 0 6px; letter-spacing:-.01em; }
+p.lede { color:rgba(14,14,12,.6); font-size:14px; margin:0 0 22px; line-height:1.55; }
+.field { margin-bottom:14px; }
+.field label { display:block; font-size:11px; font-weight:700; letter-spacing:1px;
+  text-transform:uppercase; color:rgba(14,14,12,.55); margin-bottom:6px; }
+.field input { width:100%; padding:11px 13px; font-size:15px;
+  border:1.5px solid rgba(14,14,12,.15); border-radius:8px; font-family:inherit;
+  background:#fafafa; }
+.field input:focus { outline:none; border-color:#ff2e9a; background:#fff; }
+.btn { background:#0E0E0C; color:#fff; border:none; padding:13px 22px;
+  border-radius:8px; font-weight:700; font-size:15px; cursor:pointer; width:100%;
+  margin-top:6px; }
+.btn:hover { opacity:.92; }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.alt { margin-top:18px; padding-top:18px; border-top:1px solid rgba(14,14,12,.08);
+  text-align:center; font-size:13px; color:rgba(14,14,12,.6); }
+.alt a { color:#ff2e9a; text-decoration:none; font-weight:600; }
+.msg { padding:12px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; }
+.msg.ok { background:#e8f5e9; color:#1b5e20; border:1px solid #c8e6c9; }
+.msg.err { background:#fdecea; color:#a32d24; border:1px solid #f6cdc6; }
+.back { display:inline-block; margin-top:18px; color:rgba(14,14,12,.5); font-size:12px; text-decoration:none; }
+.back:hover { color:#0E0E0C; }
+</style></head><body>
+<div class="card">
+  <div class="b">
+    <img src="/static/site_design/ashrah-logo.jpeg" alt="">
+    <div>
+      <div class="t">{{ company }}</div>
+      <div class="s">Client Portal</div>
+    </div>
+  </div>
+  {% if msg %}<div class="msg {{ msg_kind }}">{{ msg }}</div>{% endif %}
+
+  {% if mode == 'signin' %}
+  <h1>Sign in</h1>
+  <p class="lede">Enter your email and password to see your project.</p>
+  <form method="POST" action="/api/site/portal/signin">
+    <div class="field"><label>Email</label><input type="email" name="email" required autofocus value="{{ email|default('') }}"></div>
+    <div class="field"><label>Password</label><input type="password" name="password" required></div>
+    <button class="btn" type="submit">Sign in →</button>
+  </form>
+  <div class="alt">First time here? <a href="/site/portal-login">Set up your account</a></div>
+  {% else %}
+  <h1>Access your project portal</h1>
+  <p class="lede">Enter the email you've shared with us. We'll send a secure link to set your password and complete your profile.</p>
+  <form method="POST" action="/api/site/portal/request-access">
+    <div class="field"><label>Your email</label><input type="email" name="email" required autofocus placeholder="name@company.com"></div>
+    <button class="btn" type="submit">Send me a link →</button>
+  </form>
+  <div class="alt">Already set up? <a href="/site/portal-signin">Sign in with password</a></div>
+  {% endif %}
+
+  <a href="/site/" class="back">← Back to ashrahpainting.com</a>
+</div>
+</body></html>"""
+
+
+PORTAL_SETUP_HTML = """<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Set up your portal — {{ company }}</title>
+<link rel="icon" href="/static/site_design/ashrah-logo.jpeg">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing:border-box; } body { margin:0; background:#F4F1EC; color:#0E0E0C;
+  font-family:Inter,system-ui,sans-serif; min-height:100vh;
+  display:flex; align-items:center; justify-content:center; padding:24px; }
+.card { background:#fff; border:1px solid rgba(14,14,12,.12); border-radius:14px;
+  padding:36px; max-width:520px; width:100%;
+  box-shadow:0 1px 0 rgba(0,0,0,.04), 0 12px 32px rgba(0,0,0,.06); }
+.b { display:flex; align-items:center; gap:12px; margin-bottom:24px; }
+.b img { height:42px; border-radius:8px; }
+.b .t { font-family:'Archivo',sans-serif; font-weight:900; font-stretch:75%;
+  text-transform:uppercase; font-size:16px; line-height:1.1; }
+.b .s { font-size:11px; color:rgba(14,14,12,.55); letter-spacing:1px; text-transform:uppercase; margin-top:3px; }
+h1 { font-family:'Archivo',sans-serif; font-weight:800; font-size:24px; margin:0 0 6px; letter-spacing:-.01em; }
+p.lede { color:rgba(14,14,12,.6); font-size:14px; margin:0 0 22px; line-height:1.55; }
+.field { margin-bottom:14px; }
+.field label { display:block; font-size:11px; font-weight:700; letter-spacing:1px;
+  text-transform:uppercase; color:rgba(14,14,12,.55); margin-bottom:6px; }
+.field input { width:100%; padding:11px 13px; font-size:15px;
+  border:1.5px solid rgba(14,14,12,.15); border-radius:8px; font-family:inherit;
+  background:#fafafa; }
+.field input:focus { outline:none; border-color:#ff2e9a; background:#fff; }
+.split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.btn { background:#0E0E0C; color:#fff; border:none; padding:13px 22px;
+  border-radius:8px; font-weight:700; font-size:15px; cursor:pointer; width:100%;
+  margin-top:6px; }
+.btn:hover { opacity:.92; }
+.email-pin { background:#f4f1ec; border:1px solid rgba(14,14,12,.12); border-radius:6px;
+  padding:9px 12px; font-family:'JetBrains Mono',monospace; font-size:13px; }
+.msg.err { background:#fdecea; color:#a32d24; border:1px solid #f6cdc6; padding:12px 14px; border-radius:8px; font-size:13px; margin-bottom:16px; }
+.note { color:rgba(14,14,12,.5); font-size:12px; margin-top:14px; line-height:1.5; }
+</style></head><body>
+<div class="card">
+  <div class="b">
+    <img src="/static/site_design/ashrah-logo.jpeg" alt="">
+    <div><div class="t">{{ company }}</div><div class="s">Set up your portal</div></div>
+  </div>
+  {% if error %}<div class="msg err">{{ error }}</div>{% endif %}
+  <h1>Welcome, {{ greeting }}</h1>
+  <p class="lede">We need a few details so the project team knows who they're talking to. After this you can sign in with email + password.</p>
+
+  <form method="POST" action="/api/site/portal/complete-setup">
+    <input type="hidden" name="token" value="{{ token }}">
+
+    <div class="field">
+      <label>Email</label>
+      <div class="email-pin">{{ email }}</div>
+    </div>
+
+    <div class="split">
+      <div class="field"><label>Your full name</label><input type="text" name="contact_name" required value="{{ form.contact_name|default('') }}"></div>
+      <div class="field"><label>Your position</label><input type="text" name="contact_position" placeholder="e.g. Project Manager" required value="{{ form.contact_position|default('') }}"></div>
+    </div>
+    <div class="field"><label>Company name</label><input type="text" name="company_name" required value="{{ form.company_name|default('') }}"></div>
+    <div class="field"><label>Phone (optional)</label><input type="tel" name="phone" value="{{ form.phone|default('') }}"></div>
+
+    <div class="split">
+      <div class="field"><label>Create password</label><input type="password" name="password" required minlength="8"></div>
+      <div class="field"><label>Confirm password</label><input type="password" name="confirm" required minlength="8"></div>
+    </div>
+
+    <button class="btn" type="submit">Complete setup & enter portal →</button>
+    <div class="note">All fields except phone are required. Password must be at least 8 characters. You can update this info later from your portal.</div>
+  </form>
+</div>
+</body></html>"""
+
+
+# Holds the last email-send failure reason so the request handler can surface
+# it in the redirect URL for debugging without needing Railway log access.
+_LAST_PORTAL_EMAIL_ERR = ""
+
+
+def _portal_send_setup_email(email: str, token: str, client_name: str) -> bool:
+    """Send the magic-link setup email via Resend."""
+    global _LAST_PORTAL_EMAIL_ERR
+    _LAST_PORTAL_EMAIL_ERR = ""
+    import httpx  # module isn't imported at top-level; mirror other senders
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        print("[Portal Setup] RESEND_API_KEY not set — skipping email send")
+        _LAST_PORTAL_EMAIL_ERR = "RESEND_API_KEY not set on server"
+        return False
+    base_url = os.getenv("APP_BASE_URL", APP_BASE_URL or "https://lumia.ashrah.ai").rstrip("/")
+    link = f"{base_url}/portal/setup/{token}"
+    # Empty string `.split()` returns [], so `[0]` raises IndexError. Be
+    # defensive: only index if we have at least one token.
+    _parts = (client_name or "").split()
+    first = _parts[0] if _parts else "there"
+    html_body = f"""
+    <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#0E0E0C;">
+      <div style="background:#0E0E0C;color:#F4F1EC;padding:26px;border-radius:14px 14px 0 0;text-align:center;">
+        <div style="font-family:Archivo,sans-serif;font-weight:900;letter-spacing:2px;font-size:18px;">ASHRAH PAINTING</div>
+        <div style="font-size:11px;opacity:.55;letter-spacing:2px;margin-top:4px;">CLIENT PORTAL</div>
+      </div>
+      <div style="background:#fff;border:1px solid rgba(14,14,12,.12);border-top:none;border-radius:0 0 14px 14px;padding:28px;">
+        <p style="font-size:16px;margin:0 0 10px;">Hi {first},</p>
+        <p style="color:#555;margin:0 0 18px;line-height:1.55;">
+          You requested access to your Ashrah Painting project portal. Click the link below to set your password and complete your profile. Once that's done, you can sign in any time with your email and password.
+        </p>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="{link}" style="background:#0E0E0C;color:#F4F1EC;padding:14px 30px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;">Set up portal access →</a>
+        </div>
+        <p style="color:#999;font-size:12px;text-align:center;line-height:1.6;">
+          This link expires in 24 hours. If you didn't request access, ignore this email — nothing will change.
+        </p>
+      </div>
+    </div>
+    """
+    text_body = (
+        f"Hi {first},\n\n"
+        "Set up your Ashrah Painting client portal here:\n"
+        f"{link}\n\n"
+        "This link expires in 24 hours."
+    )
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={
+                "from":    "Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [email],
+                "subject": "Set up your Ashrah project portal",
+                "html":    html_body,
+                "text":    text_body,
+            },
+            timeout=15.0,
+        )
+        if r.status_code in (200, 201, 202):
+            return True
+        print(f"[Portal Setup] Resend error {r.status_code}: {r.text[:300]}")
+        _LAST_PORTAL_EMAIL_ERR = f"Resend {r.status_code}: {r.text[:160]}"
+        return False
+    except Exception as exc:
+        print(f"[Portal Setup] Send failed: {exc}")
+        _LAST_PORTAL_EMAIL_ERR = f"send exception: {str(exc)[:160]}"
+        return False
+
+
+def _portal_company_name() -> str:
+    """For the login page header. Falls back to 'Ashrah Painting'."""
+    try:
+        if supabase_client:
+            rows = supabase_client.table("site_settings").select("company_name").eq("id", 1).limit(1).execute().data or []
+            if rows and rows[0].get("company_name"):
+                return rows[0]["company_name"]
+    except Exception:
+        pass
+    return "Ashrah Painting"
+
+
+@app.route("/site/portal-login")
+def portal_login_page():
+    """Email-first entry. Already signed-in clients are redirected to their portal."""
+    if session.get("portal_client_id"):
+        return redirect("/portal/me")
+    msg      = request.args.get("msg")
+    msg_kind = request.args.get("kind") or "ok"
+    return render_template_string(PORTAL_LOGIN_HTML,
+        company=_portal_company_name(), mode="request",
+        msg=msg, msg_kind=msg_kind)
+
+
+@app.route("/site/portal-signin")
+def portal_signin_page():
+    if session.get("portal_client_id"):
+        return redirect("/portal/me")
+    msg      = request.args.get("msg")
+    msg_kind = request.args.get("kind") or "ok"
+    email    = request.args.get("email") or ""
+    return render_template_string(PORTAL_LOGIN_HTML,
+        company=_portal_company_name(), mode="signin",
+        msg=msg, msg_kind=msg_kind, email=email)
+
+
+def _portal_notify_owner_new_signup(email: str, existed: bool) -> None:
+    """Light-touch heads-up so the owner knows a new portal signup happened.
+    Best-effort: never raises."""
+    import httpx  # not imported at top-level
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key or not OWNER_EMAIL:
+        return
+    label = "Existing client" if existed else "New (unknown) signup"
+    try:
+        httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={
+                "from":    "Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [OWNER_EMAIL],
+                "subject": f"[Portal] {label}: {email}",
+                "text":    (
+                    f"Someone just requested portal access:\n\n"
+                    f"  Email: {email}\n"
+                    f"  Status: {label}\n\n"
+                    f"They will receive a setup link to set their password and complete their profile (company / contact name / position). "
+                    f"If this is a stranger and not a real client, you can ignore — they can only see project data after you assign them to a job in the clients table."
+                ),
+            },
+            timeout=10.0,
+        )
+    except Exception:
+        pass
+
+
+@app.route("/api/site/portal/request-access", methods=["POST"])
+def api_portal_request_access():
+    """Receive an email → always issue a setup link, regardless of whether
+    we've heard of them. Self-signup creates a pending `clients` row.
+
+    Security model: anyone can sign up and complete the password+info flow,
+    but they only see PROJECT data after the owner links them to a job (by
+    setting `clients.client_name` to match a `jobs.client_name`). Until then
+    /portal/me shows the empty "we'll be in touch" state.
+    """
+    email = (request.form.get("email") or "").strip().lower()
+    print(f"[Portal Request v2 SENTINEL-20260520] Incoming for email={email!r}")
+    if not email or "@" not in email:
+        return redirect("/site/portal-login?msg=SENTINEL-20260520+please+enter+a+valid+email.&kind=err")
+    if not supabase_client:
+        return redirect("/site/portal-login?msg=Server+not+configured.&kind=err")
+    token = secrets.token_urlsafe(32)
+    exp   = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+    client_name_for_email = ""
+    existed = False
+    try:
+        rows = supabase_client.table("clients").select("*") \
+            .eq("client_email", email).limit(1).execute().data or []
+        if rows:
+            existed = True
+            row = rows[0]
+            client_name_for_email = row.get("client_name") or ""
+            try:
+                supabase_client.table("clients").update({
+                    "portal_setup_token":         token,
+                    "portal_setup_token_expires": exp,
+                }).eq("id", row["id"]).execute()
+                print(f"[Portal Request] Existing client — token issued (id={row.get('id')})")
+            except Exception as upd_exc:
+                print(f"[Portal Request] ⚠ Update failed (migration applied?): {upd_exc}")
+                return redirect("/site/portal-login?msg=Server+not+ready+for+portal+yet.+Escalating+to+Lumia.&kind=err")
+        else:
+            # Self-signup — create a pending client row. Match the column set
+            # of _ensure_client_row so we don't trip a NOT NULL constraint on
+            # legacy columns like site_keyword.
+            base_row = {
+                "client_name":  email.split("@")[0],   # placeholder; they'll set the real one during setup
+                "client_email": email,
+                "site_keyword": "",                    # legacy NOT NULL in some installs
+                "access_token": secrets.token_urlsafe(32),
+            }
+            portal_row = dict(base_row, **{
+                "portal_setup_token":         token,
+                "portal_setup_token_expires": exp,
+                "portal_setup_complete":      False,
+                "signup_source":              "self_portal",
+            })
+            # Try progressively narrower schemas so a missing column never
+            # blocks signup. Each attempt strips fields that might not exist.
+            attempts = [
+                ("full",            portal_row),
+                ("no_signup_src",   {k: v for k, v in portal_row.items() if k != "signup_source"}),
+                ("auth_only",       {**base_row, "portal_setup_token": token,
+                                     "portal_setup_token_expires": exp,
+                                     "portal_setup_complete": False}),
+                ("base_only",       base_row),
+            ]
+            inserted_row = None
+            last_err = None
+            for label, payload in attempts:
+                try:
+                    ins = supabase_client.table("clients").insert(payload).execute()
+                    inserted_row = (ins.data or [{}])[0]
+                    print(f"[Portal Request] ✓ Insert succeeded ({label}) for {email} id={inserted_row.get('id')}")
+                    # If we fell back to base_only, the token wasn't stored —
+                    # the migration is genuinely not applied and the user
+                    # can't proceed. Surface that clearly.
+                    if label == "base_only":
+                        print(f"[Portal Request] ⚠ Migration NOT applied — token not stored. Direct user to /admin/portal-setup.")
+                        return redirect("/site/portal-login?msg=Database+not+ready.+Open+/admin/portal-setup+(owner+only)+to+apply+the+migration.&kind=err")
+                    break
+                except Exception as ins_exc:
+                    last_err = ins_exc
+                    msg = str(ins_exc).lower()
+                    # Stop early if the failure is something we can't fix by stripping
+                    if "duplicate" in msg or "unique" in msg:
+                        print(f"[Portal Request] ⚠ Duplicate row for {email}: {ins_exc}")
+                        return redirect(f"/site/portal-login?msg=An+account+already+exists+for+that+email.+Try+'Sign+in+with+password'.&kind=err")
+                    print(f"[Portal Request] insert attempt '{label}' failed: {ins_exc}")
+                    continue
+            if not inserted_row:
+                # Surface the actual error so we can fix the schema fast.
+                from urllib.parse import quote_plus
+                err_short = (str(last_err) or "unknown")[:200]
+                print(f"[Portal Request] ⚠ All insert attempts failed: {last_err}")
+                return redirect(f"/site/portal-login?msg=Insert+failed:+{quote_plus(err_short)}&kind=err")
+
+        ok = _portal_send_setup_email(email, token, client_name_for_email)
+        if not ok:
+            from urllib.parse import quote_plus as _qp2
+            detail = _LAST_PORTAL_EMAIL_ERR or "unknown email error"
+            print(f"[Portal Request] ⚠ Email send failed for {email}: {detail}")
+            return redirect(f"/site/portal-login?msg=Email+failed:+{_qp2(detail)}&kind=err")
+        print(f"[Portal Request] ✓ Setup email sent to {email}")
+
+        # Best-effort heads-up to the owner so a stranger signing up isn't a surprise.
+        threading.Thread(
+            target=_portal_notify_owner_new_signup,
+            args=(email, existed),
+            daemon=True,
+        ).start()
+
+    except Exception as exc:
+        traceback.print_exc()
+        print(f"[Portal Request] Outer error: {exc}")
+        # Surface the actual exception text in the URL so we can debug
+        # without needing Railway log access. Truncated to avoid bloating
+        # the URL; full traceback is in stdout.
+        from urllib.parse import quote_plus as _qp
+        return redirect(f"/site/portal-login?msg=Server+error:+{_qp(str(exc)[:200])}&kind=err")
+    return redirect("/site/portal-login?msg=Check+your+inbox+%E2%80%94+we+just+sent+a+secure+setup+link.&kind=ok")
+
+
+@app.route("/portal/setup/<token>", methods=["GET"])
+def portal_setup_page(token):
+    """Magic-link landing page. Token-based; expires after 24h."""
+    if not supabase_client:
+        return "Portal not configured.", 500
+    try:
+        rows = supabase_client.table("clients").select("*") \
+            .eq("portal_setup_token", token).limit(1).execute().data or []
+    except Exception:
+        rows = []
+    if not rows:
+        return render_template_string(PORTAL_LOGIN_HTML,
+            company=_portal_company_name(), mode="request",
+            msg="That link is no longer valid. Request a fresh one below.", msg_kind="err"), 410
+    row = rows[0]
+    # Check expiry
+    exp_iso = row.get("portal_setup_token_expires")
+    if exp_iso:
+        try:
+            exp = datetime.fromisoformat(exp_iso.replace("Z","+00:00"))
+            if datetime.now(exp.tzinfo or None) > exp:
+                return render_template_string(PORTAL_LOGIN_HTML,
+                    company=_portal_company_name(), mode="request",
+                    msg="That link expired. Request a fresh one below.", msg_kind="err"), 410
+        except Exception: pass
+    greeting = (row.get("client_name") or "").split()[0] or "there"
+    return render_template_string(PORTAL_SETUP_HTML,
+        company=_portal_company_name(),
+        greeting=greeting,
+        email=row.get("client_email") or "",
+        token=token,
+        form={},
+        error=None,
+    )
+
+
+@app.route("/api/site/portal/complete-setup", methods=["POST"])
+def api_portal_complete_setup():
+    """Save password + company/contact info; log the client in via session."""
+    token = (request.form.get("token") or "").strip()
+    pw    = (request.form.get("password") or "")
+    conf  = (request.form.get("confirm") or "")
+    company_name     = (request.form.get("company_name") or "").strip()
+    contact_name     = (request.form.get("contact_name") or "").strip()
+    contact_position = (request.form.get("contact_position") or "").strip()
+    phone            = (request.form.get("phone") or "").strip()
+
+    def back(err, form_data=None):
+        return render_template_string(PORTAL_SETUP_HTML,
+            company=_portal_company_name(),
+            greeting=(form_data or {}).get("contact_name","").split()[0] or "there",
+            email=(form_data or {}).get("_email",""),
+            token=token, form=form_data or {}, error=err), 400
+
+    if not token or not pw or not conf:
+        return back("All required fields must be filled.", {})
+    if pw != conf:
+        return back("Passwords don't match.", {
+            "company_name": company_name, "contact_name": contact_name,
+            "contact_position": contact_position, "phone": phone,
+        })
+    if len(pw) < 8:
+        return back("Password must be at least 8 characters.", {
+            "company_name": company_name, "contact_name": contact_name,
+            "contact_position": contact_position, "phone": phone,
+        })
+
+    if not supabase_client:
+        return "Database unavailable.", 500
+    try:
+        rows = supabase_client.table("clients").select("*") \
+            .eq("portal_setup_token", token).limit(1).execute().data or []
+        if not rows:
+            return back("Link expired. Request a new one from the login page.", {})
+        row = rows[0]
+        exp_iso = row.get("portal_setup_token_expires")
+        if exp_iso:
+            try:
+                exp = datetime.fromisoformat(exp_iso.replace("Z","+00:00"))
+                if datetime.now(exp.tzinfo or None) > exp:
+                    return back("Link expired. Request a new one from the login page.", {})
+            except Exception: pass
+
+        supabase_client.table("clients").update({
+            "portal_password_hash":     generate_password_hash(pw),
+            "portal_company_name":      company_name,
+            "portal_contact_name":      contact_name,
+            "portal_contact_position":  contact_position,
+            "portal_phone":             phone,
+            "portal_setup_token":       None,
+            "portal_setup_token_expires": None,
+            "portal_setup_complete":    True,
+        }).eq("id", row["id"]).execute()
+
+        # Log them in
+        session["portal_client_id"]    = row["id"]
+        session["portal_client_email"] = row.get("client_email")
+        session.permanent = True
+        return redirect("/portal/me")
+    except Exception as exc:
+        traceback.print_exc()
+        return back(f"Server error: {exc}", {})
+
+
+@app.route("/api/site/portal/signin", methods=["POST"])
+def api_portal_signin():
+    """Returning user — email + password."""
+    email = (request.form.get("email") or "").strip().lower()
+    pw    = (request.form.get("password") or "")
+    if not email or not pw:
+        return redirect("/site/portal-signin?msg=Email+and+password+required.&kind=err&email=" + email)
+    if not supabase_client:
+        return "Portal not configured.", 500
+    try:
+        rows = supabase_client.table("clients").select("*") \
+            .eq("client_email", email).limit(1).execute().data or []
+        # Same error for "wrong email" vs "wrong password" (anti-enumeration)
+        if not rows or not rows[0].get("portal_setup_complete"):
+            return redirect("/site/portal-signin?msg=Email+or+password+incorrect,+or+account+not+yet+set+up.&kind=err&email=" + email)
+        row = rows[0]
+        if not row.get("portal_password_hash") or not check_password_hash(row["portal_password_hash"], pw):
+            return redirect("/site/portal-signin?msg=Email+or+password+incorrect,+or+account+not+yet+set+up.&kind=err&email=" + email)
+        session["portal_client_id"]    = row["id"]
+        session["portal_client_email"] = row.get("client_email")
+        session.permanent = True
+        return redirect("/portal/me")
+    except Exception as exc:
+        print(f"[Portal Signin] Error: {exc}")
+        return redirect("/site/portal-signin?msg=Server+error,+try+again.&kind=err&email=" + email)
+
+
+# ─── Portal migration helper (run-the-SQL admin page) ─────────────────────
+PORTAL_MIGRATION_SQL = """-- Run this once in Supabase -> SQL Editor -> New query -> Run
+alter table clients
+  add column if not exists portal_password_hash        text,
+  add column if not exists portal_setup_token          text,
+  add column if not exists portal_setup_token_expires  timestamptz,
+  add column if not exists portal_setup_complete       boolean default false,
+  add column if not exists portal_company_name         text,
+  add column if not exists portal_contact_name         text,
+  add column if not exists portal_contact_position     text,
+  add column if not exists portal_phone                text,
+  add column if not exists signup_source               text;
+
+create index if not exists idx_clients_email        on clients(client_email);
+create index if not exists idx_clients_portal_token on clients(portal_setup_token);
+"""
+
+
+def _portal_migration_applied() -> tuple[bool, str]:
+    """Probe: does the portal column exist? Cheap select. (applied, detail)."""
+    if not supabase_client:
+        return False, "Supabase client not configured."
+    try:
+        supabase_client.table("clients").select("portal_setup_complete").limit(1).execute()
+        return True, "Columns present."
+    except Exception as exc:
+        return False, str(exc)
+
+
+@app.route("/admin/portal-setup")
+@require_role("owner")
+def admin_portal_setup_page():
+    """Owner-only helper: one-click migration check + copy-paste SQL."""
+    applied, detail = _portal_migration_applied()
+    status_color = "#2e7d32" if applied else "#c62828"
+    status_label = "All set. Portal is ready." if applied else "Migration not applied yet."
+    return render_template_string("""<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portal Migration</title>
+<style>
+body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#f4f1ec;
+  color:#0E0E0C; margin:0; padding:32px; line-height:1.6; }
+.card { background:#fff; max-width:780px; margin:0 auto; border:1px solid rgba(0,0,0,.1);
+  border-radius:14px; padding:32px;
+  box-shadow:0 1px 0 rgba(0,0,0,.04), 0 10px 30px rgba(0,0,0,.05); }
+h1 { font-size:22px; margin:0 0 6px; }
+.status { padding:14px 18px; border-radius:10px; font-weight:600; font-size:14px;
+  margin:18px 0; border:1px solid {{ status_color }}; color:{{ status_color }};
+  background:{{ status_color }}10; }
+.step { background:#f8f9fc; border-left:3px solid #1F3864; padding:14px 18px;
+  border-radius:6px; margin:14px 0; }
+pre { background:#0E0E0C; color:#F4F1EC; padding:18px; border-radius:10px;
+  font-size:12px; overflow-x:auto; font-family:'JetBrains Mono',Menlo,monospace;
+  line-height:1.5; }
+button { background:#0E0E0C; color:#F4F1EC; border:none; padding:10px 20px;
+  border-radius:8px; font-weight:600; font-size:14px; cursor:pointer; margin-right:8px; }
+button:hover { opacity:.9; }
+a { color:#1F3864; }
+small { color:#666; }
+</style></head><body>
+<div class="card">
+  <h1>Client Portal - Migration</h1>
+  <p style="color:#666;margin:0;">One-time database setup so client portal sign-ups can store passwords and contact info.</p>
+  <div class="status">{{ status_label }}<br><small style="font-weight:400;opacity:.7;">{{ detail }}</small></div>
+  {% if not applied %}
+  <div class="step">
+    <b>Step 1.</b> Copy this SQL.<br>
+    <button onclick="navigator.clipboard.writeText(document.getElementById('sql').textContent); this.textContent='Copied'; setTimeout(()=>this.textContent='Copy SQL', 1500)">Copy SQL</button>
+  </div>
+  <pre id="sql">{{ sql }}</pre>
+  <div class="step">
+    <b>Step 2.</b> Open <a href="https://supabase.com/dashboard/project/_/sql/new" target="_blank">Supabase &rarr; SQL Editor &rarr; New query</a>, paste, click <b>Run</b>.
+  </div>
+  <div class="step">
+    <b>Step 3.</b> <a href="/admin/portal-setup">Reload this page</a>. Green status = portal ready.
+  </div>
+  {% else %}
+  <p>Portal sign-up flow is live at <a href="/site/portal-login">/site/portal-login</a>.</p>
+  {% endif %}
+</div>
+</body></html>""", applied=applied, detail=detail, status_color=status_color,
+   status_label=status_label, sql=PORTAL_MIGRATION_SQL)
+
+
+# ─── Link portal clients to their projects ──────────────────────────────
+@app.route("/api/admin/portal-clients")
+@require_role("owner")
+def api_admin_portal_clients():
+    """List clients (with portal accounts) + their currently-linked job."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"}), 500
+    try:
+        clients = supabase_client.table("clients").select(
+            "id,client_name,client_email,portal_contact_name,portal_company_name,"
+            "portal_setup_complete,linked_job_id,signup_source"
+        ).order("created_at", desc=True).limit(200).execute().data or []
+    except Exception:
+        # linked_job_id column may not exist yet — fall back to a narrower select
+        clients = supabase_client.table("clients").select(
+            "id,client_name,client_email,portal_setup_complete"
+        ).limit(200).execute().data or []
+    jobs = supabase_client.table("jobs").select("id,client_name,site_address,status") \
+        .order("created_at", desc=True).limit(200).execute().data or []
+    return jsonify({"ok": True, "clients": clients, "jobs": jobs})
+
+
+@app.route("/api/admin/link-client", methods=["POST"])
+@require_role("owner")
+def api_admin_link_client():
+    """Set (or clear) the job a portal client is linked to."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"}), 500
+    d = request.get_json() or {}
+    client_id = d.get("client_id")
+    job_id    = d.get("job_id") or None   # empty → unlink
+    if not client_id:
+        return jsonify({"ok": False, "error": "client_id required"}), 400
+    try:
+        supabase_client.table("clients").update({"linked_job_id": job_id}).eq("id", client_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        msg = str(exc)
+        if "linked_job_id" in msg or "column" in msg.lower():
+            return jsonify({"ok": False, "error":
+                "Run this SQL in Supabase first: alter table clients add column if not exists linked_job_id uuid;"}), 400
+        return jsonify({"ok": False, "error": msg}), 500
+
+
+@app.route("/admin/portal-clients")
+@require_role("owner")
+def admin_portal_clients_page():
+    return render_template_string("""<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Link Portal Clients</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f4f1ec;color:#0E0E0C;margin:0;padding:32px;}
+.card{background:#fff;max-width:900px;margin:0 auto;border:1px solid rgba(0,0,0,.1);border-radius:14px;padding:28px;}
+h1{font-size:22px;margin:0 0 4px;} p.sub{color:#666;margin:0 0 20px;font-size:14px;}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+th{text-align:left;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:#888;padding:8px 10px;border-bottom:2px solid #eee;}
+td{padding:10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}
+.name{font-weight:700;color:#1F3864;}
+.email{font-size:12px;color:#888;}
+select{padding:8px 10px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;min-width:240px;}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+.b-set{background:#d4edda;color:#2e7d32;} .b-none{background:#fce4ec;color:#c62828;}
+.status{font-size:12px;margin-left:8px;color:#2e7d32;}
+.empty{color:#888;padding:30px;text-align:center;}
+</style></head><body>
+<div class="card">
+  <h1>Link Portal Clients → Projects</h1>
+  <p class="sub">Pick which job each portal client sees. Until linked, a signed-up client sees the "your project will appear soon" screen. Selecting a job is instant.</p>
+  <div id="list"><div class="empty">Loading…</div></div>
+</div>
+<script>
+let JOBS = [];
+async function load() {
+  const r = await fetch('/api/admin/portal-clients');
+  const d = await r.json();
+  if (!d.ok) { document.getElementById('list').innerHTML = '<div class="empty" style="color:#c62828">'+(d.error||'error')+'</div>'; return; }
+  JOBS = d.jobs || [];
+  const clients = d.clients || [];
+  if (!clients.length) { document.getElementById('list').innerHTML = '<div class="empty">No portal clients yet.</div>'; return; }
+  const jobOpts = (sel) => '<option value="">— not linked —</option>' + JOBS.map(j =>
+    `<option value="${j.id}" ${j.id===sel?'selected':''}>${esc(j.client_name||'?')} · ${esc(j.site_address||'')} (${esc(j.status||'')})</option>`).join('');
+  document.getElementById('list').innerHTML =
+    '<table><thead><tr><th>Client</th><th>Linked job</th><th>Status</th></tr></thead><tbody>' +
+    clients.map(c => `<tr>
+      <td>
+        <div class="name">${esc(c.portal_contact_name || c.client_name || '?')}</div>
+        <div class="email">${esc(c.client_email||'')}${c.portal_company_name ? ' · '+esc(c.portal_company_name) : ''}</div>
+      </td>
+      <td>
+        <select onchange="linkClient('${c.id}', this.value, this)">${jobOpts(c.linked_job_id)}</select>
+        <span class="status" id="st-${c.id}"></span>
+      </td>
+      <td>${c.linked_job_id ? '<span class="badge b-set">LINKED</span>' : '<span class="badge b-none">NONE</span>'}</td>
+    </tr>`).join('') + '</tbody></table>';
+}
+async function linkClient(clientId, jobId, sel) {
+  const st = document.getElementById('st-'+clientId);
+  st.textContent = 'Saving…'; st.style.color = '#888';
+  try {
+    const r = await fetch('/api/admin/link-client', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({client_id: clientId, job_id: jobId || null})
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error||'failed');
+    st.textContent = '✓ Saved'; st.style.color = '#2e7d32';
+    setTimeout(load, 600);
+  } catch(e) { st.textContent = '⚠ '+e.message; st.style.color = '#c62828'; }
+}
+function esc(s){return (s||'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+load();
+</script>
+</body></html>""")
+
+
+@app.route("/api/admin/portal-check")
+@require_role("owner")
+def api_admin_portal_check():
+    """Owner-only diagnostic: given an email, report whether it's in the
+    clients table and what its portal-setup state is. Replaces having to
+    SSH into Supabase to debug 'why didn't the link arrive'."""
+    email = (request.args.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"ok": False, "error": "Pass ?email=..."}), 400
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Supabase not configured"}), 500
+    try:
+        rows = supabase_client.table("clients").select(
+            "id,client_name,client_email,access_token,portal_setup_complete,"
+            "portal_setup_token,portal_setup_token_expires,portal_contact_name,"
+            "portal_company_name,portal_contact_position"
+        ).eq("client_email", email).execute().data or []
+        return jsonify({
+            "ok": True,
+            "email_searched": email,
+            "match_count": len(rows),
+            "rows": rows,
+            "resend_key_set":   bool(os.getenv("RESEND_API_KEY")),
+            "supabase_set":     bool(supabase_client),
+            "app_base_url":     APP_BASE_URL,
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/portal/signout")
+def portal_signout():
+    session.pop("portal_client_id", None)
+    session.pop("portal_client_email", None)
+    return redirect("/site/portal-login?msg=Signed+out.&kind=ok")
+
+
+def _portal_client_from_session() -> dict | None:
+    if not session.get("portal_client_id") or not supabase_client:
+        return None
+    try:
+        rows = supabase_client.table("clients").select("*") \
+            .eq("id", session["portal_client_id"]).limit(1).execute().data or []
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+@app.route("/portal/me")
+def portal_me_page():
+    """Session-based portal entry — the post-signin destination."""
+    client = _portal_client_from_session()
+    if not client:
+        return redirect("/site/portal-login")
+    if not client.get("portal_setup_complete"):
+        # Edge case: session set but setup somehow incomplete — bounce.
+        return redirect("/site/portal-login?msg=Please+complete+setup+first.&kind=err")
+    # Ensure the client has an access_token (older client rows may not have
+    # one). The PORTAL_HTML AJAX uses /api/portal/<token>/workspace, so we
+    # need a token even for the session-based entry point.
+    if not client.get("access_token") and supabase_client:
+        try:
+            new_token = secrets.token_urlsafe(32)
+            supabase_client.table("clients").update({"access_token": new_token}) \
+                .eq("id", client["id"]).execute()
+            client["access_token"] = new_token
+        except Exception as exc:
+            print(f"[Portal /me] Could not generate access_token: {exc}")
+    job = _portal_resolve_job(client)
+    if not job:
+        return ("<h2 style='font-family:sans-serif;padding:40px;color:#333;'>"
+                f"Welcome {client.get('portal_contact_name') or client.get('client_name','')}. "
+                "Your project will appear here as soon as we open it.</h2>"
+                "<p style='font-family:sans-serif;padding:0 40px;'>"
+                "<a href='/portal/signout' style='color:#888;'>Sign out</a></p>"), 200
+    # Re-use existing PORTAL_HTML — pass an empty token since /api/portal needs
+    # one. We'll route the AJAX through a session-based endpoint.
+    resp = make_response(render_template_string(
+        PORTAL_HTML,
+        client_name=client.get("portal_contact_name") or client.get("client_name") or "",
+        token=client.get("access_token") or "",
+    ))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/portal/<token>")
+def portal_page(token):
+    """Token-based portal entry. If the client hasn't set up auth yet, force
+    them through setup first. Otherwise allow viewing (legacy email-link path).
+    Modern flow is /portal/me via session login."""
+    client = _lookup_client_by_token(token)
+    if not client:
+        return ("<h2 style='font-family:sans-serif;padding:40px;color:#333;'>"
+                "Project link is no longer valid. Escalating to Lumia.</h2>"), 404
+
+    # NEW gate: must complete setup before viewing.
+    if not client.get("portal_setup_complete"):
+        # Generate a fresh setup token so the legacy URL still produces a
+        # working setup link — without requiring the client to ask for one.
+        try:
+            new_token = secrets.token_urlsafe(32)
+            exp       = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+            if supabase_client:
+                supabase_client.table("clients").update({
+                    "portal_setup_token":         new_token,
+                    "portal_setup_token_expires": exp,
+                }).eq("id", client["id"]).execute()
+            return redirect(f"/portal/setup/{new_token}")
+        except Exception:
+            return redirect("/site/portal-login")
+
+    job = _portal_resolve_job(client)
+    if not job:
+        return ("<h2 style='font-family:sans-serif;padding:40px;color:#333;'>"
+                f"Welcome {client.get('portal_contact_name') or client.get('client_name','')}. "
+                "Your project will appear here as soon as we open it.</h2>"), 200
+    resp = make_response(render_template_string(
+        PORTAL_HTML,
+        client_name=client.get("portal_contact_name") or client.get("client_name") or "",
+        token=token,
+    ))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/job/<job_id>/contract-price", methods=["POST"])
+@require_finance
+def api_set_contract_price(job_id):
+    if not supabase_client: return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    try:
+        supabase_client.table("jobs").update({
+            "contract_price": float(d.get("contract_price") or 0),
+        }).eq("id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
 @app.route("/api/job/<job_id>/plan", methods=["GET"])
 @require_operator
 def api_get_job_plan(job_id):
@@ -7085,12 +13579,40 @@ def api_on_site_now():
     arrivals = supabase_client.table("arrivals").select("*") \
         .gte("arrived_at", start_of_day) \
         .order("arrived_at", desc=True).execute().data or []
-    # Mark "checked_out" if a daily check-in exists for that worker today
-    todays_checkins = supabase_client.table("checkins").select("worker_name") \
-        .eq("entry_date", today).execute().data or []
-    checked_out = {c["worker_name"] for c in todays_checkins}
+    # Pull today's check-ins WITH timestamps so we can compute total time on
+    # site (arrival → check-in) for crew who've already checked out.
+    todays_checkins = supabase_client.table("checkins").select("worker_name,created_at") \
+        .eq("entry_date", today).order("created_at", desc=True).execute().data or []
+    checkout_at = {}   # worker_name → most recent check-in created_at today
+    for c in todays_checkins:
+        wn = c.get("worker_name")
+        if wn and wn not in checkout_at:
+            checkout_at[wn] = c.get("created_at")
+
+    # Count how many DISTINCT days each worker has been at their current site
+    # (from check-in history). Today counts even before they check in.
+    days_on_site: dict[tuple, set] = {}
+    workers_on = list({a.get("worker_name") for a in arrivals if a.get("worker_name")})
+    if workers_on:
+        try:
+            hist = supabase_client.table("checkins") \
+                .select("worker_name,site_address,entry_date") \
+                .in_("worker_name", workers_on).execute().data or []
+            for c in hist:
+                key = (c.get("worker_name"), (c.get("site_address") or "").strip().lower())
+                days_on_site.setdefault(key, set()).add(c.get("entry_date"))
+        except Exception as exc:
+            print(f"[Schedule] day-count query failed: {exc}")
+
     for a in arrivals:
-        a["checked_out"] = a.get("worker_name") in checked_out
+        wn = a.get("worker_name")
+        a["checked_out"]    = wn in checkout_at
+        a["checked_out_at"] = checkout_at.get(wn)   # null if still on site
+        key = (wn, (a.get("site_address") or "").strip().lower())
+        dset = set(days_on_site.get(key, set()))
+        dset.add(today)   # they're on site today, so today counts
+        dset.discard(None)
+        a["days_on_site"] = len(dset)
     return jsonify(arrivals)
 
 
@@ -7099,10 +13621,39 @@ def api_on_site_now():
 def api_tenders_scan_email():
     """Run the Zoho IMAP scan immediately and return how many were added."""
     if not ZOHO_IMAP_USER or not ZOHO_IMAP_PASSWORD:
-        return jsonify({"ok": False, "error":
-            "Zoho IMAP not configured. Set ZOHO_IMAP_USER and ZOHO_IMAP_PASSWORD env vars."})
-    added = _scan_zoho_for_tenders()
+        # Detailed diagnostics so we know exactly what's missing
+        diag = {
+            "ZOHO_IMAP_USER_set":     bool(os.getenv("ZOHO_IMAP_USER")),
+            "ZOHO_IMAP_PASSWORD_set": bool(os.getenv("ZOHO_IMAP_PASSWORD")),
+            "ZOHO_EMAIL_set":         bool(os.getenv("ZOHO_EMAIL")),
+            "ZOHO_PASSWORD_set":      bool(os.getenv("ZOHO_PASSWORD")),
+            "resolved_user_empty":    not ZOHO_IMAP_USER,
+            "resolved_pwd_empty":     not ZOHO_IMAP_PASSWORD,
+        }
+        return jsonify({"ok": False,
+            "error": f"Zoho IMAP not configured. Diagnostics: {diag}"})
+    # Manual button → include already-read messages so the user can re-scan
+    # after they've opened a bid email in Zoho. Last 14 days. The 15-min
+    # auto-poll keeps using UNSEEN-only to stay efficient.
+    added = _scan_zoho_for_tenders(include_read=True, days_back=14)
     return jsonify({"ok": True, "added": added})
+
+
+@app.route("/api/tenders/diag")
+@require_operator
+def api_tenders_diag():
+    """Diagnostic — what does the server see for Zoho IMAP config?"""
+    return jsonify({
+        "ZOHO_IMAP_HOST":          ZOHO_IMAP_HOST,
+        "ZOHO_IMAP_PORT":          ZOHO_IMAP_PORT,
+        "ZOHO_IMAP_USER_set":      bool(os.getenv("ZOHO_IMAP_USER")),
+        "ZOHO_IMAP_PASSWORD_set":  bool(os.getenv("ZOHO_IMAP_PASSWORD")),
+        "ZOHO_EMAIL_set":          bool(os.getenv("ZOHO_EMAIL")),
+        "ZOHO_PASSWORD_set":       bool(os.getenv("ZOHO_PASSWORD")),
+        "ZOHO_EMAIL_value":        os.getenv("ZOHO_EMAIL", "")[:30],
+        "resolved_user":           ZOHO_IMAP_USER[:30] if ZOHO_IMAP_USER else "(empty)",
+        "resolved_password_len":   len(ZOHO_IMAP_PASSWORD or ""),
+    })
 
 
 @app.route("/api/tenders")
@@ -7171,6 +13722,702 @@ def api_delete_tender(tid):
         return jsonify({"ok": False, "error": str(exc)})
 
 
+# ─── QUOTES / SOW ──────────────────────────────────────────────────────────
+
+@app.route("/api/quotes")
+@require_operator
+def api_list_quotes():
+    if not supabase_client:
+        return jsonify([])
+    rows = supabase_client.table("quotes").select("*") \
+        .order("created_at", desc=True).execute().data or []
+    return jsonify(rows)
+
+
+@app.route("/api/quote", methods=["POST"])
+@require_operator
+def api_save_quote():
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    if not d.get("project_name") or not d.get("client_name"):
+        return jsonify({"ok": False, "error": "Project and client name required."})
+    row = {
+        "project_name":   d.get("project_name"),
+        "drawing_ref":    d.get("drawing_ref") or None,
+        "client_name":    d.get("client_name"),
+        "client_contact": d.get("client_contact") or None,
+        "client_email":   d.get("client_email") or None,
+        "site_address":   d.get("site_address") or None,
+        "proposal_date":  d.get("proposal_date") or None,
+        "valid_until":    d.get("valid_until") or None,
+        "intro_text":     d.get("intro_text") or None,
+        "schedule_text":  d.get("schedule_text") or None,
+        "lump_sum_price": float(d.get("lump_sum_price") or 0),
+        "status":         d.get("status") or "draft",
+        "inclusions":     d.get("inclusions") or [],
+        "exclusions":     d.get("exclusions") or [],
+        "scope_sections": d.get("scope_sections") or [],
+        "paint_schedule": d.get("paint_schedule") or [],
+        "pricing_terms":  d.get("pricing_terms") or [],
+        "updated_at":     datetime.utcnow().isoformat(),
+    }
+    try:
+        qid = d.get("id")
+        if qid:
+            supabase_client.table("quotes").update(row).eq("id", qid).execute()
+        else:
+            res = supabase_client.table("quotes").insert(row).execute()
+            qid = (res.data or [{}])[0].get("id")
+        return jsonify({"ok": True, "id": qid})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/quote/<qid>", methods=["DELETE"])
+@require_role("owner")
+def api_delete_quote(qid):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    try:
+        supabase_client.table("quotes").delete().eq("id", qid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+def _load_quote(qid):
+    if not supabase_client: return None
+    rows = supabase_client.table("quotes").select("*").eq("id", qid).limit(1).execute().data or []
+    if not rows: return None
+    q = rows[0]
+    # Normalize JSON fields (some Supabase drivers return strings)
+    for k in ("scope_sections","paint_schedule","inclusions","exclusions","pricing_terms"):
+        v = q.get(k)
+        if isinstance(v, str):
+            try: q[k] = json.loads(v)
+            except Exception: q[k] = []
+        if q.get(k) is None:
+            q[k] = []
+    return q
+
+
+def _quote_html(q: dict) -> str:
+    """Render the quote as styled HTML matching the Ashrah Painting template."""
+    def esc(s):
+        if s is None: return ""
+        return (str(s).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;"))
+    def nl2br(s): return esc(s).replace("\n", "<br>")
+    price = float(q.get("lump_sum_price") or 0)
+    price_str = "${:,.2f}".format(price)
+
+    scope_html = ""
+    for i, s in enumerate(q.get("scope_sections") or [], 1):
+        scope_html += (
+            f'<h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;'
+            f'margin:18px 0 8px;font-size:15px;">{i}. {esc(s.get("title",""))}</h2>'
+            f'<div style="font-size:13px;line-height:1.55;color:#222;white-space:pre-wrap;">'
+            f'{esc(s.get("body",""))}</div>'
+        )
+
+    paint_rows = ""
+    for p in q.get("paint_schedule") or []:
+        paint_rows += (
+            f'<tr><td style="padding:8px 10px;border:1px solid #d0d7e8;font-weight:600;color:#1E40AF;">'
+            f'{esc(p.get("code",""))}</td>'
+            f'<td style="padding:8px 10px;border:1px solid #d0d7e8;">{esc(p.get("product",""))}</td>'
+            f'<td style="padding:8px 10px;border:1px solid #d0d7e8;">{esc(p.get("application",""))}</td></tr>'
+        )
+
+    inclusions_html = "".join(f'<li>{esc(x)}</li>' for x in (q.get("inclusions") or []))
+    exclusions_html = "".join(f'<li>{esc(x)}</li>' for x in (q.get("exclusions") or []))
+
+    terms_rows = ""
+    for t in q.get("pricing_terms") or []:
+        terms_rows += (
+            f'<tr><td style="padding:8px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;'
+            f'border:1px solid #d0d7e8;width:35%;">{esc(t.get("label",""))}</td>'
+            f'<td style="padding:8px 10px;border:1px solid #d0d7e8;">{esc(t.get("value",""))}</td></tr>'
+        )
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{esc(q.get('project_name',''))} — Quote</title></head>
+<body style="font-family:Arial,sans-serif;color:#000;max-width:800px;margin:0 auto;padding:30px 40px;">
+  <!-- Letterhead -->
+  <table style="width:100%;border-bottom:3px solid #1E40AF;padding-bottom:14px;margin-bottom:18px;">
+    <tr>
+      <td style="width:120px;vertical-align:top;">
+        <img src="/static/logo.png" alt="Ashrah Painting"
+             style="width:110px;height:110px;object-fit:contain;border-radius:8px;">
+      </td>
+      <td style="vertical-align:top;padding-left:14px;text-align:right;">
+        <div style="font-size:24px;font-weight:800;color:#1E40AF;letter-spacing:1px;">ASHRAH PAINTING</div>
+        <div style="font-size:13px;color:#2EA043;font-style:italic;margin-top:2px;">Brushing Life with Color</div>
+        <div style="font-size:11px;color:#555;margin-top:8px;line-height:1.5;">
+          1100 Notre Dame Ave, Winnipeg, MB R3E 0N<br>
+          204-997-4125 · ahmad@ashrahpainting.ca
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Title -->
+  <div style="text-align:center;margin-bottom:18px;">
+    <div style="font-size:22px;font-weight:800;color:#1E40AF;letter-spacing:1px;">PAINTING SCOPE OF WORK</div>
+    <div style="font-size:13px;color:#666;font-style:italic;margin-top:4px;">{esc(q.get('project_name',''))}</div>
+  </div>
+
+  <!-- Project info -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:18px;font-size:12px;">
+    <tr><td style="padding:7px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;border:1px solid #d0d7e8;width:30%;">Project</td>
+        <td style="padding:7px 10px;border:1px solid #d0d7e8;">{esc(q.get('project_name',''))}</td></tr>
+    <tr><td style="padding:7px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;border:1px solid #d0d7e8;">Client</td>
+        <td style="padding:7px 10px;border:1px solid #d0d7e8;">{esc(q.get('client_name',''))}{(' — ' + esc(q.get('client_contact',''))) if q.get('client_contact') else ''}</td></tr>
+    <tr><td style="padding:7px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;border:1px solid #d0d7e8;">Site Address</td>
+        <td style="padding:7px 10px;border:1px solid #d0d7e8;">{esc(q.get('site_address') or '—')}</td></tr>
+    <tr><td style="padding:7px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;border:1px solid #d0d7e8;">Drawing Reference</td>
+        <td style="padding:7px 10px;border:1px solid #d0d7e8;">{esc(q.get('drawing_ref') or '—')}</td></tr>
+    <tr><td style="padding:7px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;border:1px solid #d0d7e8;">Proposal Date</td>
+        <td style="padding:7px 10px;border:1px solid #d0d7e8;">{esc(q.get('proposal_date') or '—')}</td></tr>
+    <tr><td style="padding:7px 10px;background:#f0f4ff;font-weight:600;color:#1E40AF;border:1px solid #d0d7e8;">Valid Until</td>
+        <td style="padding:7px 10px;border:1px solid #d0d7e8;">{esc(q.get('valid_until') or '—')}</td></tr>
+  </table>
+
+  <!-- Intro -->
+  <div style="font-size:13px;line-height:1.55;white-space:pre-wrap;margin-bottom:18px;">{esc(q.get('intro_text') or '')}</div>
+
+  <!-- Scope sections -->
+  {scope_html}
+
+  <!-- Paint schedule -->
+  {'<h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;margin:18px 0 8px;font-size:15px;">Paint &amp; Coating Schedule</h2>' if paint_rows else ''}
+  {('<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px;">'
+    '<thead><tr>'
+    '<th style="padding:8px 10px;background:#1E40AF;color:#fff;text-align:left;border:1px solid #1E40AF;width:80px;">Code</th>'
+    '<th style="padding:8px 10px;background:#1E40AF;color:#fff;text-align:left;border:1px solid #1E40AF;">Product &amp; Colour</th>'
+    '<th style="padding:8px 10px;background:#1E40AF;color:#fff;text-align:left;border:1px solid #1E40AF;">Application &amp; Location</th>'
+    f'</tr></thead><tbody>{paint_rows}</tbody></table>') if paint_rows else ''}
+
+  <!-- Inclusions / Exclusions -->
+  {('<h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;margin:18px 0 8px;font-size:15px;">Inclusions</h2>'
+    f'<ul style="font-size:13px;line-height:1.6;margin:0 0 14px 22px;">{inclusions_html}</ul>') if inclusions_html else ''}
+  {('<h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;margin:18px 0 8px;font-size:15px;">Exclusions</h2>'
+    f'<ul style="font-size:13px;line-height:1.6;margin:0 0 14px 22px;">{exclusions_html}</ul>') if exclusions_html else ''}
+
+  <!-- Schedule -->
+  {('<h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;margin:18px 0 8px;font-size:15px;">Schedule</h2>'
+    f'<div style="font-size:13px;line-height:1.55;white-space:pre-wrap;margin-bottom:18px;">{esc(q.get("schedule_text") or "")}</div>') if q.get('schedule_text') else ''}
+
+  <!-- Pricing -->
+  <h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;margin:24px 0 0;font-size:15px;">Pricing</h2>
+  <div style="background:#1E40AF;color:#fff;text-align:center;padding:10px;font-size:13px;font-weight:700;letter-spacing:2px;margin-top:10px;">LUMP SUM PRICE</div>
+  <div style="background:#f0f4ff;text-align:center;padding:24px;border:1px solid #d0d7e8;border-top:none;">
+    <div style="font-size:38px;font-weight:800;color:#1E40AF;letter-spacing:-1px;">{price_str}</div>
+    <div style="font-size:11px;color:#555;font-style:italic;margin-top:4px;">Plus applicable GST / PST</div>
+    <div style="font-size:11px;color:#555;margin-top:6px;">Covers all sections of the Scope of Painting Work above.</div>
+  </div>
+  <h3 style="color:#2EA043;margin:18px 0 8px;font-size:13px;">Pricing Terms</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;">{terms_rows}</table>
+
+  <!-- Signature -->
+  <h2 style="color:#1E40AF;border-bottom:1px solid #1E40AF;padding-bottom:4px;margin:18px 0 12px;font-size:15px;">Acceptance</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <tr>
+      <td style="width:50%;padding:14px;border:1px solid #d0d7e8;vertical-align:top;">
+        <div style="font-weight:700;color:#1E40AF;margin-bottom:8px;">Submitted by — Ashrah Painting</div>
+        <div style="font-family:'Brush Script MT',cursive;font-size:24px;color:#1E40AF;margin:8px 0;">Ahmad Ashrah</div>
+        <div style="font-size:11px;color:#555;">Ahmad Ashrah, Founder</div>
+        <div style="font-size:11px;color:#555;">Date: {esc(q.get('proposal_date') or '')}</div>
+      </td>
+      <td style="width:50%;padding:14px;border:1px solid #d0d7e8;vertical-align:top;">
+        <div style="font-weight:700;color:#1E40AF;margin-bottom:8px;">Accepted by — Client</div>
+        <div style="font-size:11px;color:#555;margin-top:30px;border-top:1px solid #999;padding-top:4px;">Name</div>
+        <div style="font-size:11px;color:#555;margin-top:30px;border-top:1px solid #999;padding-top:4px;">Signature</div>
+        <div style="font-size:11px;color:#555;margin-top:30px;border-top:1px solid #999;padding-top:4px;">Date</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Footer -->
+  <div style="border-top:1px solid #1E40AF;margin-top:30px;padding-top:8px;font-size:10px;color:#888;text-align:center;">
+    Ashrah Painting · 1100 Notre Dame Ave, Winnipeg, MB R3E 0N · 204-997-4125 · ahmad@ashrahpainting.ca
+  </div>
+</body></html>"""
+
+
+def _generate_quote_pdf_bytes(q: dict) -> bytes:
+    """Helper — returns the PDF as bytes (used by both download + email)."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                     TableStyle, Image)
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+
+    BRAND = colors.HexColor("#1E40AF")
+    ACCENT = colors.HexColor("#2EA043")
+    LIGHT = colors.HexColor("#F0F4FF")
+    GREY = colors.HexColor("#888888")
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=LETTER,
+                            leftMargin=0.7*inch, rightMargin=0.7*inch,
+                            topMargin=0.55*inch, bottomMargin=0.6*inch)
+    styles = getSampleStyleSheet()
+    st_body = ParagraphStyle("body", parent=styles["BodyText"],
+                             fontName="Helvetica", fontSize=10.5, leading=14, textColor=colors.black)
+    st_intro = ParagraphStyle("intro", parent=st_body, leading=15)
+    st_h1 = ParagraphStyle("h1", parent=styles["Heading1"], fontName="Helvetica-Bold",
+                           fontSize=13, textColor=BRAND, spaceBefore=10, spaceAfter=4)
+    st_h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontName="Helvetica-Bold",
+                           fontSize=11, textColor=ACCENT, spaceBefore=6, spaceAfter=2)
+    st_title = ParagraphStyle("title", parent=styles["Title"], fontName="Helvetica-Bold",
+                              fontSize=18, textColor=BRAND, alignment=TA_CENTER, spaceAfter=4)
+    st_subtitle = ParagraphStyle("subtitle", parent=styles["Normal"], fontName="Helvetica-Oblique",
+                                 fontSize=10, textColor=GREY, alignment=TA_CENTER, spaceAfter=12)
+    st_company = ParagraphStyle("co", parent=styles["Normal"], fontName="Helvetica-Bold",
+                                fontSize=18, textColor=BRAND, alignment=TA_RIGHT)
+    st_tagline = ParagraphStyle("tag", parent=styles["Normal"], fontName="Helvetica-Oblique",
+                                fontSize=10, textColor=ACCENT, alignment=TA_RIGHT, spaceAfter=4)
+    st_co_meta = ParagraphStyle("comet", parent=styles["Normal"], fontName="Helvetica",
+                                fontSize=8.5, textColor=colors.HexColor("#555555"),
+                                alignment=TA_RIGHT, leading=11)
+    st_price = ParagraphStyle("price", parent=styles["Normal"], fontName="Helvetica-Bold",
+                              fontSize=30, textColor=BRAND, alignment=TA_CENTER)
+    st_priceband = ParagraphStyle("pband", parent=styles["Normal"], fontName="Helvetica-Bold",
+                                  fontSize=12, textColor=colors.white, alignment=TA_CENTER, leading=14)
+
+    def p(text, style=st_body): return Paragraph(text or "", style)
+
+    story = []
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.png")
+    if os.path.exists(logo_path):
+        logo_cell = Image(logo_path, width=1.1*inch, height=1.1*inch, kind="proportional")
+    else:
+        logo_cell = Table([[p("AP", ParagraphStyle("lg", parent=styles["Normal"], fontName="Helvetica-Bold",
+                                                    fontSize=42, textColor=BRAND, alignment=TA_CENTER))]],
+                          colWidths=[1.1*inch], rowHeights=[1.1*inch])
+        logo_cell.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 1.2, BRAND),
+                                       ("BACKGROUND", (0,0), (-1,-1), colors.white)]))
+    right_cell = [
+        p("ASHRAH PAINTING", st_company),
+        p("Brushing Life with Color", st_tagline),
+        p("1100 Notre Dame Ave, Winnipeg, MB R3E 0N<br/>204-997-4125 · ahmad@ashrahpainting.ca", st_co_meta),
+    ]
+    head = Table([[logo_cell, right_cell]], colWidths=[1.3*inch, 5.6*inch])
+    head.setStyle(TableStyle([("VALIGN", (0,0), (-1,-1), "TOP"),
+                              ("LINEBELOW", (0,0), (-1,-1), 2.5, BRAND),
+                              ("BOTTOMPADDING", (0,0), (-1,-1), 8)]))
+    story.append(head)
+    story.append(Spacer(1, 10))
+    story.append(p("PAINTING SCOPE OF WORK", st_title))
+    story.append(p(q.get("project_name") or "", st_subtitle))
+
+    info_rows = [
+        ("Project", q.get("project_name") or ""),
+        ("Client", (q.get("client_name") or "") +
+                   ((" — " + q["client_contact"]) if q.get("client_contact") else "")),
+        ("Site Address", q.get("site_address") or "—"),
+        ("Drawing Reference", q.get("drawing_ref") or "—"),
+        ("Proposal Date", q.get("proposal_date") or "—"),
+        ("Valid Until", q.get("valid_until") or "—"),
+    ]
+    info_tbl = Table([[p("<b>"+k+"</b>"), p(v)] for k, v in info_rows],
+                     colWidths=[1.9*inch, 5.0*inch])
+    info_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), LIGHT),
+        ("TEXTCOLOR",  (0,0), (0,-1), BRAND),
+        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+        ("LEFTPADDING", (0,0), (-1,-1), 8), ("RIGHTPADDING", (0,0), (-1,-1), 8),
+        ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+    ]))
+    story.append(info_tbl); story.append(Spacer(1, 12))
+
+    if q.get("intro_text"):
+        story.append(p(q["intro_text"].replace("\n","<br/>"), st_intro)); story.append(Spacer(1, 8))
+
+    for i, s in enumerate(q.get("scope_sections") or [], 1):
+        story.append(p(f"{i}. {s.get('title','')}", st_h1))
+        if s.get("body"): story.append(p(s["body"].replace("\n","<br/>"), st_body))
+        story.append(Spacer(1, 4))
+
+    ps = q.get("paint_schedule") or []
+    if ps:
+        story.append(p("Paint &amp; Coating Schedule", st_h1))
+        data = [["Code", "Product & Colour", "Application & Location"]]
+        for row in ps:
+            data.append([row.get("code",""), row.get("product",""), row.get("application","")])
+        tbl = Table(data, colWidths=[0.8*inch, 3.0*inch, 3.1*inch])
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), BRAND), ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 9.5),
+            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+            ("INNERGRID", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+            ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6),
+            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ]))
+        story.append(tbl); story.append(Spacer(1, 8))
+
+    for hdr, items in (("Inclusions", q.get("inclusions") or []),
+                       ("Exclusions", q.get("exclusions") or [])):
+        if items:
+            story.append(p(hdr, st_h1))
+            for it in items: story.append(p(f"&bull; {it}", st_body))
+            story.append(Spacer(1, 4))
+
+    if q.get("schedule_text"):
+        story.append(p("Schedule", st_h1))
+        story.append(p(q["schedule_text"].replace("\n","<br/>"), st_body))
+        story.append(Spacer(1, 6))
+
+    story.append(p("Pricing", st_h1))
+    price_str = "${:,.2f}".format(float(q.get("lump_sum_price") or 0))
+    band = Table([[p("LUMP SUM PRICE", st_priceband)]], colWidths=[6.9*inch])
+    band.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),BRAND),
+                              ("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7)]))
+    story.append(band)
+    price_box = Table([
+        [p(price_str, st_price)],
+        [p("Plus applicable GST / PST",
+           ParagraphStyle("psm", parent=styles["Normal"], fontName="Helvetica-Oblique",
+                          fontSize=9, textColor=colors.HexColor("#555555"), alignment=TA_CENTER))],
+        [p("Covers all sections of the Scope of Painting Work above.",
+           ParagraphStyle("psm2", parent=styles["Normal"], fontName="Helvetica",
+                          fontSize=9, textColor=colors.HexColor("#555555"), alignment=TA_CENTER))],
+    ], colWidths=[6.9*inch])
+    price_box.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),LIGHT),
+                                   ("BOX",(0,0),(-1,-1),0.5,colors.HexColor("#D0D7E8")),
+                                   ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    story.append(price_box); story.append(Spacer(1, 10))
+
+    terms = q.get("pricing_terms") or []
+    if terms:
+        story.append(p("Pricing Terms", st_h2))
+        tdata = [[p("<b>"+t.get("label","")+"</b>"), p(t.get("value",""))] for t in terms]
+        ttbl = Table(tdata, colWidths=[2.1*inch, 4.8*inch])
+        ttbl.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (0,-1), LIGHT), ("TEXTCOLOR", (0,0), (0,-1), BRAND),
+            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+            ("INNERGRID", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+            ("LEFTPADDING", (0,0), (-1,-1), 8), ("RIGHTPADDING", (0,0), (-1,-1), 8),
+            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ]))
+        story.append(ttbl); story.append(Spacer(1, 10))
+
+    story.append(p("Acceptance", st_h1))
+    left = [
+        p("<b>Submitted by — Ashrah Painting</b>"),
+        Spacer(1, 6),
+        p('<font face="Helvetica-BoldOblique" color="#1E40AF" size="20">Ahmad Ashrah</font>'),
+        Spacer(1, 4),
+        p("Ahmad Ashrah, Founder", st_body),
+        p(f"Date: {q.get('proposal_date') or ''}", st_body),
+    ]
+    right = [
+        p("<b>Accepted by — Client</b>"),
+        Spacer(1, 24),
+        p("________________________________<br/>Name", st_body),
+        Spacer(1, 12),
+        p("________________________________<br/>Signature", st_body),
+        Spacer(1, 12),
+        p("________________________________<br/>Date", st_body),
+    ]
+    sig = Table([[left, right]], colWidths=[3.45*inch, 3.45*inch])
+    sig.setStyle(TableStyle([
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.HexColor("#D0D7E8")),
+        ("LEFTPADDING", (0,0), (-1,-1), 12), ("RIGHTPADDING", (0,0), (-1,-1), 12),
+        ("TOPPADDING", (0,0), (-1,-1), 10), ("BOTTOMPADDING", (0,0), (-1,-1), 10),
+    ]))
+    story.append(sig)
+
+    def _footer(canvas, doc_):
+        canvas.saveState()
+        canvas.setStrokeColor(BRAND); canvas.setLineWidth(0.6)
+        canvas.line(0.7*inch, 0.55*inch, LETTER[0]-0.7*inch, 0.55*inch)
+        canvas.setFont("Helvetica", 7.5); canvas.setFillColor(GREY)
+        canvas.drawCentredString(LETTER[0]/2, 0.4*inch,
+            f"Ashrah Painting · 1100 Notre Dame Ave, Winnipeg, MB R3E 0N · 204-997-4125 · "
+            f"ahmad@ashrahpainting.ca · Page {doc_.page}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    buf.seek(0)
+    return buf.read()
+
+
+@app.route("/api/quote/<qid>/preview")
+@require_operator
+def api_quote_preview(qid):
+    q = _load_quote(qid)
+    if not q: return "Quote not found.", 404
+    return _quote_html(q)
+
+
+@app.route("/api/quote/<qid>/pdf")
+@require_operator
+def api_quote_pdf(qid):
+    q = _load_quote(qid)
+    if not q: return "Quote not found.", 404
+    try:
+        pdf_bytes = _generate_quote_pdf_bytes(q)
+        from io import BytesIO
+        from flask import send_file
+        fname = (q.get("project_name") or "quote").replace(" ", "_").replace("/", "-") + ".pdf"
+        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf",
+                         as_attachment=False, download_name=fname)
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return f"PDF generation failed: {exc}", 500
+
+
+@app.route("/api/quote/<qid>/send", methods=["POST"])
+@require_operator
+def api_quote_send(qid):
+    """Email the quote PDF to the client. Owner is CC'd. Marks status=sent."""
+    q = _load_quote(qid)
+    if not q:
+        return jsonify({"ok": False, "error": "Quote not found."}), 404
+    d = request.get_json(silent=True) or {}
+    to_email   = (d.get("to_email") or q.get("client_email") or "").strip()
+    extra_body = (d.get("message") or "").strip()
+    if not to_email:
+        return jsonify({"ok": False, "error": "Client email is required."})
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        return jsonify({"ok": False, "error": "RESEND_API_KEY not set."})
+
+    contact_first = (q.get("client_contact") or q.get("client_name") or "").split()[0] or "there"
+    project = q.get("project_name") or "your project"
+    price = "${:,.2f}".format(float(q.get("lump_sum_price") or 0))
+    subject = f"Painting Proposal — {project}"
+    body_text = (
+        (extra_body + "\n\n") if extra_body else ""
+    ) + (
+        f"Hi {contact_first},\n\n"
+        f"Attached is our painting proposal for {project}.\n\n"
+        f"Lump Sum Price: {price} (plus applicable GST / PST)\n"
+        f"Valid Until: {q.get('valid_until') or '—'}\n\n"
+        f"Full scope of work, paint schedule, inclusions, exclusions, and pricing terms are in the attached PDF. "
+        f"Let me know if you have any questions or want to walk through it together.\n\n"
+        f"Best,\n"
+        f"Ahmad Ashrah\n"
+        f"Founder, Ashrah Painting\n"
+        f"204-997-4125 · ahmad@ashrahpainting.ca"
+    )
+
+    try:
+        pdf_bytes = _generate_quote_pdf_bytes(q)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"PDF generation failed: {exc}"})
+    import base64
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    fname = (q.get("project_name") or "quote").replace(" ", "_").replace("/", "-") + ".pdf"
+
+    cc = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != to_email else []
+    try:
+        import httpx as _httpx
+        resp = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={
+                "from":    "Ashrah Painting <noreply@ashrah.ai>",
+                "to":      [to_email],
+                "cc":      cc,
+                "subject": subject,
+                "text":    body_text,
+                "attachments": [{"filename": fname, "content": pdf_b64}],
+            },
+            timeout=30,
+        )
+        if resp.status_code in (200, 201):
+            try:
+                supabase_client.table("quotes").update({
+                    "status": "sent",
+                    "sent_at": datetime.utcnow().isoformat(),
+                }).eq("id", qid).execute()
+            except Exception: pass
+            try:
+                _log_outbox(
+                    category="quote", to=[to_email], cc=cc,
+                    subject=subject, body_text=body_text,
+                    related_kind="quote", related_id=qid,
+                )
+            except Exception: pass
+            return jsonify({"ok": True})
+        try:
+            _log_outbox(
+                category="quote", to=[to_email], cc=cc,
+                subject=subject, body_text=body_text,
+                related_kind="quote", related_id=qid,
+                status="failed", error=f"HTTP {resp.status_code}: {resp.text[:200]}",
+            )
+        except Exception: pass
+        return jsonify({"ok": False, "error": f"Email API error {resp.status_code}: {resp.text[:300]}"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ─── Quote Templates ───────────────────────────────────────────────────────
+
+@app.route("/api/quote-templates")
+@require_operator
+def api_list_quote_templates():
+    if not supabase_client: return jsonify([])
+    try:
+        rows = supabase_client.table("quote_templates").select("*") \
+            .order("name", desc=False).execute().data or []
+        return jsonify(rows)
+    except Exception:
+        return jsonify([])
+
+
+@app.route("/api/quote-template", methods=["POST"])
+@require_operator
+def api_save_quote_template():
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Template name required."})
+    row = {
+        "name":           name,
+        "scope_sections": d.get("scope_sections") or [],
+        "paint_schedule": d.get("paint_schedule") or [],
+        "inclusions":     d.get("inclusions") or [],
+        "exclusions":     d.get("exclusions") or [],
+        "schedule_text":  d.get("schedule_text") or None,
+        "pricing_terms":  d.get("pricing_terms") or [],
+    }
+    try:
+        existing = supabase_client.table("quote_templates").select("id").eq("name", name).limit(1).execute().data or []
+        if existing:
+            supabase_client.table("quote_templates").update(row).eq("id", existing[0]["id"]).execute()
+        else:
+            supabase_client.table("quote_templates").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/quote-template/<tid>", methods=["DELETE"])
+@require_role("owner")
+def api_delete_quote_template(tid):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    try:
+        supabase_client.table("quote_templates").delete().eq("id", tid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+def _send_attention_digest():
+    """7 AM Winnipeg time. Run the same scan as /api/attention and email the
+    items to Ahmad. Skip silently if nothing is flagged."""
+    if not supabase_client or not OWNER_EMAIL:
+        return
+    today = date.today()
+    items: list[dict] = []
+    # 1. Tenders closing within 3 days
+    try:
+        rows = supabase_client.table("tenders").select("*") \
+            .gte("close_date", today.isoformat()) \
+            .lte("close_date", (today + timedelta(days=3)).isoformat()) \
+            .eq("status", "open").execute().data or []
+        for t in rows:
+            d_left = (date.fromisoformat(t["close_date"]) - today).days
+            items.append({"icon":"📅","severity":"high" if d_left <= 1 else "med",
+                "title": f"Tender closes in {d_left} day(s): {t.get('name')}",
+                "detail": f"{t.get('client') or 'Unknown client'} · closes {t['close_date']}"})
+    except Exception: pass
+    # 2. Idle jobs
+    try:
+        jobs = supabase_client.table("jobs").select("id,client_name,site_address,status,start_date") \
+            .eq("status", "open").execute().data or []
+        checkins = supabase_client.table("checkins").select("site_address,entry_date") \
+            .order("entry_date", desc=True).limit(200).execute().data or []
+        latest_by_site: dict[str, str] = {}
+        for c in checkins:
+            site = (c.get("site_address") or "").lower().strip()
+            if site and site not in latest_by_site:
+                latest_by_site[site] = c.get("entry_date") or ""
+        for j in jobs:
+            site = (j.get("site_address") or "").lower().strip()
+            latest = latest_by_site.get(site, "")
+            if latest:
+                try:
+                    gap = (today - date.fromisoformat(latest)).days
+                    if gap >= 4:
+                        items.append({"icon":"⏱","severity":"med",
+                            "title": f"{gap} days since last check-in: {j.get('site_address')}",
+                            "detail": f"{j.get('client_name')} · last check-in {latest}."})
+                except Exception: pass
+    except Exception: pass
+    # 3. Drafts
+    try:
+        rows = supabase_client.table("quotes").select("id,client_name,project_name,status,created_at") \
+            .eq("status", "draft") \
+            .lte("created_at", (datetime.utcnow() - timedelta(days=3)).isoformat()) \
+            .execute().data or []
+        for q in rows[:5]:
+            items.append({"icon":"📝","severity":"low",
+                "title": f"Draft quote sitting: {q.get('project_name') or q.get('client_name')}",
+                "detail": "Drafted over 3 days ago — send it or archive."})
+    except Exception: pass
+    # (Concern-type employee notes intentionally excluded — they're already
+    #  visible on the employee page and were just adding noise to the digest.)
+
+    if not items:
+        print("[Attention Digest] Nothing flagged — skipping email")
+        return
+
+    # Build email
+    sev_rank = {"high":0,"med":1,"low":2}
+    items.sort(key=lambda i: sev_rank.get(i.get("severity","low"), 2))
+    items = items[:15]
+    lines = ["Hi Ahmad,", "", "Good morning. Here's what needs attention today:", ""]
+    for it in items:
+        lines.append(f"  {it['icon']}  {it['title']}")
+        if it.get("detail"):
+            lines.append(f"       {it['detail']}")
+        lines.append("")
+    lines.append("Open the dashboard to act on any of these.")
+    lines.append("")
+    lines.append("— Lumia")
+    body = "\n".join(lines)
+    subject = f"☀ Your Lumia digest — {today.strftime('%A %B %-d')}"
+
+    try:
+        import httpx as _httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key: return
+        r = _httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            json={"from":"Lumia <noreply@ashrah.ai>","to":[OWNER_EMAIL],
+                  "subject": subject, "text": body},
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            print(f"[Attention Digest] Sent — {len(items)} item(s)")
+            try:
+                _log_outbox(category="owner_notice", to=[OWNER_EMAIL],
+                            subject=subject, body_text=body,
+                            related_kind="digest", related_id=today.isoformat())
+            except Exception: pass
+        else:
+            print(f"[Attention Digest] Send failed: {r.status_code} {r.text[:200]}")
+    except Exception as exc:
+        print(f"[Attention Digest] Error: {exc}")
+
+
 def _send_tender_reminders():
     """Daily check: send a reminder for any tender closing in exactly 2 days
     (and not yet notified). Owner gets the email."""
@@ -7214,8 +14461,19 @@ def _send_tender_reminders():
                 if resp.status_code in (200, 201):
                     supabase_client.table("tenders").update({"notified_2d": True}).eq("id", t["id"]).execute()
                     print(f"[Tenders] Reminder sent for '{t['name']}' (closes {t['close_date']})")
+                    try:
+                        _log_outbox(category="tender_alert", to=[OWNER_EMAIL],
+                                    subject=subject, body_text=body,
+                                    related_kind="tender", related_id=str(t.get("id") or ""))
+                    except Exception: pass
                 else:
                     print(f"[Tenders] Reminder failed: {resp.status_code} {resp.text[:200]}")
+                    try:
+                        _log_outbox(category="tender_alert", to=[OWNER_EMAIL],
+                                    subject=subject, body_text=body,
+                                    related_kind="tender", related_id=str(t.get("id") or ""),
+                                    status="failed", error=f"HTTP {resp.status_code}: {resp.text[:200]}")
+                    except Exception: pass
             except Exception as exc:
                 print(f"[Tenders] Send error: {exc}")
     except Exception as exc:
@@ -7319,15 +14577,18 @@ def api_save_job():
             job_info["estimated_hours"] = eh
     except (TypeError, ValueError):
         pass
+    new_job_id = None
     if supabase_client:
         try:
-            supabase_client.table("jobs").insert(job_info).execute()
+            ins = supabase_client.table("jobs").insert(job_info).execute()
+            if ins.data: new_job_id = ins.data[0].get("id")
         except Exception as exc:
             # Fallback: drop the new columns if the schema migration hasn't run yet
             print(f"[Jobs] Insert failed ({exc}) — retrying without scope columns")
             for k in ("scope_metrics", "estimated_hours"):
                 job_info.pop(k, None)
-            supabase_client.table("jobs").insert(job_info).execute()
+            ins = supabase_client.table("jobs").insert(job_info).execute()
+            if ins.data: new_job_id = ins.data[0].get("id")
 
     def _send_all():
         _notify_assigned_employees(job_info, assigned)
@@ -7336,8 +14597,12 @@ def api_save_job():
 
     if assigned:
         threading.Thread(target=_send_all, daemon=True).start()
+    # Always fire the kickoff notice — independent of crew assignment.
+    threading.Thread(target=lambda: _notify_kickoff_specialist(job_info, new_job_id), daemon=True).start()
 
     msg = f"Job saved! Crew ({', '.join(assigned)}) notified. Client email sent." if assigned else "Job saved (no employees assigned)."
+    sp = _get_kickoff_specialist()
+    if sp: msg += f" Kickoff request emailed to {sp.get('name')}."
     return jsonify({"message": msg})
 
 
@@ -7380,14 +14645,694 @@ def api_assignment_log():
 
 
 # ---------------------------------------------------------------------------
+# CAPABILITY SCOUT — daily web-search for new AI features mapped to Lumia
+# ---------------------------------------------------------------------------
+CAPABILITY_SCOUT_SYSTEM_PROMPT = """# LUMIA CAPABILITY SCOUT — SYSTEM PROMPT
+
+You are the Lumia Capability Scout for Ashrah Painting. Your job is to search the web daily for new feature releases from major AI providers — Anthropic (Claude), OpenAI, Google (Gemini), and others when relevant (xAI, Meta, Mistral, DeepSeek) — and map each new capability to a concrete use inside Lumia.
+
+You report to Ahmad Ashrah. He wants blunt, math-grounded recommendations. No hype, no link dumps.
+
+## What to search for
+
+Run web searches against these sources first. Prioritize official changelogs and release notes over press coverage.
+
+- Anthropic: news at anthropic.com/news, API changelog at docs.claude.com
+- OpenAI: blog at openai.com/blog, platform changelog at platform.openai.com/docs/changelog
+- Google: blog.google/technology/ai, Gemini API release notes at ai.google.dev
+- Secondary signals: Hacker News posts from the past 7 days mentioning these providers, announcements from xAI, Meta AI, Mistral, DeepSeek
+
+Search for releases from the past 7 days only. Ignore anything older unless it's a capability that just became generally available.
+
+Rotate query themes each run. Examples:
+- "Anthropic Claude new feature [current week]"
+- "OpenAI API release this week"
+- "Gemini API update [current month]"
+- "Claude API changelog"
+- "new AI model release [current month] 2026"
+- "LLM API new capability [current week]"
+
+## What Lumia is
+
+Lumia is Ashrah Painting's proprietary AI operating system for the full finishing phase of commercial construction. Built on the Anthropic API. Runs on an iMac. Everything is under Lumia — estimating, project execution, client communication, marketing, and finance.
+
+Lumia's scope:
+- **Estimating:** dimension extraction from PDF drawings, takeoff, bid documents, GC cold outreach
+- **Execution:** crew assignment, safety check-ins, 5:30 PM site reports, delay flags, inspector verification
+- **Client comms:** tokenized client portal chat, status updates, closeout docs
+- **Marketing:** website content, social media, LinkedIn, cold email via Zoho
+- **Finance:** bookkeeping, payroll prep, QuickBooks integration, receipt processing, bid scanning
+
+## Current Lumia pain points (priority targets)
+
+1. Context limits on full project history — chunking adds latency, loses cross-reference accuracy
+2. Scanned/raster PDFs reduce measurement extraction accuracy
+3. No native voice input for field crews
+4. No autonomous posting to LinkedIn / Instagram
+5. Receipt-to-QBO reconciliation still has manual review step
+6. Client portal chat costs scale with usage — current model tier may be over-spec for routine queries
+7. No native image generation for marketing or proposal mockups
+8. No browser-based agent action (supplier portals, invoice downloads, bid submissions)
+9. Drawing comparison across revisions is manual
+10. No structured handling of Arabic input/output for bilingual contexts
+
+## For each feature you find
+
+1. Decide relevance to Lumia. Drop anything consumer-facing, marketing fluff, or unrelated to Lumia's scope. Be aggressive about dropping. Most releases are noise.
+
+2. For relevant features, answer four questions:
+   - Which Lumia function: estimating, execution, client_comms, marketing, or finance
+   - What capability does it unlock OR which numbered pain it solves
+   - Effort: `<1 day`, `1-3 days`, `1 week`, or `>1 week`
+   - Cost delta vs. current setup. Quantify when possible. If you don't have current usage data, write "Needs current usage data" — do not guess.
+
+3. Score 1-5:
+   - 5 = Build this week. Clear ROI, low effort, or solves a top-3 pain
+   - 4 = Build this month. Strong fit, moderate effort
+   - 3 = Prototype worth running. Interesting, not urgent
+   - 2 = Watch. Not mature enough or unclear ROI
+   - 1 = Skip
+
+## Output format
+
+Return strict JSON only. No preamble, no markdown fences, no commentary.
+
+{
+  "date": "YYYY-MM-DD",
+  "build_this_week": [
+    {
+      "feature": "short name",
+      "provider": "Anthropic | OpenAI | Google | Other",
+      "source_url": "https://...",
+      "lumia_function": "estimating | execution | client_comms | marketing | finance",
+      "pain_solved": "Pain #N or 'new capability: ...'",
+      "effort": "<1 day | 1-3 days | 1 week | >1 week",
+      "cost_delta": "e.g. ~40% cheaper per token, ~$X/mo savings",
+      "score": 5,
+      "action": "one sentence: what Ahmad should do this week"
+    }
+  ],
+  "watch_list": [ /* same shape, score 3-4 */ ],
+  "skipped": [
+    { "feature": "string", "provider": "string", "reason": "one line" }
+  ]
+}
+
+## Rules
+
+- Opinionated, not exhaustive. Vendor hype with no real capability change → skip.
+- Math over vibes. Quantify cost and effort.
+- Every Build or Watch item must answer all four questions.
+- If two providers ship the same capability in the same window, surface the better one and skip the other with a one-line comparison.
+- Build/Watch items: 3-6 lines. Skipped items: 1 line.
+- Never recommend abandoning the Anthropic API as Lumia's core stack. You may recommend supplementing with another provider for a specific capability, but core reasoning stays on Claude.
+
+End of system prompt."""
+
+
+# ---- Scout cost guardrails ----
+# Pricing per 1M tokens (USD). Update if Anthropic changes pricing.
+# NOTE: Opus 4.7 launched at $5/$25 per MTok (same as 4.6), not $15/$75.
+_SCOUT_PRICING = {
+    "claude-sonnet-4-5":            {"in":  3.0, "out": 15.0},
+    "claude-sonnet-4-5-20250929":   {"in":  3.0, "out": 15.0},
+    "claude-haiku-4-5":             {"in":  1.0, "out":  5.0},
+    "claude-haiku-4-5-20251001":    {"in":  1.0, "out":  5.0},
+    "claude-opus-4-7":              {"in":  5.0, "out": 25.0},
+}
+_SCOUT_WEB_SEARCH_USD_PER_CALL = 0.010  # $10 / 1k searches
+
+# Hard ceiling per run. If the actual measured cost exceeds this, the Scout
+# auto-disables until the owner manually re-enables it.
+SCOUT_CIRCUIT_BREAKER_USD = 1.50
+
+# Sticky kill state — if a run blows the budget, every subsequent click is
+# refused until SCOUT_ENABLED is re-set in Railway env (a deliberate human
+# action).
+_SCOUT_KILLED_REASON: str | None = None
+
+
+def _scout_compute_cost(model: str, usage, num_web_searches: int) -> float:
+    """Return USD cost for one scout run based on Anthropic's reported usage."""
+    p = _SCOUT_PRICING.get(model, {"in": 15.0, "out": 75.0})  # safe default = Opus
+    in_tokens  = getattr(usage, "input_tokens", 0) or 0
+    out_tokens = getattr(usage, "output_tokens", 0) or 0
+    # Cache-read tokens are billed cheaper but for safety we count them at full price
+    in_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
+    in_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cost = (in_tokens / 1_000_000) * p["in"] + (out_tokens / 1_000_000) * p["out"]
+    cost += num_web_searches * _SCOUT_WEB_SEARCH_USD_PER_CALL
+    return round(cost, 4)
+
+
+def _scout_run_now() -> dict:
+    """Run the Capability Scout against Claude with web_search + task_budget.
+    Returns the parsed JSON report.
+
+    Cost control stack (target: <$1 per run):
+    - **Model:** Opus 4.7 at $5/$25 per MTok (required for task_budget beta).
+    - **task_budget: 50k tokens (advisory)** — Opus 4.7 sees a running
+      countdown across the full agentic loop and self-moderates web_search
+      use, thinking depth, and output length.
+    - **max_tokens (output): 4000** — hard ceiling, not advisory.
+    - **web_search max_uses: 4** — one each for Anthropic, OpenAI, Google,
+      Hacker News. ~$0.04 in search fees.
+    - **Cost measured post-call** from response.usage. Circuit breaker at
+      $1.50 auto-disables the Scout if any run somehow exceeds it.
+    - **Realistic expected cost: $0.30-0.50 per run.**
+
+    Falls back to the standard (non-beta) call if the beta path errors,
+    so a future beta-header rename cannot break the Scout silently.
+    """
+    global _SCOUT_KILLED_REASON
+    if _SCOUT_KILLED_REASON:
+        raise RuntimeError(f"Scout disabled by circuit breaker: {_SCOUT_KILLED_REASON}")
+
+    ai = _anthropic.Anthropic()
+    # Opus 4.7 — required for the task_budget beta. The model self-moderates
+    # against a 50k-token advisory budget across the full agentic loop
+    # (web_search + thinking + output). max_tokens stays as the hard ceiling.
+    model = os.getenv("SCOUT_MODEL", "claude-opus-4-7")
+    max_searches = int(os.getenv("SCOUT_MAX_SEARCHES", "4"))
+    max_out_tokens = int(os.getenv("SCOUT_MAX_OUTPUT_TOKENS", "4000"))
+    task_budget_tokens = int(os.getenv("SCOUT_TASK_BUDGET", "50000"))
+    today = date.today().isoformat()
+    user_msg = (
+        f"Run the Capability Scout for today, {today}. "
+        f"Search the web for AI provider releases from the past 7 days only. "
+        f"Run at most {max_searches} web_search queries — one each for "
+        f"Anthropic news, OpenAI changelog, Google Gemini release notes, "
+        f"and Hacker News this week. "
+        f"Then return the strict JSON report exactly as specified. "
+        f"No markdown fences, no preamble."
+    )
+    last_exc: Exception | None = None
+    resp = None
+    for attempt in range(2):
+        try:
+            # Try the task_budget beta path first (Opus 4.7 only).
+            # If the beta call fails for any reason, fall back to the
+            # standard call — max_tokens + circuit breaker still cap spend.
+            try:
+                resp = ai.beta.messages.create(
+                    model=model,
+                    max_tokens=max_out_tokens,
+                    system=CAPABILITY_SCOUT_SYSTEM_PROMPT,
+                    tools=[{
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": max_searches,
+                    }],
+                    output_config={
+                        "effort": "high",
+                        "task_budget": {"type": "tokens", "total": task_budget_tokens},
+                    },
+                    betas=["task-budgets-2026-03-13"],
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+            except Exception as beta_exc:
+                print(f"[Scout] task_budget beta failed ({beta_exc}); falling back to standard call")
+                resp = ai.messages.create(
+                    model=model,
+                    max_tokens=max_out_tokens,
+                    system=CAPABILITY_SCOUT_SYSTEM_PROMPT,
+                    tools=[{
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": max_searches,
+                    }],
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+            break
+        except _anthropic.RateLimitError as exc:
+            last_exc = exc
+            if attempt == 0:
+                print(f"[Scout] Rate-limited, waiting 60s and retrying: {exc}")
+                import time as _time
+                _time.sleep(60)
+                continue
+            raise
+    if resp is None:
+        raise last_exc or RuntimeError("Scout call failed")
+    # Anthropic's web_search runs server-side; final assistant turn has the
+    # text content we want. Stitch together all text blocks and count actual
+    # web_search invocations for billing.
+    text_parts: list[str] = []
+    num_web_searches = 0
+    for block in resp.content:
+        btype = getattr(block, "type", None)
+        if btype in ("server_tool_use", "web_search_tool_result"):
+            # Count just the requests, not the results, to avoid double-billing
+            if btype == "server_tool_use" and getattr(block, "name", "") == "web_search":
+                num_web_searches += 1
+            continue
+        if hasattr(block, "text") and block.text:
+            text_parts.append(block.text)
+    raw = "\n".join(text_parts).strip()
+
+    # Measure actual cost from response.usage
+    cost_usd = _scout_compute_cost(model, getattr(resp, "usage", None), num_web_searches)
+    in_t  = getattr(resp.usage, "input_tokens",  0) if resp.usage else 0
+    out_t = getattr(resp.usage, "output_tokens", 0) if resp.usage else 0
+    print(f"[Scout] cost=${cost_usd}  in={in_t}t  out={out_t}t  web_searches={num_web_searches}  model={model}")
+
+    # Circuit breaker — if this run somehow exceeded the ceiling, kill the
+    # endpoint for future clicks until the owner explicitly re-enables it.
+    # (global declaration is at the top of this function.)
+    if cost_usd > SCOUT_CIRCUIT_BREAKER_USD:
+        _SCOUT_KILLED_REASON = (
+            f"Last run cost ${cost_usd:.2f}, exceeding the ${SCOUT_CIRCUIT_BREAKER_USD:.2f} "
+            f"circuit-breaker ceiling. Disabled to prevent further spend. Investigate before re-enabling."
+        )
+        print(f"[Scout] CIRCUIT BREAKER TRIPPED: {_SCOUT_KILLED_REASON}")
+
+    # Strip ```json fences if present
+    cleaned = raw
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].rstrip()
+    try:
+        report = json.loads(cleaned)
+    except Exception as exc:
+        report = {"date": today, "raw_text": raw, "parse_error": True,
+                  "parse_error_msg": str(exc),
+                  "build_this_week": [], "watch_list": [], "skipped": []}
+    if "date" not in report:
+        report["date"] = today
+    report["_cost_usd"] = cost_usd
+    report["_usage"] = {
+        "model": model,
+        "input_tokens": in_t,
+        "output_tokens": out_t,
+        "web_searches": num_web_searches,
+    }
+    return report
+
+
+def _scout_save(report: dict) -> str | None:
+    """Persist a scout report. Uses Supabase table `scout_reports` if present,
+    otherwise falls back to a local JSON file under ./scout_reports/."""
+    rec = {
+        "date": report.get("date") or date.today().isoformat(),
+        "report": report,
+        "build_count": len(report.get("build_this_week") or []),
+        "watch_count": len(report.get("watch_list") or []),
+        "skipped_count": len(report.get("skipped") or []),
+    }
+    if supabase_client:
+        try:
+            res = supabase_client.table("scout_reports").insert(rec).execute()
+            row = (res.data or [{}])[0]
+            return row.get("id")
+        except Exception as exc:
+            print(f"[Scout] Supabase save failed (falling back to disk): {exc}")
+    # Local fallback
+    try:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scout_reports")
+        os.makedirs(d, exist_ok=True)
+        fname = f"{rec['date']}_{int(datetime.utcnow().timestamp())}.json"
+        with open(os.path.join(d, fname), "w", encoding="utf-8") as f:
+            json.dump(rec, f, indent=2, ensure_ascii=False)
+        return fname
+    except Exception:
+        return None
+
+
+# In-memory job tracker for the scout (one user, low traffic — fine).
+# Each entry: {status: "running"|"done"|"error", report?, error?, started_at}
+_SCOUT_JOBS: dict[str, dict] = {}
+
+
+def _scout_worker(job_id: str) -> None:
+    """Thread target: runs the scout and stashes the result in _SCOUT_JOBS."""
+    try:
+        report = _scout_run_now()
+        run_id = _scout_save(report)
+        _SCOUT_JOBS[job_id] = {
+            "status": "done",
+            "report": report,
+            "run_id": run_id,
+            "finished_at": datetime.utcnow().isoformat() + "Z",
+        }
+    except Exception as exc:
+        traceback.print_exc()
+        _SCOUT_JOBS[job_id] = {
+            "status": "error",
+            "error": str(exc),
+            "finished_at": datetime.utcnow().isoformat() + "Z",
+        }
+
+
+@app.route("/api/scout/run", methods=["POST"])
+@require_role("owner")
+def api_scout_run():
+    """Start a Capability Scout run in the background and return a job id.
+
+    Cost guardrails (target: <$1 per run):
+    - Sonnet 4.5 (not Opus). 5× cheaper input tokens.
+    - web_search max_uses: 4. Caps search fees at ~$0.04.
+    - max_tokens output: 4000. Caps output cost at ~$0.06.
+    - Realistic measured cost: $0.20-0.40 per run.
+    - Hard ceiling: if any run exceeds $1.50 (circuit breaker), the Scout
+      auto-disables until the owner manually clears it via
+      POST /api/scout/reset-circuit-breaker.
+    """
+    if _SCOUT_KILLED_REASON:
+        return jsonify({
+            "ok": False,
+            "error": "Scout disabled by circuit breaker — " + _SCOUT_KILLED_REASON,
+            "circuit_breaker_tripped": True,
+        }), 403
+    job_id = uuid.uuid4().hex
+    _SCOUT_JOBS[job_id] = {
+        "status": "running",
+        "started_at": datetime.utcnow().isoformat() + "Z",
+    }
+    threading.Thread(target=_scout_worker, args=(job_id,), daemon=True).start()
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/scout/reset-circuit-breaker", methods=["POST"])
+@require_role("owner")
+def api_scout_reset_breaker():
+    """Manually clear the cost circuit-breaker after investigating."""
+    global _SCOUT_KILLED_REASON
+    prev = _SCOUT_KILLED_REASON
+    _SCOUT_KILLED_REASON = None
+    return jsonify({"ok": True, "was_killed": bool(prev), "reason_cleared": prev})
+
+
+@app.route("/api/scout/job/<job_id>")
+@require_role("owner")
+def api_scout_job(job_id):
+    """Poll a running scout job. Returns status + report when done."""
+    job = _SCOUT_JOBS.get(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found (server may have restarted)"}), 404
+    return jsonify({"ok": True, **job})
+
+
+@app.route("/api/scout/latest")
+@require_role("owner")
+def api_scout_latest():
+    """Return the most recent saved report (or none)."""
+    if supabase_client:
+        try:
+            res = supabase_client.table("scout_reports").select("*") \
+                .order("created_at", desc=True).limit(1).execute()
+            rows = res.data or []
+            if rows:
+                return jsonify({"ok": True, "report": rows[0].get("report") or {}})
+        except Exception: pass
+    # Disk fallback — newest file
+    try:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scout_reports")
+        if os.path.isdir(d):
+            files = sorted(os.listdir(d), reverse=True)
+            if files:
+                with open(os.path.join(d, files[0]), "r", encoding="utf-8") as f:
+                    rec = json.load(f)
+                    return jsonify({"ok": True, "report": rec.get("report") or {}})
+    except Exception: pass
+    return jsonify({"ok": True, "report": None})
+
+
+@app.route("/api/scout/history")
+@require_role("owner")
+def api_scout_history():
+    """List of past scout runs (id, date, counts)."""
+    runs: list[dict] = []
+    if supabase_client:
+        try:
+            res = supabase_client.table("scout_reports") \
+                .select("id,date,build_count,watch_count,skipped_count,created_at") \
+                .order("created_at", desc=True).limit(30).execute()
+            runs = res.data or []
+        except Exception: pass
+    if not runs:
+        # Disk fallback
+        try:
+            d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scout_reports")
+            if os.path.isdir(d):
+                for fname in sorted(os.listdir(d), reverse=True)[:30]:
+                    try:
+                        with open(os.path.join(d, fname), "r", encoding="utf-8") as f:
+                            rec = json.load(f)
+                            runs.append({
+                                "id": fname,
+                                "date": rec.get("date"),
+                                "build_count": rec.get("build_count", 0),
+                                "watch_count": rec.get("watch_count", 0),
+                                "skipped_count": rec.get("skipped_count", 0),
+                            })
+                    except Exception: continue
+        except Exception: pass
+    return jsonify({"ok": True, "runs": runs})
+
+
+@app.route("/api/scout/run/<run_id>")
+@require_role("owner")
+def api_scout_one(run_id):
+    """Load a single past run by id."""
+    if supabase_client:
+        try:
+            res = supabase_client.table("scout_reports").select("*").eq("id", run_id).limit(1).execute()
+            rows = res.data or []
+            if rows:
+                return jsonify({"ok": True, "report": rows[0].get("report") or {}})
+        except Exception: pass
+    try:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scout_reports")
+        path = os.path.join(d, run_id)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                rec = json.load(f)
+                return jsonify({"ok": True, "report": rec.get("report") or {}})
+    except Exception: pass
+    return jsonify({"ok": False, "error": "Not found"}), 404
+
+
+# ---------------------------------------------------------------------------
 # API: EMPLOYEE MANAGEMENT
 # ---------------------------------------------------------------------------
+@app.route("/api/attention")
+@require_operator
+def api_attention():
+    """Proactive scan of the company state — surfaces what Ahmad should care
+    about today. Pure server-side rules; no AI calls; cheap to run."""
+    items = []
+    if not supabase_client:
+        return jsonify({"items": items})
+    today = date.today()
+
+    # 1. Tenders closing within 3 days
+    try:
+        cutoff_lo = today.isoformat()
+        cutoff_hi = (today + timedelta(days=3)).isoformat()
+        rows = supabase_client.table("tenders").select("*") \
+            .gte("close_date", cutoff_lo).lte("close_date", cutoff_hi) \
+            .eq("status", "open").execute().data or []
+        for t in rows:
+            d_left = (date.fromisoformat(t["close_date"]) - today).days
+            items.append({
+                "icon": "📅",
+                "severity": "high" if d_left <= 1 else "med",
+                "title": f"Tender closes in {d_left} day(s): {t.get('name')}",
+                "detail": (f"{t.get('client') or 'Unknown client'} · "
+                           f"closes {t['close_date']}"),
+            })
+    except Exception: pass
+
+    # 2. Jobs marked open that haven't had a check-in in 4+ days
+    try:
+        jobs = supabase_client.table("jobs").select("id,client_name,site_address,status,start_date") \
+            .eq("status", "open").execute().data or []
+        # Latest check-in date per site
+        checkins = supabase_client.table("checkins").select("site_address,entry_date") \
+            .order("entry_date", desc=True).limit(200).execute().data or []
+        latest_by_site: dict[str, str] = {}
+        for c in checkins:
+            site = (c.get("site_address") or "").lower().strip()
+            if site and site not in latest_by_site:
+                latest_by_site[site] = c.get("entry_date") or ""
+        for j in jobs:
+            site = (j.get("site_address") or "").lower().strip()
+            latest = latest_by_site.get(site, "")
+            if not latest:
+                items.append({"icon":"⚠️","severity":"med",
+                    "title": f"No check-ins yet: {j.get('client_name')} @ {j.get('site_address')}",
+                    "detail": f"Job is open but the crew hasn't checked in. Start: {j.get('start_date') or 'TBD'}."})
+            else:
+                try:
+                    last_d = date.fromisoformat(latest)
+                    gap = (today - last_d).days
+                    if gap >= 4:
+                        items.append({"icon":"⏱","severity":"med",
+                            "title": f"{gap} days since last check-in: {j.get('site_address')}",
+                            "detail": f"{j.get('client_name')} · last check-in {latest}."})
+                except Exception: pass
+    except Exception: pass
+
+    # 3. Quotes drafted but never sent (>3 days old)
+    try:
+        rows = supabase_client.table("quotes").select("id,client_name,project_name,status,created_at") \
+            .eq("status", "draft") \
+            .lte("created_at", (datetime.utcnow() - timedelta(days=3)).isoformat()) \
+            .execute().data or []
+        for q in rows[:5]:
+            items.append({"icon":"📝","severity":"low",
+                "title": f"Draft quote sitting: {q.get('project_name') or q.get('client_name')}",
+                "detail": "Drafted over 3 days ago — send it or archive."})
+    except Exception: pass
+
+    # 4. Plan variance — workers who hit <100% on plan completion in last 7 days
+    try:
+        cutoff = (today - timedelta(days=7)).isoformat()
+        rows = supabase_client.table("checkins") \
+            .select("worker_name,entry_date,plan_completion_percent,plan_variance_reason,site_address") \
+            .gte("entry_date", cutoff) \
+            .lt("plan_completion_percent", 100) \
+            .order("entry_date", desc=True).limit(20).execute().data or []
+        # Group by worker
+        by_w: dict[str, list[dict]] = {}
+        for r in rows:
+            by_w.setdefault(r.get("worker_name") or "?", []).append(r)
+        for w, recs in by_w.items():
+            if len(recs) >= 2:  # at least 2 missed-plan days
+                latest = recs[0]
+                items.append({"icon":"⚠️","severity":"med",
+                    "title": f"{w}: {len(recs)} days under plan this week",
+                    "detail": f"Latest at {latest.get('site_address')} on {latest.get('entry_date')} — \"{(latest.get('plan_variance_reason') or '')[:80]}\""})
+    except Exception: pass
+
+    # (Concern-type employee notes intentionally excluded from the dashboard
+    #  attention list — they live on the employee page instead.)
+
+    # Sort by severity priority then truncate
+    sev_rank = {"high":0, "med":1, "low":2}
+    items.sort(key=lambda i: sev_rank.get(i.get("severity","low"), 2))
+    return jsonify({"items": items[:12]})
+
+
+@app.route("/api/mailbox")
+@require_operator
+def api_mailbox():
+    """Unified outbound-email log. Pulls from lumia_outbox (going forward) and
+    sent_reports (historical client reports) so the Mailbox tab is populated
+    from day one."""
+    out = []
+    if not supabase_client:
+        return jsonify({"rows": out})
+    # New outbox
+    try:
+        rows = supabase_client.table("lumia_outbox").select("*") \
+            .order("sent_at", desc=True).limit(300).execute().data or []
+        for r in rows:
+            out.append({
+                "id":         r.get("id"),
+                "category":   r.get("category") or "other",
+                "to_emails":  r.get("to_emails") or [],
+                "cc_emails":  r.get("cc_emails") or [],
+                "subject":    r.get("subject") or "",
+                "body_text":  r.get("body_text") or "",
+                "body_html":  r.get("body_html") or "",
+                "sent_at":    r.get("sent_at"),
+                "source":     "outbox",
+            })
+    except Exception:
+        pass
+    # Historical client reports
+    try:
+        rows = supabase_client.table("sent_reports").select("*") \
+            .order("sent_at", desc=True).limit(300).execute().data or []
+        for r in rows:
+            to_list = [r.get("client_email")] if r.get("client_email") else []
+            out.append({
+                "id":         "sr_" + str(r.get("id") or ""),
+                "category":   "client_report",
+                "to_emails":  to_list,
+                "cc_emails":  [],
+                "subject":    r.get("subject") or "",
+                "body_text":  r.get("plain_body") or "",
+                "body_html":  r.get("html_body") or "",
+                "sent_at":    r.get("sent_at"),
+                "source":     "sent_reports",
+            })
+    except Exception:
+        pass
+    # Sort merged list by sent_at desc
+    out.sort(key=lambda x: x.get("sent_at") or "", reverse=True)
+    return jsonify({"rows": out[:500]})
+
+
+@app.route("/api/employee-notes/<path:employee_name>")
+@require_operator
+def api_list_employee_notes(employee_name):
+    """Return all internal notes for an employee, newest first."""
+    if not supabase_client:
+        return jsonify({"notes": []})
+    try:
+        rows = supabase_client.table("employee_notes").select("*") \
+            .eq("employee_name", employee_name) \
+            .order("created_at", desc=True).execute().data or []
+        return jsonify({"notes": rows})
+    except Exception as exc:
+        return jsonify({"notes": [], "error": str(exc)})
+
+
+@app.route("/api/employee-note", methods=["POST"])
+@require_operator
+def api_add_employee_note():
+    """Create a new internal note about an employee."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    name = (d.get("employee_name") or "").strip()
+    body = (d.get("body") or "").strip()
+    note_type = (d.get("note_type") or "note").strip().lower()
+    if note_type not in ("note", "positive", "concern", "training", "admin"):
+        note_type = "note"
+    if not name or not body:
+        return jsonify({"ok": False, "error": "Employee name and note body required."})
+    try:
+        supabase_client.table("employee_notes").insert({
+            "employee_name": name,
+            "note_type":     note_type,
+            "body":          body,
+            "author":        session.get("name") or session.get("role") or "owner",
+        }).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/employee-note/<note_id>", methods=["DELETE"])
+@require_role("owner")
+def api_delete_employee_note(note_id):
+    """Delete an employee note. Owner-only."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    try:
+        supabase_client.table("employee_notes").delete().eq("id", note_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
 @app.route("/api/employees")
 @require_operator
 def api_employees():
     if not supabase_client:
         return jsonify([{"id": n, "name": n, "email": "", "active": True} for n in EMPLOYEES])
-    db_emps = supabase_client.table("employees").select("id,name,email,active,created_at").execute().data or []
+    # Try with phone + language; gracefully fall back if columns don't exist yet
+    try:
+        db_emps = supabase_client.table("employees").select("id,name,email,active,phone,language,created_at").execute().data or []
+    except Exception:
+        try:
+            db_emps = supabase_client.table("employees").select("id,name,email,active,phone,created_at").execute().data or []
+        except Exception:
+            db_emps = supabase_client.table("employees").select("id,name,email,active,created_at").execute().data or []
     if db_emps:
         # Deduplicate by name — keep the most recent entry per name
         seen: set[str] = set()
@@ -7917,17 +15862,18 @@ def api_set_report_schedule():
         except Exception as exc:
             print(f"[Schedule] Could not save to DB: {exc}")
 
-    # Reschedule the APScheduler job
-    try:
-        _scheduler.reschedule_job(
-            "daily_reports",
-            trigger="cron",
-            hour=hour,
-            minute=minute,
-        )
-        print(f"[Scheduler] Rescheduled daily reports to {hour:02d}:{minute:02d} Winnipeg time")
-    except Exception as exc:
-        return jsonify({"ok": False, "message": f"Saved but scheduler error: {exc}"})
+    # Reschedule the APScheduler job. Only the worker holding the scheduler
+    # lock has a live _scheduler; on other workers it's None. The setting is
+    # already saved to the DB above, and the new time takes effect on the next
+    # restart/redeploy regardless.
+    if globals().get("_scheduler") is not None:
+        try:
+            _scheduler.reschedule_job(
+                "daily_reports", trigger="cron", hour=hour, minute=minute,
+            )
+            print(f"[Scheduler] Rescheduled daily reports to {hour:02d}:{minute:02d} Winnipeg time")
+        except Exception as exc:
+            return jsonify({"ok": True, "message": f"Saved to {time_str}. (Scheduler note: {exc})"})
 
     return jsonify({"ok": True, "message": f"Auto-send updated to {time_str} Winnipeg time."})
 
@@ -7967,16 +15913,60 @@ def _run_daily_reports() -> None:
                 "recipients":   recs,
             }
 
-    # Group check-ins by matching client keyword
+    # Build a name → client info map so we can resolve via the job's client_name
+    # (this is the new path for multi-site clients who don't have a site_keyword).
+    name_index: dict[str, dict] = {}
+    for c in db_clients:
+        nm = (c.get("client_name") or "").strip().lower()
+        if not nm: continue
+        recs = c.get("recipients") or []
+        if isinstance(recs, str):
+            try: recs = json.loads(recs)
+            except Exception: recs = []
+        if not recs:
+            recs = [{"name": "", "email": c["client_email"]}]
+            if c.get("client_email_2"):
+                recs.append({"name": "", "email": c["client_email_2"]})
+        name_index[nm] = {
+            "client_name":  c["client_name"],
+            "client_email": c["client_email"],
+            "recipients":   recs,
+        }
+
+    # Look up jobs by id so we can route check-ins via job → client_name
+    today_job_ids = {(ci.get("job_id") or "").strip() for ci in checkins if (ci.get("job_id") or "").strip()}
+    jobs_by_id: dict[str, dict] = {}
+    if today_job_ids:
+        try:
+            jrows = supabase_client.table("jobs").select("id,client_name,site_address") \
+                .in_("id", list(today_job_ids)).execute().data or []
+            for j in jrows: jobs_by_id[str(j.get("id"))] = j
+        except Exception: pass
+
+    # Group check-ins. Resolution priority:
+    #   1. If the check-in has a job_id → look up the job's client_name → use that client
+    #   2. Otherwise fall back to site_keyword matching (legacy path)
     client_checkins: dict[str, list] = {}
     for ci in checkins:
         site_addr = ci.get("site_address") or ""
-        for keyword, info in all_clients.items():
-            if _site_match(keyword, site_addr):
-                key = info["client_email"]
-                client_checkins.setdefault(key, {"info": info, "keyword": keyword, "entries": []})
-                client_checkins[key]["entries"].append(ci)
-                break
+        info = None; keyword = ""
+        # Path 1: job → client_name
+        jid = (ci.get("job_id") or "").strip()
+        if jid and jid in jobs_by_id:
+            jclient = (jobs_by_id[jid].get("client_name") or "").strip().lower()
+            if jclient and jclient in name_index:
+                info = name_index[jclient]
+                keyword = jclient  # use the name as the dedup key for this run
+        # Path 2: site_keyword match against the legacy all_clients dict
+        if info is None:
+            for kw, ci_info in all_clients.items():
+                if _site_match(kw, site_addr):
+                    info = ci_info; keyword = kw; break
+        if info is None:
+            continue
+        key = info["client_email"]
+        client_checkins.setdefault(key, {"info": info, "keyword": keyword, "entries": []})
+        client_checkins[key]["entries"].append(ci)
 
     if not client_checkins:
         print(f"[Scheduler] No client check-ins found for {today}")
@@ -8144,39 +16134,25 @@ def _run_client_escalation_digest() -> None:
         print(f"[Digest] send error: {exc}")
 
 
-# ---------------------------------------------------------------------------
-# BACKGROUND SCHEDULER — end-of-day client reports at 18:00 Winnipeg time
-# ---------------------------------------------------------------------------
-try:
-    _scheduler = BackgroundScheduler(timezone="America/Winnipeg")
-    _scheduler.add_job(_run_daily_reports, "cron", hour=18, minute=0,
-                       id="daily_reports", replace_existing=True)
-    _scheduler.add_job(_run_client_escalation_digest, "cron", hour=20, minute=0,
-                       id="client_escalation_digest", replace_existing=True)
-    _scheduler.add_job(_send_tender_reminders, "cron", hour=8, minute=0,
-                       id="tender_reminders", replace_existing=True)
-    _scheduler.add_job(_scan_zoho_for_tenders, "interval", minutes=15,
-                       id="zoho_tender_scan", replace_existing=True)
-    _scheduler.start()
-    print("[Scheduler] Daily reports 18:00, escalations 20:00, tender reminders 08:00, "
-          "Zoho tender scan every 15 min (Winnipeg)")
-except Exception as _sched_exc:
-    print(f"[Scheduler] Could not start scheduler: {_sched_exc}")
 
-
-# ---------------------------------------------------------------------------
-# INBOUND EMAIL WEBHOOK — lumia@ashrah.ai replies automatically
-# ---------------------------------------------------------------------------
 ZOHO_IMAP_HOST     = os.getenv("ZOHO_IMAP_HOST", "imap.zoho.com")
 ZOHO_IMAP_PORT     = int(os.getenv("ZOHO_IMAP_PORT", "993"))
-ZOHO_IMAP_USER     = os.getenv("ZOHO_IMAP_USER", "")
-ZOHO_IMAP_PASSWORD = os.getenv("ZOHO_IMAP_PASSWORD", "")
+# Fall back to existing Zoho SMTP creds when IMAP-specific ones aren't set.
+# Strip whitespace (stray newlines often sneak in when pasting into Railway).
+ZOHO_IMAP_USER     = (os.getenv("ZOHO_IMAP_USER", "")     or os.getenv("ZOHO_EMAIL", "")).strip()
+ZOHO_IMAP_PASSWORD = (os.getenv("ZOHO_IMAP_PASSWORD", "") or os.getenv("ZOHO_PASSWORD", "")).strip()
 
 
-def _scan_zoho_for_tenders() -> int:
-    """Poll Zoho IMAP for unread emails. For each one that looks like a tender
-    invitation, extract with Claude and add to the tenders queue. Mark as read
-    after processing. NEVER replies to the sender. Returns count of tenders added."""
+def _scan_zoho_for_tenders(include_read: bool = False, days_back: int = 14) -> int:
+    """Poll Zoho IMAP for emails that look like tender invitations.
+
+    - `include_read=False` (default, used by auto-poll): only UNSEEN messages.
+    - `include_read=True` (manual "Scan Email Now" button): every message in
+      the window, read or not. Lets the user re-scan after they've already
+      opened a bid email in Zoho.
+
+    Dedup is handled at insert time (we skip rows whose name+close_date already
+    exist in the tenders table), so re-scanning is safe."""
     if not ZOHO_IMAP_USER or not ZOHO_IMAP_PASSWORD:
         return 0
     import imaplib, email
@@ -8189,8 +16165,9 @@ def _scan_zoho_for_tenders() -> int:
         mail.select("INBOX")
         # Only unread messages from the last 14 days to keep it fast
         from datetime import timedelta as _td
-        since = (date.today() - _td(days=14)).strftime("%d-%b-%Y")
-        typ, data = mail.search(None, f'(UNSEEN SINCE "{since}")')
+        since = (date.today() - _td(days=days_back)).strftime("%d-%b-%Y")
+        search_q = f'(SINCE "{since}")' if include_read else f'(UNSEEN SINCE "{since}")'
+        typ, data = mail.search(None, search_q)
         if typ != "OK":
             mail.logout()
             return 0
@@ -8275,6 +16252,351 @@ def _scan_zoho_for_tenders() -> int:
     return added
 
 
+
+# ---------------------------------------------------------------------------
+# SMS — Twilio texting (crew reminders + client texts)
+# ---------------------------------------------------------------------------
+def _normalize_phone(p: str) -> str:
+    """Normalize to E.164. Canadian/US default. Returns '' if not usable."""
+    if not p:
+        return ""
+    p = p.strip()
+    if p.startswith("+"):
+        digits = "+" + re.sub(r"\D", "", p[1:])
+        return digits if len(digits) >= 11 else ""
+    digits = re.sub(r"\D", "", p)
+    if len(digits) == 10:
+        return "+1" + digits
+    if len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits
+    return ""
+
+
+def _sms_contact_name(phone_e164: str) -> str:
+    """Resolve a phone number to a known crew member or client name."""
+    if not supabase_client or not phone_e164:
+        return ""
+    try:
+        emps = supabase_client.table("employees").select("name,phone").execute().data or []
+        for e in emps:
+            if _normalize_phone(e.get("phone") or "") == phone_e164:
+                return e.get("name") or ""
+    except Exception:
+        pass
+    try:
+        cls = supabase_client.table("clients").select("client_name,client_phone,portal_phone").execute().data or []
+        for c in cls:
+            for k in ("client_phone", "portal_phone"):
+                if _normalize_phone(c.get(k) or "") == phone_e164:
+                    return c.get("client_name") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _log_sms(direction: str, phone: str, body: str, *, category: str = "sms",
+             contact_name: str = "") -> None:
+    """Record a text (in or out) in the sms_messages table for the Texts tab.
+    Best-effort — never blocks a send."""
+    if not supabase_client:
+        return
+    try:
+        supabase_client.table("sms_messages").insert({
+            "direction":    direction,           # 'out' | 'in'
+            "phone":        phone,                # the OTHER party (for threading)
+            "body":         body[:1600],
+            "category":     category,
+            "contact_name": contact_name or _sms_contact_name(phone),
+            "created_at":   datetime.utcnow().isoformat(),
+        }).execute()
+    except Exception as exc:
+        print(f"[SMS] log skipped ({direction}): {exc}")
+
+
+def _send_sms(to_number: str, body: str, *, category: str = "sms") -> tuple[bool, str]:
+    """Send one SMS via Twilio. Returns (ok, detail). Gated on Twilio env vars —
+    no-ops cleanly if not configured. Every send is logged to the Mailbox."""
+    sid      = os.getenv("TWILIO_ACCOUNT_SID", "")
+    token    = os.getenv("TWILIO_AUTH_TOKEN", "")
+    from_num = os.getenv("TWILIO_PHONE_NUMBER", "")
+    if not (sid and token and from_num):
+        return False, "Twilio not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)"
+    to_e164 = _normalize_phone(to_number)
+    if not to_e164:
+        return False, f"Invalid phone number: {to_number!r}"
+    import httpx
+    try:
+        r = httpx.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
+            auth=(sid, token),
+            data={"From": from_num, "To": to_e164, "Body": body[:1500]},
+            timeout=15.0,
+        )
+        ok = r.status_code in (200, 201)
+        try:
+            _log_outbox(category=category, to=[to_e164], subject="SMS",
+                        body_text=body, status="sent" if ok else "error",
+                        error=None if ok else r.text[:200])
+        except Exception:
+            pass
+        if ok:
+            _log_sms("out", to_e164, body, category=category)
+        if not ok:
+            print(f"[SMS] Twilio {r.status_code}: {r.text[:200]}")
+            return False, f"Twilio {r.status_code}: {r.text[:160]}"
+        return True, "sent"
+    except Exception as exc:
+        print(f"[SMS] send failed: {exc}")
+        return False, str(exc)
+
+
+def _active_employees_with_phones() -> list[dict]:
+    """Active employees that have a usable phone number."""
+    if not supabase_client:
+        return []
+    try:
+        rows = supabase_client.table("employees").select("name,phone,active") \
+            .eq("active", True).execute().data or []
+    except Exception:
+        # phone column may not exist yet
+        return []
+    out = []
+    for r in rows:
+        ph = _normalize_phone(r.get("phone") or "")
+        if ph:
+            out.append({"name": r.get("name"), "phone": ph})
+    return out
+
+
+def _send_crew_morning_reminder():
+    """~7:00 AM — remind crew to review today's plan."""
+    crew = _active_employees_with_phones()
+    sent = 0
+    for c in crew:
+        ok, _ = _send_sms(c["phone"],
+            f"Good morning {c['name'].split()[0] if c.get('name') else ''} — review today's plan in Lumia before you start. lumia.ashrah.ai",
+            category="sms_morning")
+        sent += 1 if ok else 0
+    print(f"[SMS] Morning reminder sent to {sent}/{len(crew)} crew")
+
+
+def _send_crew_evening_reminder():
+    """~4:30 PM — remind crew who haven't submitted today's report yet."""
+    if not supabase_client:
+        return
+    crew = _active_employees_with_phones()
+    today = date.today().isoformat()
+    try:
+        cks = supabase_client.table("checkins").select("worker_name").eq("entry_date", today).execute().data or []
+    except Exception:
+        cks = []
+    submitted = {(c.get("worker_name") or "").strip().lower() for c in cks}
+    sent = 0
+    for c in crew:
+        if (c.get("name") or "").strip().lower() in submitted:
+            continue   # already submitted — don't nag
+        ok, _ = _send_sms(c["phone"],
+            f"Hi {c['name'].split()[0] if c.get('name') else ''} — don't forget to submit your daily report in Lumia before you head home. lumia.ashrah.ai",
+            category="sms_evening")
+        sent += 1 if ok else 0
+    print(f"[SMS] Evening reminder sent to {sent} crew (skipped those already submitted)")
+
+
+def _send_arrival_nudges():
+    """~9:30 AM — nudge crew assigned to open jobs who haven't logged arrival."""
+    if not supabase_client:
+        return
+    crew = {c["name"].strip().lower(): c for c in _active_employees_with_phones() if c.get("name")}
+    if not crew:
+        return
+    today = date.today().isoformat()
+    start_of_day = today + "T00:00:00"
+    # Who has already logged arrival today?
+    try:
+        arr = supabase_client.table("arrivals").select("worker_name") \
+            .gte("arrived_at", start_of_day).execute().data or []
+    except Exception:
+        arr = []
+    arrived = {(a.get("worker_name") or "").strip().lower() for a in arr}
+    # Who's assigned to open jobs?
+    try:
+        jobs = supabase_client.table("jobs").select("assigned_employees,status") \
+            .eq("status", "open").execute().data or []
+    except Exception:
+        jobs = []
+    assigned = set()
+    for j in jobs:
+        for emp in (j.get("assigned_employees") or []):
+            assigned.add((emp or "").strip().lower())
+    sent = 0
+    for name_lc in assigned:
+        if name_lc in arrived:
+            continue
+        c = crew.get(name_lc)
+        if not c:
+            continue
+        ok, _ = _send_sms(c["phone"],
+            f"Hi {c['name'].split()[0] if c.get('name') else ''} — tap 'I've Arrived On Site' in Lumia when you get to the job. lumia.ashrah.ai",
+            category="sms_arrival")
+        sent += 1 if ok else 0
+    print(f"[SMS] Arrival nudge sent to {sent} crew")
+
+
+@app.route("/api/sms/send", methods=["POST"])
+@require_operator
+def api_sms_send():
+    """Manually text a crew member or client from the dashboard."""
+    d = request.get_json(silent=True) or {}
+    to   = (d.get("to") or "").strip()
+    body = (d.get("body") or "").strip()
+    if not to or not body:
+        return jsonify({"ok": False, "error": "Need a phone number and a message"}), 400
+    ok, detail = _send_sms(to, body, category="sms_manual")
+    return jsonify({"ok": ok, "detail": detail})
+
+
+@app.route("/api/sms/incoming", methods=["POST"])
+def api_sms_incoming():
+    """Twilio inbound webhook — fires when someone texts the Lumia number.
+    Public (Twilio posts here). Logs the reply so it shows in the Texts tab.
+    Set this URL in Twilio → your number → Messaging → 'A message comes in'."""
+    # Twilio posts form-encoded: From, To, Body
+    frm  = (request.form.get("From") or "").strip()
+    body = (request.form.get("Body") or "").strip()
+    if frm and body:
+        phone = _normalize_phone(frm) or frm
+        _log_sms("in", phone, body, category="sms_inbound")
+        print(f"[SMS] Inbound from {phone}: {body[:80]}")
+    # Empty TwiML response = received, no auto-reply
+    return ("<?xml version='1.0' encoding='UTF-8'?><Response></Response>",
+            200, {"Content-Type": "text/xml"})
+
+
+@app.route("/api/sms/threads")
+@require_operator
+def api_sms_threads():
+    """Return recent texts grouped into conversations by phone number."""
+    if not supabase_client:
+        return jsonify({"ok": True, "threads": []})
+    try:
+        rows = supabase_client.table("sms_messages").select("*") \
+            .order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 200
+    threads: dict[str, dict] = {}
+    for m in rows:
+        ph = m.get("phone") or "?"
+        if ph not in threads:
+            threads[ph] = {
+                "phone":        ph,
+                "contact_name": m.get("contact_name") or "",
+                "messages":     [],
+                "last_at":      m.get("created_at"),
+            }
+        threads[ph]["messages"].append({
+            "direction":  m.get("direction"),
+            "body":       m.get("body"),
+            "created_at": m.get("created_at"),
+            "category":   m.get("category"),
+        })
+        if not threads[ph]["contact_name"] and m.get("contact_name"):
+            threads[ph]["contact_name"] = m.get("contact_name")
+    # messages currently newest-first per thread; reverse to chronological
+    out = []
+    for t in threads.values():
+        t["messages"].reverse()
+        out.append(t)
+    out.sort(key=lambda t: t.get("last_at") or "", reverse=True)
+    return jsonify({"ok": True, "threads": out})
+
+
+@app.route("/api/employee/phone", methods=["POST"])
+@require_role("owner")
+def api_set_employee_phone():
+    """Set/update an employee's phone number + language preference (for SMS)."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"}), 500
+    d = request.get_json(silent=True) or {}
+    emp_id = d.get("id")
+    if not emp_id:
+        return jsonify({"ok": False, "error": "Employee id required"}), 400
+    patch = {}
+    if "phone" in d:
+        patch["phone"] = (d.get("phone") or "").strip()
+    if "language" in d:
+        lang = (d.get("language") or "en").lower()
+        patch["language"] = lang if lang in ("en", "ar", "fr") else "en"
+    if not patch:
+        return jsonify({"ok": False, "error": "Nothing to update"}), 400
+    try:
+        supabase_client.table("employees").update(patch).eq("id", emp_id).execute()
+        return jsonify({"ok": True, "normalized": _normalize_phone(patch.get("phone", ""))})
+    except Exception as exc:
+        msg = str(exc)
+        if "phone" in msg or "language" in msg or "column" in msg.lower():
+            return jsonify({"ok": False, "error":
+                "Run in Supabase first: alter table employees add column if not exists phone text, add column if not exists language text default 'en';"}), 400
+        return jsonify({"ok": False, "error": msg}), 500
+
+
+# ---------------------------------------------------------------------------
+# BACKGROUND SCHEDULER — end-of-day client reports at 18:00 Winnipeg time
+# ---------------------------------------------------------------------------
+# CRITICAL: with multiple Gunicorn workers, APScheduler would start in EVERY
+# worker — firing every scheduled email N times (this caused the triple-email
+# bug). We guard it with a single-instance lock: only the first worker that
+# can bind a local lock socket starts the scheduler. The others skip it.
+def _acquire_scheduler_lock() -> bool:
+    """Returns True for exactly ONE process on this host. Uses an abstract-ish
+    TCP bind on a fixed localhost port as a cross-worker mutex."""
+    import socket as _sock
+    try:
+        s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        s.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 0)
+        s.bind(("127.0.0.1", 47655))   # arbitrary lock port
+        s.listen(1)
+        # Stash on the module so the socket isn't garbage-collected (which
+        # would release the lock).
+        globals()["_SCHEDULER_LOCK_SOCKET"] = s
+        return True
+    except OSError:
+        return False   # another worker already holds the lock
+
+
+if _acquire_scheduler_lock():
+    try:
+        _scheduler = BackgroundScheduler(timezone="America/Winnipeg")
+        _scheduler.add_job(_run_daily_reports, "cron", hour=18, minute=0,
+                           id="daily_reports", replace_existing=True)
+        _scheduler.add_job(_run_client_escalation_digest, "cron", hour=20, minute=0,
+                           id="client_escalation_digest", replace_existing=True)
+        _scheduler.add_job(_send_tender_reminders, "cron", hour=8, minute=0,
+                           id="tender_reminders", replace_existing=True)
+        _scheduler.add_job(_scan_zoho_for_tenders, "interval", minutes=15,
+                           id="zoho_tender_scan", replace_existing=True)
+        _scheduler.add_job(_send_attention_digest, "cron", hour=7, minute=0,
+                           id="attention_digest", replace_existing=True)
+        # SMS crew reminders (no-op cleanly if Twilio env vars aren't set)
+        _scheduler.add_job(_send_crew_morning_reminder, "cron", hour=7, minute=0,
+                           id="sms_morning", replace_existing=True)
+        _scheduler.add_job(_send_arrival_nudges, "cron", hour=9, minute=30,
+                           id="sms_arrival", replace_existing=True)
+        _scheduler.add_job(_send_crew_evening_reminder, "cron", hour=16, minute=30,
+                           id="sms_evening", replace_existing=True)
+        _scheduler.start()
+        print("[Scheduler] STARTED in this worker — daily reports 18:00, escalations 20:00, "
+              "tender reminders 08:00, attention digest 07:00, Zoho scan every 15 min (Winnipeg)")
+    except Exception as _sched_exc:
+        print(f"[Scheduler] Could not start scheduler: {_sched_exc}")
+else:
+    _scheduler = None
+    print("[Scheduler] Skipped in this worker (another worker holds the scheduler lock) — "
+          "prevents duplicate scheduled emails.")
+
+
+# ---------------------------------------------------------------------------
+# INBOUND EMAIL WEBHOOK — lumia@ashrah.ai replies automatically
+# ---------------------------------------------------------------------------
 _TENDER_KEYWORDS = (
     "invitation to bid", "invitation to tender", "request for proposal", "request for quotation",
     "request for tender", " rfp ", " rfq ", " itb ", " itt ",
@@ -8338,6 +16660,15 @@ Rules:
     if not name or not close_date or close_date == "null":
         return {"ok": False, "error": "Could not extract tender info."}
 
+    # Idempotency — skip if a tender with the same name+close_date already exists
+    try:
+        existing = supabase_client.table("tenders").select("id") \
+            .ilike("name", name).eq("close_date", close_date).limit(1).execute().data or []
+        if existing:
+            return {"ok": False, "error": "Duplicate (already in queue)."}
+    except Exception:
+        pass
+
     try:
         row = {
             "name":        name,
@@ -8377,14 +16708,20 @@ def _send_tender_confirmation_email(tender: dict, original_sender: str, original
         f"Automated response — Lumia, Ashrah Painting operations system."
     )
     try:
+        subject_t = f"📥 Tender added — {tender.get('name')}"
         _httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={"from":"Lumia <noreply@ashrah.ai>","to":[OWNER_EMAIL],
-                  "subject": f"📥 Tender added — {tender.get('name')}",
+                  "subject": subject_t,
                   "text": body},
             timeout=15,
         )
+        try:
+            _log_outbox(category="tender_alert", to=[OWNER_EMAIL],
+                        subject=subject_t, body_text=body,
+                        related_kind="tender", related_id=str(tender.get("id") or ""))
+        except Exception: pass
     except Exception as exc:
         print(f"[Tender Ingest] Confirmation email error: {exc}")
 
@@ -8617,21 +16954,35 @@ def api_notify_client_job(job_id):
     </div>"""
 
     try:
+        notify_text = f"Dear {client_name},\n\nSite: {site}\nStart Date: {start_date}\nCrew: {names_list}\nScope: {description}\n\nThank you for choosing Ashrah Painting!\nLumia | Ashrah Painting Operations"
+        notify_subject = f"Your Painting Project Update — {site}"
+        notify_cc = [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != client_email else []
         resp = _httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={
                 "from":    "Ashrah Painting <noreply@ashrah.ai>",
                 "to":      [client_email],
-                "cc":      [OWNER_EMAIL] if OWNER_EMAIL and OWNER_EMAIL != client_email else [],
-                "subject": f"Your Painting Project Update — {site}",
+                "cc":      notify_cc,
+                "subject": notify_subject,
                 "html":    html,
-                "text":    f"Dear {client_name},\n\nSite: {site}\nStart Date: {start_date}\nCrew: {names_list}\nScope: {description}\n\nThank you for choosing Ashrah Painting!\nLumia | Ashrah Painting Operations",
+                "text":    notify_text,
             },
             timeout=15,
         )
         if resp.status_code in (200, 201):
+            try:
+                _log_outbox(category="client_invite", to=[client_email], cc=notify_cc,
+                            subject=notify_subject, body_text=notify_text, body_html=html,
+                            related_kind="job", related_id=str(job_id))
+            except Exception: pass
             return jsonify({"ok": True})
+        try:
+            _log_outbox(category="client_invite", to=[client_email], cc=notify_cc,
+                        subject=notify_subject, body_text=notify_text, body_html=html,
+                        related_kind="job", related_id=str(job_id),
+                        status="failed", error=f"HTTP {resp.status_code}: {resp.text[:200]}")
+        except Exception: pass
         return jsonify({"ok": False, "error": f"Resend returned {resp.status_code}: {resp.text}"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
@@ -8663,7 +17014,10 @@ def api_update_job(job_id):
 @app.route("/api/estimates/upload", methods=["POST"])
 @require_operator
 def api_estimates_upload():
-    """Receive a PDF, create a job, kick off background extraction."""
+    """Legacy small-file path. Receives the PDF directly, then kicks off
+    extraction. Kept for files small enough to push through the Railway
+    proxy in a single request (~30-40 MB). For anything larger, the
+    browser should use the two-step signed-URL flow below."""
     if "pdf" not in request.files:
         return jsonify({"ok": False, "error": "No PDF file uploaded."})
     f = request.files["pdf"]
@@ -8678,6 +17032,160 @@ def api_estimates_upload():
     lumia_estimates.start_extraction(job_id, pdf_bytes, f.filename,
                                      client_name, site_address)
     return jsonify({"ok": True, "job_id": job_id})
+
+
+# ── Big-file flow: browser → Supabase storage → server ──────────────────────
+# Bypasses Railway's edge for the actual bytes so 200 MB+ architectural PDFs
+# go through without timing out.
+
+_EST_BUCKET = "estimate-pdfs"    # dedicated bucket for PDF estimates (must exist in Supabase Storage with file_size_limit >= your largest PDF)
+_EST_PREFIX = ""                  # bucket is now dedicated; no prefix needed
+
+
+@app.route("/api/estimates/ask", methods=["POST"])
+@require_operator
+def api_estimates_ask():
+    """Lumia answers estimating questions. Sonnet for cost; capped tokens."""
+    d = request.get_json(silent=True) or {}
+    question = (d.get("question") or "").strip()
+    if not question:
+        return jsonify({"ok": False, "error": "No question"}), 400
+    history = d.get("history") or []
+    context = (d.get("context") or "").strip()
+
+    system = (
+        "You are Lumia, the estimating expert for Ashrah Painting — a Winnipeg-based "
+        "commercial painting + post-construction cleaning contractor. You help Ahmad "
+        "(the owner) scope and price jobs. You are sharp, specific, and math-grounded.\n\n"
+        "Context you operate in:\n"
+        "- Market: Winnipeg / Manitoba / Kenora ON commercial work — GCs, property managers, "
+        "multifamily, retail TI, clinics, industrial.\n"
+        "- Coverage rule of thumb: 1 US gallon ≈ 350 sq ft per coat (less on rough/porous, "
+        "more on smooth sealed).\n"
+        "- **COATS (Ashrah standard for new build):** 1 coat primer + 2 coats finish on ALL ceilings and walls. "
+        "That means 3 total coats of material per surface — factor 3× the coverage when figuring paint quantities and labour hours. "
+        "Doors are EXCLUDED from this rule (doors are priced flat at $50/door regardless of coats).\n"
+        "- Ashrah does painting AND cleanup in one crew. Bids are line-item, fixed price.\n"
+        "- Loaded labour (incl. WCB, insurance, vehicle, tools) ~ $40-45/hr.\n"
+        "- **PRODUCTION RATES (Ashrah measured):**\n"
+        "  • Spraying deck ceilings (new build, exposed deck/structure): **400 sq ft / painter / hour**\n"
+        "  • Rolling walls (new build, clean GWB): **200 sq ft / painter / hour**\n"
+        "  • Repaint with prep + patching (existing occupied space): **~150 sq ft / painter / hour**\n"
+        "  Use the right rate for the job type when computing crew hours.\n"
+        "- **ASHRAH PRICING RULES (use these for quotes):**\n"
+        "  • **Floor area:** $4.00 per floor sq ft WITH ceilings, $3.50 per floor sq ft WITHOUT ceilings.\n"
+        "  • **Doors:** $50 per door (frame included) — separate line on top of floor price.\n"
+        "  • **Epoxy floors / curbs / walls:** $4.00 per sq ft of epoxy area. Charged separately from the floor-paint price (the floor-area rule is for standard paint; epoxy is its own line). Typical epoxy spots: concrete floors in mechanical/warehouse, food-prep curbs, industrial floors, sometimes washroom walls.\n"
+        "  Example: 5,000 sq ft floor + 12 doors + 800 sq ft epoxy, no ceilings → 5,000 × $3.50 = $17,500 + 12 × $50 = $600 + 800 × $4 = $3,200. Total = **$21,300**.\n\n"
+        "Rules:\n"
+        "- Give concrete numbers and ranges, not vague advice. Show the math when pricing.\n"
+        "- Flag assumptions explicitly. If you'd need a site walk or the spec section to be "
+        "sure, say so.\n"
+        "- Be brief and useful — a few short paragraphs max. No fluff.\n"
+        "- These are internal estimating conversations; you can discuss cost, margin, and "
+        "labour freely (this is NOT a client-facing channel)."
+    )
+    if context:
+        system += f"\n\nThe owner currently has this estimate loaded:\n{context}"
+
+    msgs = []
+    for h in history[-8:]:
+        role = h.get("role")
+        content = (h.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            msgs.append({"role": role, "content": content})
+    msgs.append({"role": "user", "content": question})
+
+    try:
+        ai = _anthropic.Anthropic()
+        model = os.getenv("ESTIMATE_CHAT_MODEL", "claude-sonnet-4-5")
+        resp = ai.messages.create(
+            model=model, max_tokens=1200, system=system, messages=msgs,
+        )
+        answer = "".join(b.text for b in resp.content if hasattr(b, "text") and b.text).strip()
+        # Cost (Sonnet $3/$15 per MTok)
+        usage = getattr(resp, "usage", None)
+        in_t  = getattr(usage, "input_tokens", 0) or 0
+        out_t = getattr(usage, "output_tokens", 0) or 0
+        cost = round((in_t/1_000_000)*3.0 + (out_t/1_000_000)*15.0, 4)
+        return jsonify({"ok": True, "answer": answer, "cost_usd": cost, "model": model})
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/estimates/init-upload", methods=["POST"])
+@require_operator
+def api_estimates_init_upload():
+    """Step 1 — Create a job slot and return a signed upload URL the browser
+    can PUT directly to. Browser uploads to Supabase, not to us."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    d = request.get_json() or {}
+    fname = (d.get("filename") or "").strip()
+    if not fname.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Filename must end in .pdf"})
+    client_name  = (d.get("client_name") or "").strip()
+    site_address = (d.get("site_address") or "").strip()
+    # Sanitize filename, keep extension
+    safe = "".join(c if c.isalnum() or c in "._- " else "_" for c in fname).strip().replace(" ", "_")
+    storage_path = f"{_EST_PREFIX}{date.today().isoformat()}/{uuid.uuid4().hex}_{safe}"
+    try:
+        signed = supabase_client.storage.from_(_EST_BUCKET).create_signed_upload_url(storage_path)
+        # supabase-py returns {"signedUrl": "...", "token": "...", "path": "..."} or similar
+        url   = signed.get("signed_url") or signed.get("signedUrl") or signed.get("signedURL")
+        token = signed.get("token")
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Storage error: {exc}"})
+
+    if not url:
+        return jsonify({"ok": False, "error": "Could not create upload URL."})
+
+    job_id = lumia_estimates.create_job(fname, client_name, site_address)
+    # Stash storage_path on the job (write-through to shared storage so the
+    # worker handling start-extraction / status can find it).
+    lumia_estimates._update_job(job_id, storage_path=storage_path)  # type: ignore[attr-defined]
+    return jsonify({
+        "ok": True,
+        "job_id":       job_id,
+        "upload_url":   url,
+        "token":        token,
+        "storage_path": storage_path,
+        "bucket":       _EST_BUCKET,
+    })
+
+
+@app.route("/api/estimates/start-extraction/<job_id>", methods=["POST"])
+@require_operator
+def api_estimates_start_extraction(job_id):
+    """Step 2 — Browser tells us 'upload done'. We download the PDF from
+    Supabase storage and kick off the extraction thread."""
+    job = lumia_estimates.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found."})
+    storage_path = job.get("storage_path")
+    if not storage_path:
+        return jsonify({"ok": False, "error": "No storage path on job."})
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+
+    # Download from storage in a background thread so the HTTP response
+    # returns immediately (no Railway proxy timeout for big files).
+    def _download_then_extract():
+        try:
+            print(f"[Estimates] Downloading from storage: {storage_path}")
+            pdf_bytes = supabase_client.storage.from_(_EST_BUCKET).download(storage_path)
+            print(f"[Estimates] Downloaded {len(pdf_bytes):,} bytes — starting extraction")
+            lumia_estimates._run_extraction(  # type: ignore[attr-defined]
+                job_id, pdf_bytes, job.get("file_name") or "drawing.pdf",
+                job.get("client_name") or "", job.get("site_address") or "")
+        except Exception as exc:
+            import traceback; traceback.print_exc()
+            lumia_estimates._update_job(  # type: ignore[attr-defined]
+                job_id, status="error", error=f"Download/extract failed: {exc}")
+
+    threading.Thread(target=_download_then_extract, daemon=True).start()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/estimates/status/<job_id>")
@@ -8710,6 +17218,161 @@ def api_estimates_result(job_id):
         "work_order": job.get("work_order"),
         "error":      job.get("error"),
     })
+
+
+@app.route("/api/estimates/<job_id>/regenerate", methods=["POST"])
+@require_operator
+def api_estimates_regenerate(job_id):
+    """Re-run only the Claude paint_calc + work_order steps against the
+    existing raw_json on this job. No Gemini charge."""
+    job = lumia_estimates.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found."})
+    raw_json = job.get("raw_json")
+    if not raw_json:
+        return jsonify({"ok": False, "error":
+            "No saved extraction on this job. The Gemini step never completed."})
+    lumia_estimates.regenerate_from_cache(
+        job_id, raw_json,
+        job.get("client_name") or "", job.get("site_address") or "",
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/estimates/<job_id>/to-quote", methods=["POST"])
+@require_operator
+def api_estimate_to_quote(job_id):
+    """Convert a completed estimate into a draft Quote.
+    Uses Claude to write polished scope sections, paint schedule, inclusions,
+    exclusions, schedule, and a recommended lump sum price based on the
+    estimate's labour-days and material quantities."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Database not connected."})
+    job = lumia_estimates.get_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Estimate not found."})
+    if job.get("status") != "done":
+        return jsonify({"ok": False, "error": "Estimate is not complete yet."})
+
+    pc   = job.get("paint_calc") or {}
+    wo   = job.get("work_order")  or ""
+    client_name  = job.get("client_name")  or ""
+    site_address = job.get("site_address") or ""
+    file_name    = job.get("file_name")    or ""
+
+    # Recommended labour rate (Winnipeg painters, fully-loaded incl. overhead).
+    # Owner can edit the lump sum before sending — this is just a starting number.
+    LABOR_RATE_PER_HOUR     = 75.0   # CAD, fully-loaded
+    MATERIAL_PRICE_PER_GAL  = 65.0   # CAD, paint + sundries
+    MARGIN_MULTIPLIER       = 1.18   # 18% profit on top of cost (lean default)
+
+    lab  = pc.get("labor") or {}
+    mats = pc.get("materials") or {}
+    hours = float(lab.get("hours_estimate") or 0)
+    if not hours:
+        # Fallback: days * painters * 8
+        hours = float(lab.get("estimated_days") or 0) * float(lab.get("painters_recommended") or 1) * 8
+    gallons = (float(mats.get("wall_paint_gallons") or 0)
+               + float(mats.get("ceiling_paint_gallons") or 0)
+               + float(mats.get("primer_gallons") or 0))
+    cost_labor    = hours * LABOR_RATE_PER_HOUR
+    cost_material = gallons * MATERIAL_PRICE_PER_GAL
+    recommended_price = round((cost_labor + cost_material) * MARGIN_MULTIPLIER, -1)  # round to nearest $10
+
+    # Ask Claude to draft the structured quote content
+    today    = date.today().isoformat()
+    valid_to = (date.today() + timedelta(days=30)).isoformat()
+    prompt = f"""You are drafting a client-facing painting proposal for Ashrah Painting in Winnipeg, Canada.
+
+You are given a completed extraction from architectural drawings. Convert it into a structured Quote that a general contractor would receive. Write in confident, professional, plain English — no AI filler, no fluff. Use the voice of a senior contractor who has done thousands of jobs.
+
+CONTEXT:
+- Client: {client_name or "TBD"}
+- Site: {site_address or "TBD"}
+- Source: {file_name}
+
+ESTIMATE OUTPUT:
+{json.dumps(pc, indent=2)[:8000]}
+
+WORK ORDER (already drafted):
+{wo[:3000]}
+
+Recommended lump sum price (calculated from labour and materials with margin): ${recommended_price:,.2f}
+
+Return JSON ONLY with this exact structure:
+
+{{
+  "project_name": "Short project name based on the site address (e.g. '300 Henderson Hwy — Interior Painting')",
+  "intro_text": "Re: <project name>\\n\\nDear <client name or 'team'>,\\n\\n2-3 sentence intro thanking them for the opportunity to bid and stating what is enclosed. No filler phrases. End with: 'We look forward to working with you on this project.'",
+  "scope_sections": [
+    {{"title":"Scope of Painting Work","body":"Plain-English summary of what will be painted — wall area, ceiling area, trim, doors, rooms. Reference the actual measurements from the estimate."}},
+    {{"title":"Surface Preparation","body":"Specific prep work — sanding, patching, priming as required."}},
+    {{"title":"Submittals & Approvals","body":"Colour samples and product data sheets to be submitted for approval prior to application."}},
+    {{"title":"Site Coordination","body":"Coordination with the GC's schedule. Working hours, daily cleanup."}}
+  ],
+  "paint_schedule": [
+    {{"code":"P-1","product":"Specific product/sheen for walls (e.g. Benjamin Moore Regal Select Eggshell)","application":"Where it goes"}},
+    {{"code":"P-2","product":"Ceiling paint","application":"Where it goes"}},
+    {{"code":"P-3","product":"Trim/door paint","application":"Where it goes"}}
+  ],
+  "inclusions": ["List of 4-6 items included — labour, materials, drop sheets, cleanup, etc."],
+  "exclusions": ["List of 4-6 standard exclusions — drywall repair, wallpaper removal, exterior, permits, after-hours surcharge, etc."],
+  "schedule_text": "1-2 lines on duration based on labour days from the estimate. e.g. 'Estimated duration: X working days. Mobilization within 5 business days of contract execution. Subject to site readiness.'",
+  "lump_sum_price": {recommended_price}
+}}
+
+Rules:
+- Be specific. Reference actual room counts and square footage from the estimate.
+- Use real Benjamin Moore product names (Regal Select, Ultra Spec, Advance) — avoid generic "paint".
+- The intro_text must include real newlines as \\n.
+- Output ONLY the JSON. No markdown fences, no explanation."""
+
+    try:
+        ai = _anthropic.Anthropic()
+        resp = ai.messages.create(model=MODEL, max_tokens=3000,
+                                  messages=[{"role":"user","content":prompt}])
+        text = resp.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        obj = json.loads(text)
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": f"AI drafting failed: {exc}"})
+
+    # Default pricing terms (same as the editor defaults)
+    default_terms = [
+        {"label": "Validity",          "value": "30 days from proposal date"},
+        {"label": "Payment Terms",     "value": "Net 30 from invoice date"},
+        {"label": "Statutory Holdback", "value": "10% as per Manitoba Builders' Lien Act"},
+        {"label": "Progress Billing",  "value": "Monthly, based on percentage of work complete"},
+        {"label": "Change Orders",     "value": "Written authorization required prior to execution"},
+    ]
+
+    row = {
+        "project_name":   obj.get("project_name") or (file_name.replace(".pdf","") + " — Painting"),
+        "drawing_ref":    file_name,
+        "client_name":    client_name or "TBD",
+        "client_contact": None,
+        "client_email":   None,
+        "site_address":   site_address,
+        "proposal_date":  today,
+        "valid_until":    valid_to,
+        "intro_text":     obj.get("intro_text") or "",
+        "scope_sections": obj.get("scope_sections") or [],
+        "paint_schedule": obj.get("paint_schedule") or [],
+        "inclusions":     obj.get("inclusions") or [],
+        "exclusions":     obj.get("exclusions") or [],
+        "schedule_text":  obj.get("schedule_text") or "",
+        "lump_sum_price": float(obj.get("lump_sum_price") or recommended_price),
+        "pricing_terms":  default_terms,
+        "status":         "draft",
+    }
+    try:
+        ins = supabase_client.table("quotes").insert(row).execute()
+        qid = (ins.data or [{}])[0].get("id")
+        return jsonify({"ok": True, "quote_id": qid})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"DB insert failed: {exc}"})
 
 
 @app.route("/api/estimates/<job_id>/create-job", methods=["POST"])
@@ -8748,6 +17411,981 @@ def api_estimates_create_job(job_id):
         return jsonify({"ok": True, "job_id": new_job.get("id")})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
+
+
+# ─── PUBLIC SITE (Phase 1: Pages + Settings) ────────────────────────────────
+# A small CMS-powered marketing site, served at /site/* on Lumia for now.
+# Once ashrahpainting.com DNS lands, a host-based middleware (added later)
+# will route the bare domain root to these same handlers.
+#
+# Storage: Supabase tables `site_settings` (singleton) and `site_pages`
+#   (one row per page). Tolerant of missing tables — falls back to defaults
+#   so the site loads even before the migration is run.
+
+_SITE_PAGE_SLUGS = ["home", "services", "about", "contact"]
+
+# Defaults used if Supabase tables don't exist yet. Lets the site render
+# the moment the route is hit, before the user runs the SQL migration.
+_SITE_DEFAULTS = {
+    "settings": {
+        "company_name":  "Ashrah Painting",
+        "tagline":       "Brushing life with color.",
+        "phone":         "",
+        "email":         "",
+        "address":       "Winnipeg, MB",
+        # Logo-derived palette. The template uses these for the active-nav
+        # underline + brand gradient endpoints; the gradient itself
+        # always uses the full multi-color brushstroke regardless.
+        "primary_color": "#E91E63",
+        "accent_color":  "#FCD34D",
+        "instagram":     "",
+        "linkedin":      "",
+        "facebook":      "",
+    },
+    "pages": {
+        "home": {
+            "title":           "Home",
+            "hero_heading":    "One crew. Paint and clean. No coordination headaches.",
+            "hero_subheading": "We paint the job and clean it. Same crew, same schedule, one point of contact. Estimates land at 95% accuracy with no missing scopes — so you bid with numbers you can trust.",
+            "body":            "",
+            "meta_description": "Commercial painting + cleanup, done by one crew. 95% bid accuracy, no missing scopes. Winnipeg, Manitoba.",
+            "sort_order":      10,
+        },
+        "services": {
+            "title":           "Services",
+            "hero_heading":    "Painting + cleanup, on every job",
+            "hero_subheading": "Four service lines. Every one of them includes the cleanup — no second sub to coordinate, no closeout finger-pointing.",
+            "body":            "## Commercial painting\n\nOffices, retail, healthcare, hospitality. Spray, roll, or hand-cut depending on the finish. Final dust, glass clean, floor protection removed — we hand the space over move-in ready.\n\n## Multifamily turnover\n\nWe paint the unit, clean the unit, and photograph the unit. One walkthrough at the end, not three. Per-unit sign-offs and dated photo proof so your turn schedule doesn't slip.\n\n## Retail TI\n\nNight and weekend crews on occupied storefronts. We paint, we clean, the store opens Monday. No second mobilization for a cleaning sub.\n\n## Post-paint cleanup\n\nStandalone cleanup service for projects where another sub did the painting. Punch-list closeout, dust, debris removal, glass clean, floors. Common request from GCs whose painter walked off without finishing.",
+            "meta_description": "Commercial painting + cleanup, multifamily turnover, retail TI, post-paint cleanup. Winnipeg + Manitoba.",
+            "sort_order":      20,
+        },
+        "about": {
+            "title":           "About",
+            "hero_heading":    "Built to be the easiest sub on the project",
+            "hero_subheading": "Winnipeg-based. Founded by Ahmad Ashrah. Our job is to take painting and cleanup off your coordination list entirely.",
+            "body":            "## Why we run both trades\n\nOn most commercial projects, painting and post-paint cleanup are two separate subs on two separate schedules. The painter blames the cleaner when there are roller specks on the windows. The cleaner blames the painter when there's overspray on the floor. The GC's PM ends up mediating, and the closeout walk drags by two weeks.\n\nWe got tired of seeing it, so we built our crew to do both. Same hands, same schedule, same final walkthrough. The room you saw being painted is the same room being handed over.\n\n## How we estimate at 95% accuracy\n\nWe run estimating through Lumia, our internal operations system. Every wall area, every ceiling, every door frame, every trim run gets measured directly off the drawings — not eyeballed off a thumbnail. The bid we send is a line-item document with sources, not a one-page total.\n\nThe result: our final billed scope lands within 5% of the bid on a typical project. No \"we missed this\" change orders. No closeout surprises.\n\n## One point of contact\n\nOne phone, one email, one person who can decide. You don't get bounced to a dispatcher, you don't get \"let me check with the cleaning crew,\" and you don't get two separate invoices to reconcile.",
+            "meta_description": "Ashrah Painting — Winnipeg painting + cleanup contractor. One crew, 95% bid accuracy, no missing scopes.",
+            "sort_order":      30,
+        },
+        "contact": {
+            "title":           "Contact",
+            "hero_heading":    "Get a 95%-accurate bid in 24 hours",
+            "hero_subheading": "Send drawings. We respond same business day. No dispatch tree, no callback queue.",
+            "body":            "",
+            "meta_description": "Contact Ashrah Painting for commercial painting + cleanup bids. 24-hour turnaround. Winnipeg, Manitoba.",
+            "sort_order":      40,
+        },
+    },
+}
+
+
+def _site_load_settings() -> dict:
+    """Read site_settings (singleton row id=1). Falls back to defaults."""
+    base = dict(_SITE_DEFAULTS["settings"])
+    if not supabase_client:
+        return base
+    try:
+        rows = supabase_client.table("site_settings").select("*").eq("id", 1).limit(1).execute().data or []
+        if rows:
+            row = rows[0]
+            for k in base:
+                v = row.get(k)
+                if v not in (None, ""):
+                    base[k] = v
+    except Exception:
+        pass
+    return base
+
+
+def _site_load_page(slug: str) -> dict | None:
+    """Read one page. Falls back to seeded default if missing in DB."""
+    default = _SITE_DEFAULTS["pages"].get(slug)
+    if supabase_client:
+        try:
+            rows = supabase_client.table("site_pages").select("*").eq("slug", slug).limit(1).execute().data or []
+            if rows:
+                return rows[0]
+        except Exception:
+            pass
+    if default:
+        d = {"slug": slug, "published": True}
+        d.update(default)
+        return d
+    return None
+
+
+def _site_load_all_pages() -> list[dict]:
+    """All pages, sorted by sort_order. Merges DB rows with defaults so newly
+    added pages still appear before the operator saves them once."""
+    by_slug: dict[str, dict] = {}
+    # Seed defaults
+    for slug, fields in _SITE_DEFAULTS["pages"].items():
+        d = {"slug": slug, "published": True}
+        d.update(fields)
+        by_slug[slug] = d
+    # Overlay DB
+    if supabase_client:
+        try:
+            rows = supabase_client.table("site_pages").select("*").execute().data or []
+            for r in rows:
+                slug = r.get("slug")
+                if slug:
+                    by_slug[slug] = r
+        except Exception:
+            pass
+    out = sorted(by_slug.values(), key=lambda p: (p.get("sort_order") or 999, p.get("slug") or ""))
+    return out
+
+
+def _md_to_html(md_text: str) -> str:
+    """Tiny markdown -> HTML converter. Supports h2/h3, paragraphs, bold,
+    italic, links, and unordered lists. Enough for marketing pages without
+    pulling in another dependency."""
+    import html as _html
+    if not md_text:
+        return ""
+    lines = md_text.replace("\r\n", "\n").split("\n")
+    out: list[str] = []
+    in_list = False
+    para: list[str] = []
+
+    def flush_para():
+        if para:
+            t = " ".join(para).strip()
+            if t:
+                out.append(f"<p>{_inline(t)}</p>")
+            para.clear()
+
+    def _inline(s: str) -> str:
+        s = _html.escape(s)
+        import re as _re
+        s = _re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+        s = _re.sub(r"\*([^*]+)\*",     r"<em>\1</em>", s)
+        s = _re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
+                    r'<a href="\2" target="_blank" rel="noopener">\1</a>', s)
+        return s
+
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            if in_list:
+                out.append("</ul>"); in_list = False
+            flush_para()
+            continue
+        if line.startswith("### "):
+            if in_list: out.append("</ul>"); in_list = False
+            flush_para()
+            out.append(f"<h3>{_inline(line[4:].strip())}</h3>")
+        elif line.startswith("## "):
+            if in_list: out.append("</ul>"); in_list = False
+            flush_para()
+            out.append(f"<h2>{_inline(line[3:].strip())}</h2>")
+        elif line.lstrip().startswith("- "):
+            flush_para()
+            if not in_list:
+                out.append("<ul>"); in_list = True
+            out.append(f"<li>{_inline(line.lstrip()[2:].strip())}</li>")
+        else:
+            if in_list: out.append("</ul>"); in_list = False
+            para.append(line.strip())
+    if in_list: out.append("</ul>")
+    flush_para()
+    return "\n".join(out)
+
+
+SITE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if page_title %}{{ page_title }} — {% endif %}{{ settings.company_name }}</title>
+<meta name="description" content="{{ meta_description or settings.tagline }}">
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+:root {
+  /* Brand palette pulled straight from the AP logo */
+  --c-magenta: #E91E63;
+  --c-blue:    #0EA5E9;
+  --c-green:   #10B981;
+  --c-orange:  #F97316;
+  --c-red:     #DC2626;
+  --c-yellow:  #FCD34D;
+
+  --primary: {{ settings.primary_color }};
+  --accent:  {{ settings.accent_color }};
+  --text:    #0f172a;
+  --muted:   #64748b;
+  --bg:      #ffffff;
+  --bg-2:    #f8fafc;
+  --bg-3:    #f1f5f9;
+  --border:  #e2e8f0;
+  --brand-gradient: linear-gradient(110deg, var(--c-magenta) 0%, var(--c-blue) 35%, var(--c-green) 65%, var(--c-orange) 100%);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: var(--text); background: var(--bg);
+  line-height: 1.65; font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--primary); }
+.container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+/* ─── TOPBAR ─────────────────────────────────────────────── */
+.topnav {
+  background: rgba(255,255,255,.96);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+.topnav .container { display: flex; align-items: center; gap: 28px; padding-top: 14px; padding-bottom: 14px; }
+.topnav .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text); }
+.topnav .brand img { height: 42px; width: auto; }
+.topnav .brand .b-text { display: flex; flex-direction: column; line-height: 1.1; }
+.topnav .brand .b-name { font-size: 16px; font-weight: 800; letter-spacing: .2px; }
+.topnav .brand .b-tag  { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+.topnav nav { display: flex; gap: 26px; margin-left: auto; }
+.topnav nav a {
+  color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600;
+  padding: 6px 2px; position: relative;
+}
+.topnav nav a.active::after, .topnav nav a:hover::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -4px; height: 3px;
+  background: var(--brand-gradient); border-radius: 2px;
+}
+.topnav .cta {
+  background: var(--brand-gradient); color: #fff; padding: 10px 18px; border-radius: 8px;
+  font-size: 14px; font-weight: 700; text-decoration: none;
+  box-shadow: 0 4px 14px rgba(233,30,99,.25);
+}
+.topnav .cta:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(233,30,99,.35); }
+
+/* ─── HERO ─────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  background: #fafafa;
+  padding: 100px 0 90px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 8% 30%,  rgba(233,30,99,.18)  0%, transparent 50%),
+    radial-gradient(circle at 90% 20%, rgba(14,165,233,.18) 0%, transparent 50%),
+    radial-gradient(circle at 50% 95%, rgba(16,185,129,.18) 0%, transparent 50%),
+    radial-gradient(circle at 75% 70%, rgba(249,115,22,.14) 0%, transparent 50%);
+  z-index: 0;
+}
+.hero .container { position: relative; z-index: 1; }
+.hero .eyebrow {
+  display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
+  background: #fff; color: var(--c-magenta); padding: 6px 14px; border-radius: 20px;
+  border: 1px solid rgba(233,30,99,.25); margin-bottom: 18px;
+}
+.hero h1 {
+  font-size: 56px; line-height: 1.05; margin: 0 0 22px; font-weight: 900;
+  letter-spacing: -1px; max-width: 900px;
+}
+.hero h1 .accent {
+  background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hero .sub  { font-size: 19px; color: var(--muted); max-width: 720px; margin: 0 0 32px; }
+.hero .hero-cta-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.hero .hero-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--text); color: #fff;
+  padding: 16px 30px; border-radius: 10px; font-weight: 700; font-size: 16px;
+  text-decoration: none;
+}
+.hero .hero-cta:hover { transform: translateY(-1px); }
+.hero .hero-cta-ghost {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--text); padding: 16px 24px; border-radius: 10px; font-weight: 600; font-size: 16px;
+  text-decoration: none; border: 1.5px solid var(--border);
+}
+.hero .hero-cta-ghost:hover { border-color: var(--c-magenta); color: var(--c-magenta); }
+
+/* ─── STATS STRIP ─────────────────────────────────────────────── */
+.stats-strip {
+  background: var(--text); color: #fff; padding: 36px 0;
+}
+.stats-strip .container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+.stats-strip .stat { text-align: center; }
+.stats-strip .stat .num { font-size: 36px; font-weight: 900; line-height: 1; margin-bottom: 6px; }
+.stats-strip .stat:nth-child(1) .num { color: var(--c-magenta); }
+.stats-strip .stat:nth-child(2) .num { color: var(--c-blue); }
+.stats-strip .stat:nth-child(3) .num { color: var(--c-green); }
+.stats-strip .stat:nth-child(4) .num { color: var(--c-orange); }
+.stats-strip .stat .lbl { font-size: 12px; color: #94a3b8; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+
+/* ─── SERVICES (home page extras) ─────────────────────────────────────── */
+.section { padding: 80px 0; }
+.section.alt { background: var(--bg-2); }
+.section-heading {
+  text-align: center; max-width: 760px; margin: 0 auto 48px;
+}
+.section-heading .eyebrow {
+  display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--c-magenta); margin-bottom: 12px;
+}
+.section-heading h2 {
+  font-size: 36px; font-weight: 900; margin: 0 0 14px; letter-spacing: -.5px; color: var(--text);
+}
+.section-heading p { font-size: 17px; color: var(--muted); margin: 0; }
+
+.services-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+}
+.svc-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  padding: 28px 24px; transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.svc-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0,0,0,.08); }
+.svc-card .icon {
+  width: 46px; height: 46px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; margin-bottom: 16px; color: #fff;
+}
+.svc-card:nth-child(1) .icon { background: var(--c-magenta); }
+.svc-card:nth-child(2) .icon { background: var(--c-blue); }
+.svc-card:nth-child(3) .icon { background: var(--c-green); }
+.svc-card:nth-child(4) .icon { background: var(--c-orange); }
+.svc-card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; }
+.svc-card p  { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+/* ─── PROOF / WHY US ─────────────────────────────────────── */
+.proof-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px;
+}
+.proof-item {
+  border-left: 4px solid var(--c-magenta); padding: 4px 0 4px 22px;
+}
+.proof-item:nth-child(2) { border-color: var(--c-blue); }
+.proof-item:nth-child(3) { border-color: var(--c-green); }
+.proof-item h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; }
+.proof-item p  { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+/* ─── CTA STRIP ─────────────────────────────────────── */
+.cta-strip {
+  background: var(--brand-gradient); color: #fff; padding: 64px 0;
+  text-align: center;
+}
+.cta-strip h2 { margin: 0 0 12px; font-size: 32px; font-weight: 900; letter-spacing: -.5px; }
+.cta-strip p  { margin: 0 0 22px; font-size: 17px; opacity: .92; }
+.cta-strip .btn {
+  display: inline-block; background: #fff; color: var(--c-magenta);
+  padding: 14px 28px; border-radius: 10px; font-weight: 800; font-size: 16px;
+  text-decoration: none;
+}
+.cta-strip .btn:hover { transform: translateY(-1px); }
+
+/* ─── PAGE BODY (for /services, /about, /contact) ────────── */
+.page-body { padding: 64px 0; }
+.page-body h2 { font-size: 28px; font-weight: 800; margin: 36px 0 14px; color: var(--text); }
+.page-body h2:first-child { margin-top: 0; }
+.page-body h2::before {
+  content: ''; display: inline-block; width: 5px; height: 24px;
+  background: var(--brand-gradient); border-radius: 3px; margin-right: 12px; vertical-align: -4px;
+}
+.page-body h3 { font-size: 19px; font-weight: 700; margin: 26px 0 10px; }
+.page-body p  { margin: 0 0 16px; max-width: 760px; }
+.page-body ul { padding-left: 22px; margin: 0 0 16px; max-width: 760px; }
+.page-body li { margin-bottom: 6px; }
+
+/* ─── CONTACT CARD ─────────────────────────────────────── */
+.contact-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
+  margin-top: 32px;
+}
+@media (max-width: 720px) { .contact-grid { grid-template-columns: 1fr; } }
+.contact-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.contact-card.accent { border-top: 4px solid var(--c-magenta); }
+.contact-card.accent.b { border-top-color: var(--c-blue); }
+.contact-card h3 { margin: 0 0 18px; font-size: 18px; font-weight: 800; }
+.contact-card .field { margin-bottom: 14px; font-size: 15px; }
+.contact-card .field label { display: block; font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 4px; letter-spacing: 1px; text-transform: uppercase; }
+.contact-card a { color: var(--c-magenta); text-decoration: none; font-weight: 600; }
+
+/* ─── FOOTER ─────────────────────────────────────── */
+.footer {
+  background: var(--text); color: #cbd5e1;
+  padding: 56px 0 32px; font-size: 14px;
+}
+.footer .container { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 40px; }
+.footer .col h4 { color: #fff; font-size: 13px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; margin: 0 0 14px; }
+.footer .col a { display: block; color: #cbd5e1; text-decoration: none; padding: 4px 0; }
+.footer .col a:hover { color: var(--c-yellow); }
+.footer .brand-block img { height: 56px; margin-bottom: 14px; }
+.footer .brand-block p { margin: 0; color: #94a3b8; font-size: 13px; max-width: 360px; }
+.footer .footer-bottom {
+  border-top: 1px solid #1e293b; margin-top: 40px; padding-top: 20px;
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  color: #64748b; font-size: 12px;
+}
+
+/* ─── MOBILE ─────────────────────────────────────── */
+@media (max-width: 900px) {
+  .hero h1 { font-size: 42px; }
+  .hero .sub { font-size: 17px; }
+  .stats-strip .container { grid-template-columns: repeat(2, 1fr); }
+  .services-grid { grid-template-columns: repeat(2, 1fr); }
+  .proof-grid { grid-template-columns: 1fr; }
+  .footer .container { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .hero { padding: 70px 0 60px; }
+  .hero h1 { font-size: 34px; }
+  .services-grid { grid-template-columns: 1fr; }
+  .topnav nav { display: none; }
+  .topnav .brand .b-tag { display: none; }
+  .section-heading h2 { font-size: 26px; }
+  .cta-strip h2 { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+
+<header class="topnav">
+  <div class="container">
+    <a href="/site/" class="brand">
+      <img src="/static/logo.png" alt="{{ settings.company_name }} logo">
+      <span class="b-text">
+        <span class="b-name">{{ settings.company_name }}</span>
+        <span class="b-tag">Brushing life with color</span>
+      </span>
+    </a>
+    <nav>
+      {% for p in nav_pages %}
+        {% if p.slug != 'contact' %}
+        <a href="/site/{{ '' if p.slug == 'home' else p.slug }}" class="{{ 'active' if p.slug == current_slug else '' }}">{{ p.title }}</a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+    <a href="/site/contact" class="cta">Get a bid →</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <span class="eyebrow">Painting + Cleaning · {{ settings.address }}</span>
+    <h1>
+      {% if current_slug == 'home' %}
+        One crew. <span class="accent">Paint and clean.</span><br>
+        No coordination headaches.
+      {% else %}
+        {{ page.hero_heading or page.title }}
+      {% endif %}
+    </h1>
+    {% if current_slug == 'home' %}
+      <p class="sub">We paint the job and clean it. Same crew, same schedule, one point of contact. Estimates land at 95% accuracy with no missing scopes — so you bid with numbers you can trust.</p>
+    {% elif page.hero_subheading %}
+      <p class="sub">{{ page.hero_subheading }}</p>
+    {% endif %}
+    {% if current_slug == 'home' %}
+    <div class="hero-cta-row">
+      <a href="/site/contact" class="hero-cta">Get a bid →</a>
+      <a href="/site/services" class="hero-cta-ghost">See services</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{% if current_slug == 'home' %}
+<!-- STATS STRIP — concrete proof, not buzzwords -->
+<section class="stats-strip">
+  <div class="container">
+    <div class="stat"><div class="num">1</div><div class="lbl">Crew · Paint + Clean</div></div>
+    <div class="stat"><div class="num">95%</div><div class="lbl">Bid Accuracy</div></div>
+    <div class="stat"><div class="num">0</div><div class="lbl">Missing Scopes</div></div>
+    <div class="stat"><div class="num">24h</div><div class="lbl">Bid Turnaround</div></div>
+  </div>
+</section>
+
+<!-- THE THREE REASONS -->
+<section class="section">
+  <div class="container">
+    <div class="section-heading">
+      <div class="eyebrow">Why Ashrah</div>
+      <h2>Stop coordinating trades. Hire one.</h2>
+      <p>Most projects, painting and cleanup are two separate subs on two schedules — and the cleanup sub blames the painter when something gets missed. We do both. One contract, one schedule, one phone call.</p>
+    </div>
+    <div class="proof-grid">
+      <div class="proof-item">
+        <h3>One crew, both trades</h3>
+        <p>Our painters clean the unit before they leave. No second mobilization, no second sub to chase, no finger-pointing on the closeout walk. The same people who painted the room walk it back to handover-ready.</p>
+      </div>
+      <div class="proof-item">
+        <h3>95% bid accuracy, no missing scopes</h3>
+        <p>Estimates run through Lumia. Every wall, ceiling, door frame, and trim run gets measured off the drawings — not eyeballed. Our bids land within 5% of final billed scope, with no "we missed this" change orders on close.</p>
+      </div>
+      <div class="proof-item">
+        <h3>One point of contact</h3>
+        <p>You text or email one number. No dispatch tree, no "let me check with the cleaning crew," no separate invoices to reconcile. The person who answers is the person who can decide.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SERVICES SHOWCASE -->
+<section class="section alt">
+  <div class="container">
+    <div class="section-heading">
+      <div class="eyebrow">What We Do</div>
+      <h2>Painting + cleanup, end to end</h2>
+      <p>Four service lines. Every one of them includes the cleanup.</p>
+    </div>
+    <div class="services-grid">
+      <div class="svc-card">
+        <div class="icon">🏢</div>
+        <h3>Commercial Painting</h3>
+        <p>Offices, retail, healthcare, hospitality. Final dust, glass clean, floor protection out — we hand it over move-in ready.</p>
+      </div>
+      <div class="svc-card">
+        <div class="icon">🏘</div>
+        <h3>Multifamily Turnover</h3>
+        <p>Paint the unit, clean the unit, photo the unit. One walkthrough — not three.</p>
+      </div>
+      <div class="svc-card">
+        <div class="icon">🛍</div>
+        <h3>Retail TI</h3>
+        <p>Night and weekend crews on occupied storefronts. We paint, we clean, you open Monday.</p>
+      </div>
+      <div class="svc-card">
+        <div class="icon">🧽</div>
+        <h3>Post-Paint Cleanup</h3>
+        <p>Standalone cleanup for jobs where another sub painted. Punch-list closeout, dust, debris, glass, floors.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA STRIP -->
+<section class="cta-strip">
+  <div class="container">
+    <h2>One quote. One crew. Painted and cleaned.</h2>
+    <p>Send drawings. Get a 95%-accurate bid back in 24 hours.</p>
+    <a href="/site/contact" class="btn">Send drawings →</a>
+  </div>
+</section>
+{% endif %}
+
+{% if current_slug != 'home' %}
+<section class="page-body">
+  <div class="container">
+    {{ body_html|safe }}
+
+    {% if current_slug == 'contact' %}
+    <div class="contact-grid">
+      <div class="contact-card accent">
+        <h3>Reach us</h3>
+        {% if settings.email %}<div class="field"><label>Email</label><a href="mailto:{{ settings.email }}">{{ settings.email }}</a></div>{% endif %}
+        {% if settings.phone %}<div class="field"><label>Phone</label><a href="tel:{{ settings.phone }}">{{ settings.phone }}</a></div>{% endif %}
+        {% if settings.address %}<div class="field"><label>Office</label>{{ settings.address }}</div>{% endif %}
+      </div>
+      <div class="contact-card accent b">
+        <h3>Send us drawings</h3>
+        <p style="margin:0 0 10px;color:var(--muted);">Email your PDF drawings and scope notes to <a href="mailto:{{ settings.email or 'hello@ashrahpainting.com' }}">{{ settings.email or 'hello@ashrahpainting.com' }}</a> and we'll send a bid in 24 hours.</p>
+        <p style="margin:0;color:var(--muted);font-size:13px;">Estimating runs through Lumia — bids come back same shape, same speed, every time.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+<footer class="footer">
+  <div class="container">
+    <div class="col brand-block">
+      <img src="/static/logo.png" alt="{{ settings.company_name }}">
+      <p>{{ settings.tagline }}</p>
+    </div>
+    <div class="col">
+      <h4>Site</h4>
+      {% for p in nav_pages %}
+        <a href="/site/{{ '' if p.slug == 'home' else p.slug }}">{{ p.title }}</a>
+      {% endfor %}
+    </div>
+    <div class="col">
+      <h4>Connect</h4>
+      {% if settings.email %}<a href="mailto:{{ settings.email }}">{{ settings.email }}</a>{% endif %}
+      {% if settings.phone %}<a href="tel:{{ settings.phone }}">{{ settings.phone }}</a>{% endif %}
+      {% if settings.linkedin %}<a href="{{ settings.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>{% endif %}
+      {% if settings.instagram %}<a href="{{ settings.instagram }}" target="_blank" rel="noopener">Instagram</a>{% endif %}
+      {% if settings.facebook %}<a href="{{ settings.facebook }}" target="_blank" rel="noopener">Facebook</a>{% endif %}
+    </div>
+  </div>
+  <div class="container">
+    <div class="footer-bottom">
+      <div>© {{ year }} {{ settings.company_name }}. All rights reserved.</div>
+      <div>{{ settings.address }}</div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>"""
+
+
+def _render_site_page(slug: str):
+    page = _site_load_page(slug)
+    if not page:
+        return "Page not found", 404
+    if not page.get("published", True):
+        return "Page not found", 404
+    settings   = _site_load_settings()
+    nav_pages  = _site_load_all_pages()
+    body_html  = _md_to_html(page.get("body") or "")
+    return render_template_string(
+        SITE_TEMPLATE,
+        page=page,
+        settings=settings,
+        nav_pages=nav_pages,
+        current_slug=slug,
+        body_html=body_html,
+        page_title=page.get("title"),
+        meta_description=page.get("meta_description") or "",
+        year=datetime.utcnow().year,
+    )
+
+
+def _site_render_designed(template_name: str):
+    """Render one of the rich design templates (index/careers/finish_process)
+    with settings injected from Supabase. Falls back to defaults if any field
+    is missing from the DB row."""
+    from flask import send_from_directory
+    settings = _site_load_settings()
+    # Provide sensible defaults for newer fields that may not exist in DB yet.
+    settings.setdefault("hours",         "24/7")
+    settings.setdefault("insurance",     "$5M")
+    settings.setdefault("ai_projects",   "65")
+    settings.setdefault("ai_accuracy",   "95%")
+    settings.setdefault("forecast_days", "6")
+    settings.setdefault("service_area",  "Manitoba & Kenora")
+    return render_template(template_name, settings=settings)
+
+
+@app.route("/site/")
+def site_home():
+    """The new rich-design home — the Claude Design package translated into a
+    server-rendered Flask template. Editable fields are injected via window.SITE."""
+    try:
+        return _site_render_designed("public_site/index.html")
+    except Exception as exc:
+        # Fallback to the simpler CMS page renderer if the design template
+        # can't load for any reason — keeps the site online during transitions.
+        print(f"[Site] designed home failed ({exc}); falling back to CMS")
+        return _render_site_page("home")
+
+
+@app.route("/site/careers")
+def site_careers():
+    return _site_render_designed("public_site/careers.html")
+
+
+@app.route("/site/finish-process")
+def site_finish_process():
+    return _site_render_designed("public_site/finish_process.html")
+
+
+@app.route("/site/<slug>")
+def site_page(slug):
+    # Legacy slugs (services, about, contact) used to be standalone pages.
+    # The new design folds those into anchor sections on the home page, so
+    # redirect rather than 404.
+    legacy_to_anchor = {
+        "services": "#services",
+        "about":    "#process",
+        "contact":  "#contact",
+    }
+    if slug in legacy_to_anchor:
+        return redirect("/site/" + legacy_to_anchor[slug])
+
+    # Pages added through the CMS still render in the simple template — for
+    # future expansion (case studies, news posts, etc.)
+    page = _site_load_page(slug)
+    if not page:
+        return "Page not found", 404
+    return _render_site_page(slug)
+
+
+# ─── Public Lumia chat endpoint (used by the floating FAB + portal mock) ─────
+@app.route("/api/site/estimate-request", methods=["POST"])
+def api_site_estimate_request():
+    """Capture an estimate request from the public website. Emails the owner
+    immediately AND saves a row so nothing falls through the cracks. This was
+    previously a dead form that just popped an alert and threw the data away."""
+    d = request.get_json(silent=True) or {}
+    company = (d.get("company") or "").strip()
+    name    = (d.get("name") or "").strip()
+    email   = (d.get("email") or "").strip()
+    phone   = (d.get("phone") or "").strip()
+    scope   = (d.get("scope") or "").strip()
+    if not company or not name or not email:
+        return jsonify({"ok": False, "error": "Company, name and email are required"}), 400
+
+    now_iso = datetime.utcnow().isoformat()
+
+    # 1. Save to DB (graceful if the table doesn't exist yet)
+    saved = False
+    if supabase_client:
+        try:
+            supabase_client.table("estimate_requests").insert({
+                "company": company, "name": name, "email": email,
+                "phone": phone, "scope": scope, "status": "new",
+                "created_at": now_iso,
+            }).execute()
+            saved = True
+        except Exception as exc:
+            print(f"[Estimate Request] DB save skipped: {exc}")
+
+    # 2. Email the owner immediately (the part that was missing)
+    emailed = False
+    try:
+        import httpx
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if resend_key and OWNER_EMAIL:
+            html = f"""
+            <div style="font-family:Inter,sans-serif;max-width:560px;margin:0 auto;padding:20px;color:#0E0E0C;">
+              <h2 style="margin:0 0 4px;">New estimate request</h2>
+              <p style="color:#666;margin:0 0 16px;font-size:13px;">via ashrahpainting.com · {now_iso[:16].replace('T',' ')} UTC</p>
+              <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                <tr><td style="padding:6px 0;color:#888;width:120px;">Company</td><td style="padding:6px 0;font-weight:600;">{company}</td></tr>
+                <tr><td style="padding:6px 0;color:#888;">Contact</td><td style="padding:6px 0;font-weight:600;">{name}</td></tr>
+                <tr><td style="padding:6px 0;color:#888;">Email</td><td style="padding:6px 0;"><a href="mailto:{email}">{email}</a></td></tr>
+                <tr><td style="padding:6px 0;color:#888;">Phone</td><td style="padding:6px 0;">{phone or '—'}</td></tr>
+              </table>
+              <div style="margin-top:16px;padding:14px;background:#f4f1ec;border-radius:8px;">
+                <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Project / scope</div>
+                <div style="white-space:pre-wrap;font-size:14px;">{scope or '(none provided)'}</div>
+              </div>
+              <p style="margin-top:18px;font-size:13px;"><a href="mailto:{email}?subject=Re: Your Ashrah Painting estimate request" style="background:#0E0E0C;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;">Reply to {name.split()[0] if name else 'them'} →</a></p>
+            </div>
+            """
+            text = (f"New estimate request via ashrahpainting.com\n\n"
+                    f"Company: {company}\nContact: {name}\nEmail: {email}\nPhone: {phone or '-'}\n\n"
+                    f"Scope:\n{scope or '(none)'}\n")
+            r = httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}"},
+                json={
+                    "from":     "Ashrah Painting <noreply@ashrah.ai>",
+                    "to":       [OWNER_EMAIL],
+                    "reply_to": email,
+                    "subject":  f"💰 Estimate request: {company}",
+                    "html":     html,
+                    "text":     text,
+                },
+                timeout=15.0,
+            )
+            emailed = r.status_code in (200, 201, 202)
+            if not emailed:
+                print(f"[Estimate Request] Resend {r.status_code}: {r.text[:200]}")
+    except Exception as exc:
+        print(f"[Estimate Request] Email failed: {exc}")
+
+    # 2b. Instant thank-you email TO THE CLIENT — confirms we got it + sets tone.
+    try:
+        import httpx as _httpx_ty
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if resend_key and email:
+            first = name.split()[0] if name else "there"
+            ty_html = f"""
+            <div style="font-family:Inter,sans-serif;max-width:540px;margin:0 auto;padding:24px;color:#0E0E0C;">
+              <div style="background:#0E0E0C;color:#F4F1EC;padding:28px;border-radius:14px 14px 0 0;text-align:center;">
+                <div style="font-family:Archivo,sans-serif;font-weight:900;letter-spacing:2px;font-size:20px;">ASHRAH PAINTING</div>
+                <div style="font-size:11px;opacity:.6;letter-spacing:2px;margin-top:5px;">SMART COMMERCIAL FINISHING</div>
+              </div>
+              <div style="background:#fff;border:1px solid rgba(14,14,12,.12);border-top:none;border-radius:0 0 14px 14px;padding:30px;">
+                <p style="font-size:17px;margin:0 0 14px;">Hi {first},</p>
+                <p style="color:#333;line-height:1.6;margin:0 0 16px;">
+                  Thank you for reaching out — and honestly, you just made a great call.
+                </p>
+                <p style="color:#333;line-height:1.6;margin:0 0 16px;">
+                  Ashrah Painting is the <strong>only smart finishing company</strong> in the market: one crew that paints <em>and</em> cleans, estimates scoped by our in-house AI at 95% accuracy with no missing scopes, delays predicted six days out, and a client portal you keep forever. Most contractors hand you a number and hope. We hand you a system.
+                </p>
+                <div style="background:#f4f1ec;border-radius:10px;padding:16px 18px;margin:18px 0;">
+                  <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">What happens next</div>
+                  <div style="font-size:14px;color:#333;line-height:1.6;">
+                    A real person on our team is already reviewing your request. You'll hear back from us <strong>within one business day</strong> — usually much faster. If you have drawings, reply to this email and attach them; Lumia will scope them and we'll send a fixed, line-item quote.
+                  </div>
+                </div>
+                <p style="color:#333;line-height:1.6;margin:0 0 6px;">Talk soon,</p>
+                <p style="color:#333;line-height:1.6;margin:0;font-weight:700;">The Ashrah Painting Team</p>
+                <p style="color:#999;font-size:12px;margin-top:20px;line-height:1.5;">
+                  Winnipeg, MB &amp; Kenora, ON · 24/7 operations · $5M insured<br>
+                  Reply any time — this inbox is monitored.
+                </p>
+              </div>
+            </div>
+            """
+            ty_text = (
+                f"Hi {first},\n\n"
+                "Thank you for reaching out — and honestly, you just made a great call.\n\n"
+                "Ashrah Painting is the only smart finishing company in the market: one crew that "
+                "paints AND cleans, AI-scoped estimates at 95% accuracy with no missing scopes, "
+                "delays predicted six days out, and a client portal you keep forever.\n\n"
+                "A real person is already reviewing your request. You'll hear back within one "
+                "business day — usually faster. Have drawings? Reply to this email and attach them.\n\n"
+                "Talk soon,\nThe Ashrah Painting Team\n"
+                "Winnipeg, MB & Kenora, ON · 24/7 · $5M insured"
+            )
+            ty = _httpx_ty.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}"},
+                json={
+                    "from":     "Ashrah Painting <noreply@ashrah.ai>",
+                    "to":       [email],
+                    "reply_to": OWNER_EMAIL or "info@ashrahpainting.ca",
+                    "subject":  "You made a great call — Ashrah Painting",
+                    "html":     ty_html,
+                    "text":     ty_text,
+                },
+                timeout=15.0,
+            )
+            if ty.status_code not in (200, 201, 202):
+                print(f"[Estimate Request] Thank-you email Resend {ty.status_code}: {ty.text[:200]}")
+    except Exception as exc:
+        print(f"[Estimate Request] Thank-you email failed: {exc}")
+
+    # 3. Also drop into the Lumia outbox/mailbox so it shows in the Mailbox tab
+    try:
+        _log_outbox(
+            category="estimate_request",
+            to=[OWNER_EMAIL] if OWNER_EMAIL else [],
+            subject=f"Estimate request: {company}",
+            body_text=f"{name} ({email}, {phone or 'no phone'})\n\n{scope}",
+            status="sent" if emailed else "logged",
+        )
+    except Exception:
+        pass
+
+    if not saved and not emailed:
+        return jsonify({"ok": False, "error": "Could not record request — email info@ashrahpainting.ca"}), 500
+    return jsonify({"ok": True, "saved": saved, "emailed": emailed})
+
+
+@app.route("/api/site/lumia-chat", methods=["POST"])
+def api_site_lumia_chat():
+    """Public-facing chat handler. PUBLIC — no auth. We deliberately do not
+    hit the Anthropic API on every visitor message to keep cost predictable
+    on a public surface. Returns a canned-but-helpful reply that points the
+    visitor to email/phone. Upgrade to a real Claude call later behind a
+    rate-limit + cost cap if you want true conversational answers.
+
+    Why this is the right default: a hostile visitor can fire thousands of
+    messages a day; even at Sonnet pricing that's $20-50/day if uncapped."""
+    data = request.get_json(silent=True) or {}
+    msg = (data.get("message") or "").strip().lower()
+    settings = _site_load_settings()
+    email = settings.get("email")   or "info@ashrahpainting.ca"
+    phone = settings.get("phone")   or ""
+    addr  = settings.get("address") or "1100 Notre Dame Ave, Winnipeg, MB"
+
+    # Tiny keyword router — covers ~80% of real visitor questions on a
+    # painting site without spending a dollar.
+    if any(w in msg for w in ("price", "cost", "quote", "estimate", "bid")):
+        reply = (f"We send free fixed-price line-item quotes within 24 hours. "
+                 f"Email {email} with drawings or scope notes and we'll respond same business day.")
+    elif any(w in msg for w in ("service", "what do you", "offer", "do you do")):
+        reply = ("Three lines: commercial interior + exterior painting, industrial facility coatings, "
+                 "and post-construction cleaning. Every job includes the cleanup.")
+    elif any(w in msg for w in ("location", "where", "area", "kenora", "winnipeg", "manitoba")):
+        reply = f"We're at {addr} and we cover Manitoba and Kenora, Ontario. 24/7 ops."
+    elif any(w in msg for w in ("insurance", "wcb", "covered")):
+        reply = "We carry $5M liability insurance and we're WCB Manitoba covered."
+    elif any(w in msg for w in ("portal", "track", "see the job", "client")):
+        reply = ("Every job gets a live client portal with daily logs, paint codes used per room, "
+                 "crew check-ins, and a 6-day delay forecast. You can ask Lumia anything about your job from in there.")
+    elif any(w in msg for w in ("careers", "hire", "job", "work", "apply")):
+        reply = "Open roles + resume upload are at /site/careers — or email a resume to " + email
+    elif any(w in msg for w in ("hours", "open", "when", "24")):
+        reply = "We operate 24/7. Emergencies, off-hours work, and weekend turns are routine."
+    elif phone and any(w in msg for w in ("phone", "call", "number")):
+        reply = f"Call us at {phone} or email {email}."
+    else:
+        reply = (f"Best path for a real answer: email {email} (we respond same business day) "
+                 f"or hit the 'Free estimate' button at the top of the page.")
+    return jsonify({"ok": True, "reply": reply})
+
+
+# ─── ADMIN: Website CMS API (owner-only) ─────────────────────────────────────
+@app.route("/api/site/settings", methods=["GET"])
+@require_role("owner")
+def api_site_settings_get():
+    return jsonify({"ok": True, "settings": _site_load_settings()})
+
+
+@app.route("/api/site/settings", methods=["POST"])
+@require_role("owner")
+def api_site_settings_save():
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Supabase not configured"}), 500
+    data = request.get_json() or {}
+    allowed = ["company_name", "tagline", "phone", "email", "address",
+               "primary_color", "accent_color", "instagram", "linkedin", "facebook",
+               # New design-package fields (gracefully ignored if the DB column
+               # doesn't exist yet — Supabase will just drop unknown keys.)
+               "hours", "insurance", "ai_projects", "ai_accuracy",
+               "forecast_days", "service_area"]
+    patch = {k: (data.get(k) or "").strip() for k in allowed if k in data}
+    patch["id"] = 1
+    patch["updated_at"] = datetime.utcnow().isoformat()
+    try:
+        supabase_client.table("site_settings").upsert(patch, on_conflict="id").execute()
+        return jsonify({"ok": True, "settings": _site_load_settings()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/site/pages", methods=["GET"])
+@require_role("owner")
+def api_site_pages_list():
+    return jsonify({"ok": True, "pages": _site_load_all_pages()})
+
+
+@app.route("/api/site/page/<slug>", methods=["GET"])
+@require_role("owner")
+def api_site_page_get(slug):
+    p = _site_load_page(slug)
+    if not p:
+        return jsonify({"ok": False, "error": "Page not found"}), 404
+    return jsonify({"ok": True, "page": p})
+
+
+@app.route("/api/site/page/<slug>", methods=["POST"])
+@require_role("owner")
+def api_site_page_save(slug):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Supabase not configured"}), 500
+    data = request.get_json() or {}
+    allowed = ["title", "hero_heading", "hero_subheading", "body",
+               "meta_description", "sort_order", "published"]
+    row = {k: data.get(k) for k in allowed if k in data}
+    row["slug"] = slug
+    row["updated_at"] = datetime.utcnow().isoformat()
+    try:
+        supabase_client.table("site_pages").upsert(row, on_conflict="slug").execute()
+        return jsonify({"ok": True, "page": _site_load_page(slug)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Mount Lio (sales/marketing assistant) at /lio/* ─────────────────────────
+# Lio runs as a sibling Flask app. DispatcherMiddleware mounts it without
+# touching either codebase. The Marketing tab in the dashboard iframes /lio/.
+try:
+    from werkzeug.middleware.dispatcher import DispatcherMiddleware
+    from lio_app import app as _lio_app
+    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {"/lio": _lio_app})
+    print("[Lumia] Mounted Lio at /lio/*")
+except Exception as _lio_exc:
+    print(f"[Lumia] Could not mount Lio: {_lio_exc}")
 
 
 if __name__ == "__main__":

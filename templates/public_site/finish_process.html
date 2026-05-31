@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Ashrah Finish Process — Client Guide</title>
+<link rel="icon" href="/static/site_design/ashrah-logo.jpeg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #0E0E0C;
+    --bone: #F4F1EC;
+    --bone-2: #ECE7DF;
+    --line: rgba(14, 14, 12, 0.14);
+    --mute: rgba(14, 14, 12, 0.6);
+    --accent: #ff2e9a;
+    --rainbow: linear-gradient(95deg, #ff2e9a 0%, #ff5b3f 22%, #ffb237 40%, #34d76a 58%, #28d6c4 75%, #6a6cff 92%);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #d8d4cc;
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .display { font-family: 'Archivo', sans-serif; font-stretch: 75%; font-weight: 800; text-transform: uppercase; letter-spacing: -0.015em; line-height: 0.96; }
+  em.outlined { font-style: normal; -webkit-text-stroke: 1.5px var(--ink); color: transparent; }
+
+  /* Print toolbar */
+  .toolbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--ink); color: var(--bone);
+    padding: 14px 28px;
+  }
+  .toolbar .left {
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(244,241,236,.7);
+  }
+  .toolbar .left b { color: var(--bone); font-weight: 600; }
+  .toolbar .right { display: flex; gap: 10px; }
+  .tb-btn {
+    appearance: none; border: 1px solid rgba(244,241,236,.2);
+    background: transparent; color: var(--bone);
+    font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600;
+    padding: 8px 14px; border-radius: 999px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .tb-btn.primary { background: var(--bone); color: var(--ink); border-color: var(--bone); }
+  .tb-btn:hover { transform: translateY(-1px); }
+
+  /* Document pages */
+  .pages {
+    padding: 30px 20px 80px;
+    display: flex; flex-direction: column; align-items: center; gap: 28px;
+  }
+  .page {
+    width: 8.5in;
+    min-height: 11in;
+    background: var(--bone);
+    box-shadow: 0 6px 30px rgba(0,0,0,.18);
+    padding: 0.7in 0.75in;
+    position: relative;
+    display: flex; flex-direction: column;
+  }
+  .page-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--mute);
+  }
+  .page-header .brand {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--ink); font-weight: 600;
+  }
+  .page-header .brand img {
+    width: 22px; height: 22px; border-radius: 5px;
+  }
+  .page-footer {
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--mute);
+  }
+  .rainbow-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: var(--rainbow);
+  }
+
+  /* COVER */
+  .cover {
+    background: var(--ink); color: var(--bone);
+    justify-content: space-between;
+  }
+  .cover .page-header { color: rgba(244,241,236,.55); border-color: rgba(244,241,236,.14); }
+  .cover .page-header .brand { color: var(--bone); }
+  .cover .page-footer { color: rgba(244,241,236,.55); border-color: rgba(244,241,236,.14); }
+  .cover h1 {
+    font-family: 'Archivo', sans-serif;
+    font-stretch: 75%; font-weight: 900;
+    font-size: 96px; line-height: 0.9;
+    letter-spacing: -0.025em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .cover h1 em { font-style: normal; -webkit-text-stroke: 1.6px var(--bone); color: transparent; }
+  .cover .lede {
+    max-width: 5.5in;
+    font-size: 17px; line-height: 1.5;
+    color: rgba(244,241,236,.8);
+    margin-top: 28px;
+  }
+  .cover .stamp {
+    display: inline-flex; gap: 10px;
+    align-items: center;
+    margin-top: 30px;
+    padding: 10px 14px;
+    border: 1px solid rgba(244,241,236,.2);
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(244,241,236,.8);
+  }
+  .cover .stamp::before {
+    content:""; width:8px; height:8px; border-radius:2px; background: var(--accent);
+  }
+  .cover-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 0;
+    border-top: 1px solid rgba(244,241,236,.14);
+    border-bottom: 1px solid rgba(244,241,236,.14);
+    margin-top: 28px;
+  }
+  .cover-cell {
+    padding: 18px 18px 18px 0;
+    border-right: 1px solid rgba(244,241,236,.14);
+  }
+  .cover-cell:last-child { border-right: 0; padding-right: 0; }
+  .cover-cell b {
+    display: block;
+    font-family: 'Archivo', sans-serif;
+    font-stretch: 75%; font-weight: 800;
+    font-size: 30px; letter-spacing: -0.01em;
+    line-height: 1; margin-bottom: 6px;
+  }
+  .cover-cell span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(244,241,236,.6);
+  }
+
+  /* INTRO / CONTENT PAGE */
+  .page h2 {
+    font-family: 'Archivo', sans-serif;
+    font-stretch: 75%; font-weight: 800;
+    font-size: 46px; line-height: 0.96;
+    letter-spacing: -0.018em;
+    text-transform: uppercase;
+    margin: 28px 0 14px;
+    max-width: 8ch;
+  }
+  .page .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-top: 6px;
+  }
+  .page .eyebrow::before {
+    content:""; width: 8px; height: 8px;
+    background: var(--accent); border-radius: 2px;
+  }
+  .page p {
+    font-size: 13.5px; line-height: 1.6;
+    margin: 0 0 12px;
+    color: #1c1c19;
+    max-width: 64ch;
+  }
+  .page p.lede {
+    font-size: 16px; line-height: 1.55;
+    max-width: 62ch;
+  }
+
+  /* Process step */
+  .step {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    gap: 18px;
+    padding: 18px 0;
+    border-top: 1px solid var(--line);
+  }
+  .step:last-child { border-bottom: 1px solid var(--line); }
+  .step-num {
+    font-family: 'Archivo', sans-serif;
+    font-stretch: 75%; font-weight: 800;
+    font-size: 38px; line-height: 0.9;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .step-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--mute);
+    margin-top: 4px;
+  }
+  .step h3 {
+    font-family: 'Archivo', sans-serif;
+    font-stretch: 75%; font-weight: 800;
+    font-size: 22px; letter-spacing: -0.005em;
+    text-transform: uppercase;
+    margin: 0 0 6px;
+    line-height: 1.05;
+  }
+  .step p { font-size: 13px; line-height: 1.5; margin: 0 0 8px; }
+  .step ul {
+    margin: 6px 0 0; padding: 0; list-style: none;
+    display: grid; gap: 4px;
+  }
+  .step ul li {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--mute);
+    padding-left: 16px;
+    position: relative;
+  }
+  .step ul li::before {
+    content: "→";
+    position: absolute; left: 0; top: 0;
+    color: var(--accent);
+  }
+
+  /* Two-up grid */
+  .two-up {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    margin-top: 18px;
+  }
+  .card {
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bone-2);
+  }
+  .card h4 {
+    font-family: 'Archivo', sans-serif;
+    font-stretch: 75%; font-weight: 700;
+    font-size: 18px; letter-spacing: -0.005em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .card p { font-size: 12.5px; margin: 0; line-height: 1.5; }
+  .card ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+  .card ul li {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--mute);
+    letter-spacing: 0.04em;
+    padding-left: 12px;
+    position: relative;
+  }
+  .card ul li::before {
+    content: "·"; position: absolute; left: 0; color: var(--accent);
+  }
+
+  /* Spec list */
+  .specs {
+    display: grid; gap: 10px;
+    margin-top: 14px;
+  }
+  .spec-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 18px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .spec-row .k {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--mute);
+  }
+  .spec-row .v {
+    font-size: 13px; color: var(--ink);
+  }
+  .spec-row .v b { font-weight: 600; }
+
+  /* Final page */
+  .end {
+    background: var(--ink); color: var(--bone);
+  }
+  .end .page-header { color: rgba(244,241,236,.55); border-color: rgba(244,241,236,.14); }
+  .end .page-header .brand { color: var(--bone); }
+  .end .page-footer { color: rgba(244,241,236,.55); border-color: rgba(244,241,236,.14); }
+  .end h2 { color: var(--bone); max-width: 12ch; }
+  .end p { color: rgba(244,241,236,.78); }
+  .end .contact {
+    margin-top: 28px;
+    display: grid; gap: 12px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(244,241,236,.14);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: rgba(244,241,236,.85);
+  }
+  .end .contact .row {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(244,241,236,.1);
+  }
+  .end .contact .row:last-child { border-bottom: 0; }
+  .end .contact .k { color: rgba(244,241,236,.5); }
+
+  @media print {
+    body { background: white; }
+    .toolbar { display: none; }
+    .pages { padding: 0; gap: 0; }
+    .page { box-shadow: none; width: auto; min-height: auto; page-break-after: always; padding: 0.6in 0.7in; }
+    .page:last-child { page-break-after: auto; }
+  }
+  @page { size: letter; margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="left">
+    <b>The Ashrah Finish Process</b>
+    <span>· Client Guide</span>
+    <span>· 8 pp</span>
+  </div>
+  <div class="right">
+    <button class="tb-btn" onclick="window.close()">Close</button>
+    <button class="tb-btn primary" onclick="window.print()">Save as PDF ⬇</button>
+  </div>
+</div>
+
+<div class="pages">
+
+  <!-- COVER -->
+  <section class="page cover">
+    <div class="rainbow-bar"></div>
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting</div>
+      <span>CLIENT GUIDE · v3.2</span>
+    </div>
+
+    <div style="margin-top:auto; margin-bottom:auto;">
+      <span class="stamp">For general contractors &amp; property managers</span>
+      <h1 style="margin-top:30px;">The Ashrah<br/><em>Finish</em><br/>Process</h1>
+      <p class="lede">How a commercial painting and post-construction cleaning project actually runs at Ashrah — from AI estimate to forever portal access. Real steps, real specs, real receipts.</p>
+
+      <div class="cover-grid">
+        <div class="cover-cell"><b>95%</b><span>AI estimate accuracy</span></div>
+        <div class="cover-cell"><b>6d</b><span>Delay forecast lead</span></div>
+        <div class="cover-cell"><b>24/7</b><span>Operations</span></div>
+        <div class="cover-cell"><b>$5M</b><span>Liability coverage</span></div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>1100 Notre Dame Ave · Winnipeg, MB</span>
+      <span>Page 01 / 08</span>
+    </div>
+  </section>
+
+  <!-- INTRO -->
+  <section class="page">
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting · The Finish Process</div>
+      <span>02 / Why this guide</span>
+    </div>
+
+    <div class="eyebrow">Why this guide</div>
+    <h2 class="display">Run like<br/>a tech<br/>company.</h2>
+
+    <p class="lede">Most paint subs hand you a vague verbal bid and disappear into the wall until the invoice. We don't. We run our operation like a software team — every job has a backlog, a schedule, a daily log, photos, version-controlled paint records, and a portal you and your owner keep forever.</p>
+
+    <p>This guide walks GCs and project managers through exactly what happens after you sign — every step, every standard, every checkpoint. Keep it. Share it with your super. It's the contract for how the work gets done.</p>
+
+    <div class="two-up">
+      <div class="card">
+        <h4>What you get</h4>
+        <ul>
+          <li>AI-scoped fixed quote</li>
+          <li>Phased schedule you can share</li>
+          <li>Daily site log + photos</li>
+          <li>Paint records (forever)</li>
+          <li>6-day delay forecast</li>
+          <li>Final walk + punch-list close</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>What we expect from you</h4>
+        <ul>
+          <li>Access on agreed days</li>
+          <li>Single point of contact</li>
+          <li>Sign-off on color picks before order</li>
+          <li>Heads-up on tenant / ops changes</li>
+          <li>Final walk attendance</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>info@ashrahpainting.ca</span>
+      <span>Page 02 / 08</span>
+    </div>
+  </section>
+
+  <!-- STEPS 01-04 -->
+  <section class="page">
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting · The Finish Process</div>
+      <span>03 / Phase 1 — Plan</span>
+    </div>
+
+    <div class="eyebrow">Phase 1 / Plan</div>
+    <h2 class="display">Quote.<br/><em class="outlined">Schedule.</em><br/>Prep.</h2>
+
+    <div class="step">
+      <div>
+        <div class="step-num">01</div>
+        <div class="step-tag">DAY 0 — 2</div>
+      </div>
+      <div>
+        <h3>Lumia Estimate &amp; Site Walk</h3>
+        <p>You send us plans or we walk the site. <b>Lumia</b>, our in-house AI platform, is trained on 65+ of our past commercial projects and scopes the job at <b>95% accuracy</b> — square footage, prep level, coat counts, masking, lifts, specialty surfaces. You get a fixed line-item quote, not a guess.</p>
+        <ul>
+          <li>Free site walk</li>
+          <li>Fixed-price line items</li>
+          <li>Scope risk flagged before you sign</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">02</div>
+        <div class="step-tag">DAY 2 — 5</div>
+      </div>
+      <div>
+        <h3>Schedule &amp; Forecast</h3>
+        <p>We phase the work so your building stays operational — after-hours, weekends, zoned shifts. The schedule is loaded into your portal with a rolling <b>6-day delay forecast</b> for weather, supply and crew. You see risk before it hits.</p>
+        <ul>
+          <li>Phased plan, shareable PDF</li>
+          <li>6-day forward forecast</li>
+          <li>Tenant / ops notice templates included</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">03</div>
+        <div class="step-tag">DAY 5 — 7</div>
+      </div>
+      <div>
+        <h3>Color &amp; Coating Selection</h3>
+        <p>Sign-off on color codes, sheens, and specialty coatings (epoxy, urethane, anti-corrosive, anti-microbial). Every code is logged with the room it touches — and stays in the portal for the life of the building.</p>
+        <ul>
+          <li>SW / BM trade-line supplied</li>
+          <li>Sheens locked per surface</li>
+          <li>Specialty coatings spec'd by environment</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">04</div>
+        <div class="step-tag">DAY 1 ON-SITE</div>
+      </div>
+      <div>
+        <h3>Site Prep &amp; Safety Setup</h3>
+        <p>Masking, drop cloths, baseboard pull, lift / scaffold set, machinery isolation. Around production lines, we work with your ops team to mask without shutting you down.</p>
+        <ul>
+          <li>WCB Manitoba covered crew</li>
+          <li>Machinery shrouding + isolation plan</li>
+          <li>Daily safety check-in on portal</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>info@ashrahpainting.ca</span>
+      <span>Page 03 / 08</span>
+    </div>
+  </section>
+
+  <!-- STEPS 05-08 -->
+  <section class="page">
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting · The Finish Process</div>
+      <span>04 / Phase 2 — Paint</span>
+    </div>
+
+    <div class="eyebrow">Phase 2 / Paint</div>
+    <h2 class="display">Prep.<br/>Coat.<br/><em class="outlined">Document.</em></h2>
+
+    <div class="step">
+      <div>
+        <div class="step-num">05</div>
+        <div class="step-tag">SURFACE PREP</div>
+      </div>
+      <div>
+        <h3>Patch, Sand, Prime</h3>
+        <p>Drywall patches, nail-pops, hairline cracks repaired. Spot-prime or full prime depending on substrate. Surface temp and humidity logged before primer goes on.</p>
+        <ul>
+          <li>Surface temp / RH on every coat day</li>
+          <li>Bonding primer for problem substrates</li>
+          <li>Photos uploaded by end of shift</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">06</div>
+        <div class="step-tag">COATS</div>
+      </div>
+      <div>
+        <h3>First &amp; Second Coat</h3>
+        <p>Two-coat standard. Cut-in by hand, roll or spray depending on surface and specialty coating. Crew check-in via GPS at start and end of shift.</p>
+        <ul>
+          <li>2-coat standard, 3 on dark-over-light</li>
+          <li>Crew GPS check-in</li>
+          <li>Cure / recoat timing logged</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">07</div>
+        <div class="step-tag">QC</div>
+      </div>
+      <div>
+        <h3>Quality Control Walk</h3>
+        <p>Foreman walks every elevation at end of each coat. Touch-ups marked with painter's tape, photographed, addressed before sign-off. Property manager invited to walk at end of Phase 2.</p>
+        <ul>
+          <li>Per-elevation QC photo set</li>
+          <li>Punch-list opens in portal</li>
+          <li>Client walk on milestones</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">08</div>
+        <div class="step-tag">DETAIL</div>
+      </div>
+      <div>
+        <h3>Trim, Doors &amp; Detail</h3>
+        <p>Trim, doors, frames, baseboards, ceiling lines. Different sheen, different paint, separate record in the portal. This is where most jobs lose hours — we plan it as its own phase.</p>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>info@ashrahpainting.ca</span>
+      <span>Page 04 / 08</span>
+    </div>
+  </section>
+
+  <!-- STEPS 09-10 + Cleaning + Handoff -->
+  <section class="page">
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting · The Finish Process</div>
+      <span>05 / Phase 3 — Hand-off</span>
+    </div>
+
+    <div class="eyebrow">Phase 3 / Hand-off</div>
+    <h2 class="display">Clean.<br/><em class="outlined">Walk.</em><br/>Archive.</h2>
+
+    <div class="step">
+      <div>
+        <div class="step-num">09</div>
+        <div class="step-tag">CLEANING</div>
+      </div>
+      <div>
+        <h3>Post-construction Cleaning</h3>
+        <p>For new builds and renovations we take the room from paint-done to hand-off-ready: dust pass on all horizontal surfaces, fixtures wiped, glass scraped, paint flecks pulled off floors, finish detailing.</p>
+        <ul>
+          <li>Top-down dust pass</li>
+          <li>Glass + fixtures + hardware</li>
+          <li>Floor finish protection re-applied if needed</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">10</div>
+        <div class="step-tag">FINAL WALK</div>
+      </div>
+      <div>
+        <h3>Final Walk &amp; Punch-list Close</h3>
+        <p>You walk the building with the foreman. Anything you flag is photographed, added to the punch-list, and closed before invoice. No retention games — when the list is closed, the job is done.</p>
+        <ul>
+          <li>Walk + punch-list on portal</li>
+          <li>Touch-up paint left for owner</li>
+          <li>Invoice tied to closed punch-list</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <div class="step-num">11</div>
+        <div class="step-tag">ARCHIVE</div>
+      </div>
+      <div>
+        <h3>Portal Archive — Forever</h3>
+        <p>Every paint code, room, photo, daily log entry and invoice stays in your portal for the life of the building. Three years from now, when a tenant asks "what color was that?" — you'll have it in 10 seconds.</p>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>info@ashrahpainting.ca</span>
+      <span>Page 05 / 08</span>
+    </div>
+  </section>
+
+  <!-- SPECS -->
+  <section class="page">
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting · The Finish Process</div>
+      <span>06 / Standards</span>
+    </div>
+
+    <div class="eyebrow">Standards</div>
+    <h2 class="display">What<br/>"done"<br/>means.</h2>
+    <p class="lede" style="margin-top:14px;">Our default specs. Anything different is called out explicitly in your quote — no surprises buried in the line items.</p>
+
+    <div class="specs">
+      <div class="spec-row"><div class="k">Coat count</div><div class="v"><b>2 coats standard.</b> 3 on dark-over-light, on bare drywall, or on transition between substrates.</div></div>
+      <div class="spec-row"><div class="k">Paint lines</div><div class="v">Sherwin-Williams Pro &amp; Benjamin Moore Trade. Other brands on request.</div></div>
+      <div class="spec-row"><div class="k">Sheens</div><div class="v">Flat (ceiling) · Eggshell (walls) · Satin (high-touch) · Semi-gloss (trim, doors) · Gloss (mechanical / industrial).</div></div>
+      <div class="spec-row"><div class="k">Specialty coatings</div><div class="v">Epoxy floor &amp; wall, polyurethane, anti-corrosive, anti-microbial, intumescent, elastomeric.</div></div>
+      <div class="spec-row"><div class="k">Surface conditions</div><div class="v">Coats applied between 10 – 30 °C, RH 30 – 70 %. Outside that range, work is rescheduled and logged.</div></div>
+      <div class="spec-row"><div class="k">Prep</div><div class="v">All nail-pops, hairline cracks, dings patched, sanded, primed. Caulk renewed at trim &amp; ceiling joints.</div></div>
+      <div class="spec-row"><div class="k">Around machinery</div><div class="v">Equipment shrouded, isolated and signed off by your ops team before any spray work begins.</div></div>
+      <div class="spec-row"><div class="k">Touch-up paint</div><div class="v">1 L of each color (or matching can size) labeled with room + code, left with owner at hand-off.</div></div>
+      <div class="spec-row"><div class="k">Documentation</div><div class="v">Daily log, photo set, paint records, punch-list — pushed to portal in real time.</div></div>
+    </div>
+
+    <div class="page-footer">
+      <span>info@ashrahpainting.ca</span>
+      <span>Page 06 / 08</span>
+    </div>
+  </section>
+
+  <!-- PORTAL -->
+  <section class="page">
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting · The Finish Process</div>
+      <span>07 / The Portal</span>
+    </div>
+
+    <div class="eyebrow">The Portal</div>
+    <h2 class="display">The job<br/>has a<br/><em class="outlined">URL.</em></h2>
+    <p class="lede" style="margin-top:14px;">From the day you sign, your project has a live URL only you and your team can see. Here's what lives there.</p>
+
+    <div class="two-up" style="margin-top:18px;">
+      <div class="card">
+        <h4>Daily log</h4>
+        <p>End-of-shift summary by the foreman: what got done, crew on-site, hours, surface conditions, photos.</p>
+      </div>
+      <div class="card">
+        <h4>Paint records</h4>
+        <p>Every color code, brand, sheen and room — kept forever. Searchable, exportable.</p>
+      </div>
+      <div class="card">
+        <h4>Photos</h4>
+        <p>Before / during / after, per elevation, time-stamped and tagged.</p>
+      </div>
+      <div class="card">
+        <h4>6-day forecast</h4>
+        <p>Rolling delay forecast for weather, supply and crew. Risk flagged before it happens.</p>
+      </div>
+      <div class="card">
+        <h4>Punch-list</h4>
+        <p>Live list during final walk. Closed items move to archive. Invoice tied to closed list.</p>
+      </div>
+      <div class="card">
+        <h4>Documents</h4>
+        <p>Quote, contract, COI, WCB letter, paint data sheets, invoices.</p>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>info@ashrahpainting.ca</span>
+      <span>Page 07 / 08</span>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section class="page end">
+    <div class="rainbow-bar"></div>
+    <div class="page-header">
+      <div class="brand"><img src="/static/site_design/ashrah-logo.jpeg" alt="" /> Ashrah Painting</div>
+      <span>08 / Contact</span>
+    </div>
+
+    <div style="margin-top:auto; margin-bottom:auto;">
+      <div class="eyebrow" style="color:rgba(244,241,236,.7);">Get started</div>
+      <h2 class="display" style="font-size:64px; max-width:14ch; margin-top:16px;">Ready when <em style="font-style:normal; -webkit-text-stroke:1.6px var(--bone); color:transparent;">you are.</em></h2>
+      <p style="max-width:52ch; font-size:15px;">Send us your plans or book a free site walk. You'll have an AI-scoped fixed quote in your inbox within 24 hours, and a portal link the day you sign.</p>
+
+      <div class="contact">
+        <div class="row"><span class="k">Email</span><span>info@ashrahpainting.ca</span></div>
+        <div class="row"><span class="k">Address</span><span>1100 Notre Dame Ave, Winnipeg, MB R3E 0N8</span></div>
+        <div class="row"><span class="k">Service area</span><span>Manitoba · Kenora ON</span></div>
+        <div class="row"><span class="k">Hours</span><span>24 / 7 operations</span></div>
+        <div class="row"><span class="k">Insurance</span><span>$5M liability · WCB Manitoba</span></div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      <span>© 2026 Ashrah Painting Ltd.</span>
+      <span>v3.2 · Page 08 / 08</span>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>

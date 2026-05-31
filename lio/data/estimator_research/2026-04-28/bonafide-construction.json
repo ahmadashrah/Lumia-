@@ -1,0 +1,28 @@
+{
+  "company": "Bonafide Construction Solutions Ltd",
+  "researched_at": "2026-04-28T16:05:00Z",
+  "website": "https://www.bonafideconstruction.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Jeff Herlick",
+    "title": "President / Owner (likely current — son of founder)",
+    "rationale": "Bonafide was founded in 1995 by Ralph Herlick. Jeff Herlick has been with the company 20+ years, started as a general labourer and worked up — likely runs it now. George Trudeau also has experience there with construction PM, contract mgmt, cost analysis (could be the estimating-side contact). Office: 225 Gunn Rd, Winnipeg, MB R2C 2Z2. Phone: 204-661-0117. Specializes in commercial renovations — solid fit for paint."
+  },
+  "needs_review_flags": [
+    "Confirm whether Jeff Herlick or Ralph Herlick is currently President",
+    "George Trudeau may be the cost-analysis/estimating contact — verify role",
+    "No website linked in the original target list; bonafideconstruction.ca confirmed"
+  ],
+  "personalization_hooks": [
+    "Family-run Manitoba business since 1995 — Herlick family second generation — community/legacy angle",
+    "Specializes in commercial renovations — high-frequency paint scope fit",
+    "Located in Transcona/East Winnipeg (Gunn Rd) — easy to mention if Ahmad has projects nearby",
+    "Smaller firm — direct call to owner is more effective than email"
+  ],
+  "sources": [
+    {"url": "https://www.bonafideconstruction.ca/", "claim": "Company exists, commercial reno focus"},
+    {"url": "https://www.linkedin.com/in/george-trudeau-26294212/", "claim": "George Trudeau — Bonafide Construction Solutions, PM/contract/cost analysis"},
+    {"url": "https://nicelocal.ca/winnipeg/building/bonafide_construction_solutions/", "claim": "Phone 204-661-0117, address 225 Gunn Rd"}
+  ]
+}

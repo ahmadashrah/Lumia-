@@ -1,0 +1,512 @@
+[
+  {
+    "id": "ash-management-group-inc-neda-uddin",
+    "to": "Neda Uddin <nuddin@ashmanagementgroup.com>",
+    "company": "Ash Management Group",
+    "segment": "PM",
+    "angle": "Pain: chasing painters / Lumia ask",
+    "subject": "Stop chasing your painting subs",
+    "body_words": 74,
+    "flags": 0
+  },
+  {
+    "id": "ash-management-group-inc-mark-uddin",
+    "to": "Mark Uddin <markuddin@ashmanagementgroup.com>",
+    "company": "Ash Management Group",
+    "segment": "PM",
+    "angle": "Pain: dented doors at turnover",
+    "subject": "Suite turnovers without dented doors",
+    "body_words": 72,
+    "flags": 1
+  },
+  {
+    "id": "alair-homes-colin-gagnon",
+    "to": "Colin Gagnon <collin.gagnon@alairhomes.com>",
+    "company": "Alair Homes",
+    "segment": "GC",
+    "angle": "Pain: PM chase / dented finishes",
+    "subject": "Painting that doesn't leave a punch list",
+    "body_words": 69,
+    "flags": 1
+  },
+  {
+    "id": "red-river-solutions-austin-bailly",
+    "to": "Austin Bailly <abailly@rrsgp.ca>",
+    "company": "Red River Solutions",
+    "segment": "GC",
+    "angle": "Capacity (qualified) — fit-risk flagged",
+    "subject": "Painting capacity for Aecon's Manitoba sites",
+    "body_words": 78,
+    "flags": 1
+  },
+  {
+    "id": "cic-inc-nikki-santos",
+    "to": "Nikki Santos <nikkis@cic-inc.ca>",
+    "company": "CIC Inc.",
+    "segment": "GC",
+    "angle": "Pain: restaurant TI schedule slip = lost opening",
+    "subject": "Restaurant openings don't survive paint slips",
+    "body_words": 84,
+    "flags": 0
+  },
+  {
+    "id": "tractus-projects-chad-horrill",
+    "to": "Chad Horrill <chad@tractusprojects.com>",
+    "company": "Tractus Projects",
+    "segment": "GC",
+    "angle": "Pain: opening dates / reputation",
+    "subject": "Painting that protects your opening dates",
+    "body_words": 78,
+    "flags": 0
+  },
+  {
+    "id": "tractus-projects-lisa-fedorchuk",
+    "to": "Lisa Fedorchuk <lisa@tractusprojects.com>",
+    "company": "Tractus Projects",
+    "segment": "GC",
+    "angle": "Estimator: AI bid in 24h, 13% lower",
+    "subject": "24-hour painting bids for your TI sequence",
+    "body_words": 76,
+    "flags": 2
+  },
+  {
+    "id": "tractus-projects-joe-palette",
+    "to": "Joe Palette <joe@tractusprojects.com>",
+    "company": "Tractus Projects",
+    "segment": "GC",
+    "angle": "Pain: punch-list at handoff",
+    "subject": "Painting subs that hand over a punch list",
+    "body_words": 67,
+    "flags": 2
+  },
+  {
+    "id": "blue-lake-construction-ronnie-jamilla",
+    "to": "Ronnie Jamilla <ronnie.jamilla@bluelakeconst.com>",
+    "company": "Blue Lake Construction",
+    "segment": "GC",
+    "angle": "Pain: schedule risk / no surprises",
+    "subject": "Painting sub with 6-day delay warning",
+    "body_words": 70,
+    "flags": 0
+  },
+  {
+    "id": "bobsled-construction-james-melendez",
+    "to": "James Melendez <james@bob-sled.ca>",
+    "company": "Bobsled Construction",
+    "segment": "GC",
+    "angle": "Pain: surface damage at handoff",
+    "subject": "Painting that doesn't dent your doors",
+    "body_words": 74,
+    "flags": 0
+  },
+  {
+    "id": "bobsled-construction-vikneswaran-thirumalai",
+    "to": "Vikneswaran Thirumalai <vik@bob-sled.ca>",
+    "company": "Bobsled Construction",
+    "segment": "GC",
+    "angle": "Pain: PM chasing for status",
+    "subject": "Stop your PM from chasing painters",
+    "body_words": 63,
+    "flags": 2
+  },
+  {
+    "id": "bree-dan-construction-kevin-burton",
+    "to": "Kevin Burton <kburton@breedan.ca>",
+    "company": "Bree-Dan Construction",
+    "segment": "GC",
+    "angle": "Pain: GC's word to developer",
+    "subject": "Painting that doesn't burn your reputation",
+    "body_words": 73,
+    "flags": 0
+  },
+  {
+    "id": "cgi-constructors-chris-lacasse",
+    "to": "Chris Lacasse <chris.lacasse@cgigc.com>",
+    "company": "CGI Constructors",
+    "segment": "GC",
+    "angle": "Pain: scaling subs without scaling chaos",
+    "subject": "Painting subs that scale with your office",
+    "body_words": 74,
+    "flags": 0
+  },
+  {
+    "id": "canotech-consultants-graeme-fardoe",
+    "to": "Graeme Fardoe <graeme@canotech.net>",
+    "company": "Canotech Consultants",
+    "segment": "GC",
+    "angle": "Pain: reputation across multiple sectors",
+    "subject": "Painting that protects your reputation",
+    "body_words": 66,
+    "flags": 0
+  },
+  {
+    "id": "conprocanada-saher-kilda",
+    "to": "Saher Kilda <saher@conprocanada.ca>",
+    "company": "Con-Pro Canada",
+    "segment": "GC",
+    "angle": "Pain: high-profile work needs flawless handoff",
+    "subject": "Painting that protects your reputation",
+    "body_words": 68,
+    "flags": 0
+  },
+  {
+    "id": "contempora-steel-douglas",
+    "to": "Douglas <douglas@contemporasteel.com>",
+    "company": "Contempora Steel Builders",
+    "segment": "GC",
+    "angle": "Pain: schedule discipline / opening date",
+    "subject": "Painting that doesn't slip your opening dates",
+    "body_words": 67,
+    "flags": 1
+  },
+  {
+    "id": "fabca-greg-fiorentino",
+    "to": "Greg Fiorentino <Greg@fabca.ca>",
+    "company": "FABCA Construction",
+    "segment": "GC",
+    "angle": "Pain: big-box openings / volume",
+    "subject": "Painting subs that scale with your retail book",
+    "body_words": 75,
+    "flags": 0
+  },
+  {
+    "id": "fabca-fabio-fiorentino",
+    "to": "Fabio Fiorentino <fabio@fabca.ca>",
+    "company": "FABCA Construction",
+    "segment": "GC",
+    "angle": "Pain: punch list at retail handoff",
+    "subject": "Retail handoffs without paint scuffs",
+    "body_words": 62,
+    "flags": 2
+  },
+  {
+    "id": "fabca-colin-richards",
+    "to": "Colin Richards <colin@fabca.ca>",
+    "company": "FABCA Construction",
+    "segment": "GC",
+    "angle": "Estimator: AI bid in 24h, 13% lower + RRC alumni hook",
+    "subject": "Painting bids in 24 hours for FABCA",
+    "body_words": 64,
+    "flags": 3
+  },
+  {
+    "id": "form-structures-steve",
+    "to": "Steve <sw@formstructuresweastren.ca>",
+    "company": "Form Structures Western",
+    "segment": "GC",
+    "angle": "Pain: chasing painters / no surface damage",
+    "subject": "Commercial paint sub that doesn't go dark",
+    "body_words": 55,
+    "flags": 3
+  },
+  {
+    "id": "gardon-construction-shane-johnson",
+    "to": "Shane Johnson <sjohnson@gardonconstruction.com>",
+    "company": "Gardon Construction",
+    "segment": "GC",
+    "angle": "Estimator: AI bid in 24h, 13% lower",
+    "subject": "Painting bids in 24 hours for Gardon",
+    "body_words": 78,
+    "flags": 0
+  },
+  {
+    "id": "gateway-construction-wayne-fehr",
+    "to": "Wayne Fehr <wayne@gatewayconstruction.ca>",
+    "company": "Gateway Construction & Engineering",
+    "segment": "GC",
+    "angle": "Estimator: AI bid in 24h, 13% lower",
+    "subject": "Painting bids in 24 hours for Gateway",
+    "body_words": 78,
+    "flags": 0
+  },
+  {
+    "id": "harris-builders-bryan-harris",
+    "to": "Bryan Harris <bryan@harrisbuilders.ca>",
+    "company": "Harris Builders",
+    "segment": "GC",
+    "angle": "Pain: high-end handoff / surface damage",
+    "subject": "High-end finishes without handoff damage",
+    "body_words": 67,
+    "flags": 0
+  },
+  {
+    "id": "jilmark-construction-john-froese",
+    "to": "John Froese <john@jilmark.com>",
+    "company": "Jilmark Construction",
+    "segment": "GC",
+    "angle": "Pain: schedule risk across diverse spec",
+    "subject": "Painting that doesn't surprise your schedule",
+    "body_words": 63,
+    "flags": 0
+  },
+  {
+    "id": "kenmare-developments-kyle-kostenuk",
+    "to": "Kyle Kostenuk <kyle@kenmaredevelopments.com>",
+    "company": "Kenmare Developments",
+    "segment": "GC",
+    "angle": "Pain: scaling without losing PM bandwidth",
+    "subject": "Paint sub that scales with your portfolio",
+    "body_words": 77,
+    "flags": 1
+  },
+  {
+    "id": "ld-builders-todd-hamilton",
+    "to": "Todd Hamilton <thamilton@ldbuilders.ca>",
+    "company": "LD Builders",
+    "segment": "GC",
+    "angle": "Pain: range / consistency across spec types",
+    "subject": "Painting sub for multifamily + commercial",
+    "body_words": 67,
+    "flags": 0
+  },
+  {
+    "id": "bird-construction-group-jason-miller",
+    "to": "Jason Miller <>",
+    "company": "Bird Construction Group",
+    "segment": "GC",
+    "angle": "Estimator: AI bid 24h, 13% lower + RRC alumni hook",
+    "subject": "Painting bids in 24 hours, AI-driven",
+    "body_words": 87,
+    "flags": 1
+  },
+  {
+    "id": "bird-construction-group-umar-sharif",
+    "to": "Umar Sharif <>",
+    "company": "Bird Construction Group",
+    "segment": "GC",
+    "angle": "Estimator manager: AI bid 24h, 13% lower",
+    "subject": "Faster, lower painting bids for Bird",
+    "body_words": 73,
+    "flags": 2
+  },
+  {
+    "id": "bockstael-construction-limited-brad-harder",
+    "to": "Brad Harder <>",
+    "company": "Bockstael Construction Limited",
+    "segment": "GC",
+    "angle": "Estimator: ex-Kiewit / AI bid 24h, 13% lower",
+    "subject": "Painting bids in 24 hours, 13% lower",
+    "body_words": 71,
+    "flags": 1
+  },
+  {
+    "id": "con-pro-canada-pritesh-shah",
+    "to": "Pritesh Shah <pritesh@conpro.mb.ca>",
+    "company": "Con-Pro Industries Canada Ltd.",
+    "segment": "GC",
+    "angle": "Estimator: 14-yr tenure / AI bid 24h, 13% lower",
+    "subject": "24-hour painting bids, 13% lower",
+    "body_words": 78,
+    "flags": 1
+  },
+  {
+    "id": "contempora-steel-builders-andrew-coleman",
+    "to": "Andrew Coleman <andrew@contemporasteel.com>",
+    "company": "Contempora Steel Builders",
+    "segment": "GC",
+    "angle": "Estimator: RRC alumni hook + AI bid 24h, 13% lower",
+    "subject": "Painting bids in 24 hours, AI-driven",
+    "body_words": 84,
+    "flags": 1
+  },
+  {
+    "id": "stand-tall-contracting-jason-zarrillo",
+    "to": "Jason Zarrillo <>",
+    "company": "Stand Tall Contracting",
+    "segment": "GC",
+    "angle": "CEO/Estimator: AI bid 24h, 13% lower",
+    "subject": "Painting bids in 24 hours for your jobs",
+    "body_words": 84,
+    "flags": 1
+  },
+  {
+    "id": "thomas-design-builders-jeff-miller",
+    "to": "Jeff Miller <>",
+    "company": "Thomas Design Builders Ltd",
+    "segment": "GC",
+    "angle": "Owner+Estimator: RRC alumni hook + AI bid 24h, 13% lower",
+    "subject": "Painting bids that don't slow your bid book",
+    "body_words": 87,
+    "flags": 2
+  },
+  {
+    "id": "valdek-construction-matt-adamiec",
+    "to": "Matt Adamiec <>",
+    "company": "Valdek Construction Inc",
+    "segment": "GC",
+    "angle": "Owner+Estimator: RRC alumni + AI bid 24h, 13% lower",
+    "subject": "Painting sub built like a tech company",
+    "body_words": 68,
+    "flags": 2
+  },
+  {
+    "id": "winnipeg-building-decorating-dale-frandsen",
+    "to": "Dale Frandsen <>",
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "segment": "GC",
+    "angle": "Estimator: AI bid 24h, 13% lower",
+    "subject": "24-hour painting bids for your bid book",
+    "body_words": 82,
+    "flags": 2
+  },
+  {
+    "id": "winnipeg-building-decorating-matthew-keys",
+    "to": "Matthew Keys <>",
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "segment": "GC",
+    "angle": "PM-Estimator hybrid: AI bid + Lumia execution",
+    "subject": "Faster painting bids you can also run",
+    "body_words": 76,
+    "flags": 2
+  },
+  {
+    "id": "westland-construction-craig-hildebrandt",
+    "to": "Craig <craighildebrandt@westlandltd.net>",
+    "company": "Westland Construction",
+    "segment": "GC",
+    "angle": "Cold owner: range across spec types + reputation",
+    "subject": "Painting that protects Westland's name",
+    "body_words": 82,
+    "flags": 0
+  },
+  {
+    "id": "durango-construction-keith-manary",
+    "to": "Keith <keith@durangoconstruction.ca>",
+    "company": "Durango Construction",
+    "segment": "GC",
+    "angle": "Cold: chasing pain + Lumia + Lumi",
+    "subject": "Commercial paint sub for Manitoba",
+    "body_words": 67,
+    "flags": 0
+  },
+  {
+    "id": "bonafide-construction-jeff-herlick",
+    "to": "Jeff <jeff@bonafidecs.ca>",
+    "company": "Bonafide Construction Solutions Ltd",
+    "segment": "GC",
+    "angle": "Cold owner: name on the line",
+    "subject": "Painting that doesn't burn your name",
+    "body_words": 69,
+    "flags": 0
+  },
+  {
+    "id": "bonafide-construction-steve-macy",
+    "to": "Steve <steve@bonafidecs.ca>",
+    "company": "Bonafide Construction Solutions Ltd",
+    "segment": "GC",
+    "angle": "Cold estimator: AI bid 24h, 13% lower",
+    "subject": "24-hour painting bids, 13% lower",
+    "body_words": 95,
+    "flags": 1
+  },
+  {
+    "id": "tractus-projects-jaret-horbatiuk",
+    "to": "Jaret <jaret@tractusprojects.com>",
+    "company": "Tractus Projects",
+    "segment": "GC",
+    "angle": "Cold owner: protect named-client reputation",
+    "subject": "Painting that protects Tractus's name",
+    "body_words": 80,
+    "flags": 1
+  },
+  {
+    "id": "pcl-special-projects-ryland-carriere",
+    "to": "Ryland <rdcarriere@pcl.com>",
+    "company": "PCL Special Projects",
+    "segment": "GC",
+    "angle": "Cold: SP book = small commercial reno fit",
+    "subject": "Painting sub for PCL Special Projects",
+    "body_words": 84,
+    "flags": 0
+  },
+  {
+    "id": "pretium-projects-justin-bova",
+    "to": "Justin <justin@buildvalue.ca>",
+    "company": "Pretium Projects",
+    "segment": "GC",
+    "angle": "Cold: VE positioning",
+    "subject": "Painting that holds your value engineering",
+    "body_words": 75,
+    "flags": 0
+  },
+  {
+    "id": "bockstael-construction-mario-bento",
+    "to": "Mario <mbento@bockstael.com>",
+    "company": "Bockstael Construction Limited",
+    "segment": "GC",
+    "angle": "Warm estimator: relationship + Lumi update",
+    "subject": "Reconnecting — Ashrah Painting",
+    "body_words": 96,
+    "flags": 0
+  },
+  {
+    "id": "bockstael-construction-dan-bockstael",
+    "to": "Dan <dbockstael@bockstael.com>",
+    "company": "Bockstael Construction Limited",
+    "segment": "GC",
+    "angle": "Warm owner: relationship + scaling",
+    "subject": "Catching up — Ashrah Painting",
+    "body_words": 80,
+    "flags": 1
+  },
+  {
+    "id": "concord-projects-marc-b",
+    "to": "Marc <marcb@concordprojects.com>",
+    "company": "Concord Projects",
+    "segment": "GC",
+    "angle": "Warm estimator: relationship + Lumi update",
+    "subject": "Catching up from Ashrah Painting",
+    "body_words": 70,
+    "flags": 0
+  },
+  {
+    "id": "concord-projects-nik",
+    "to": "Nik <Nik@concordprojects.com>",
+    "company": "Concord Projects",
+    "segment": "GC",
+    "angle": "Warm: relationship + Lumi/Lumia update",
+    "subject": "Reconnecting — Ashrah Painting",
+    "body_words": 63,
+    "flags": 2
+  },
+  {
+    "id": "graham-construction-greg-richards",
+    "to": "Greg <Greg.Richards@graham.ca>",
+    "company": "Graham Construction",
+    "segment": "GC",
+    "angle": "Warm PM Manager: relationship + Lumia ops",
+    "subject": "Catching up — Ashrah Painting",
+    "body_words": 79,
+    "flags": 0
+  },
+  {
+    "id": "graham-construction-liberty-bustos",
+    "to": "Liberty <Winnipegbids@graham.ca>",
+    "company": "Graham Construction",
+    "segment": "GC",
+    "angle": "Warm estimator: relationship + Lumi pitch",
+    "subject": "Reconnecting — Ashrah Painting",
+    "body_words": 90,
+    "flags": 2
+  },
+  {
+    "id": "j5-construction-rucil-evangelista",
+    "to": "Rucil <Rucilj5const@gmail.com>",
+    "company": "J5 Construction",
+    "segment": "GC",
+    "angle": "Warm: relationship + Lumi/Lumia update",
+    "subject": "Catching up — Ashrah Painting",
+    "body_words": 84,
+    "flags": 0
+  },
+  {
+    "id": "winnipeg-building-decorating-darci-lee-tessier",
+    "to": "Darci-lee Tessier <>",
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "segment": "GC",
+    "angle": "Junior estimator: low-pressure intro + AI bid",
+    "subject": "Painting bids in 24 hours",
+    "body_words": 61,
+    "flags": 2
+  }
+]

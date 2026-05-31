@@ -1,0 +1,29 @@
+{
+  "company": "Bobsled Construction",
+  "researched_at": "2026-04-28T16:05:00Z",
+  "website": "https://bob-sled.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "James Melendez",
+    "title": "Operations Manager, Bobsled Construction",
+    "email": "james@bob-sled.ca",
+    "rationale": "James is the operational lead at Bobsled and the email is publicly listed on their team page — best direct contact. Bobsled is a design-build firm co-owned by Monteyne Architecture (founder/principal Tom Monteyne). They focus on multifamily/niche/tech projects (e.g., Granola Heights multifamily). Office: 194 Sherbrook St, Winnipeg, MB R3C 2B6. Phone: 204-947-3155."
+  },
+  "needs_review_flags": [
+    "Small design-build firm; estimating likely handled by James or Tom directly, no dedicated estimator title",
+    "Multifamily/architectural niche — paint scopes will be specified, design-driven"
+  ],
+  "personalization_hooks": [
+    "Design-build with Monteyne Architecture — appreciation for craft and finish quality matters; Ashrah's clean post-job process is a strong angle",
+    "Office on Sherbrook St — West End / Wolseley area",
+    "Recently completed Granola Heights multifamily — reference it as a tangible local project",
+    "James's email is public (james@bob-sled.ca) — direct outreach is easy"
+  ],
+  "sources": [
+    {"url": "https://www.bob-sled.ca/team", "claim": "James Melendez Operations Manager / team listing"},
+    {"url": "https://www.bob-sled.ca/team/19/james-melendez", "claim": "James Melendez profile and email"},
+    {"url": "https://www.bob-sled.ca/team/12/tom-monteyne", "claim": "Tom Monteyne — Monteyne Architecture co-owner"},
+    {"url": "https://canada.constructconnect.com/joc/news/projects/2023/03/the-scoop-on-the-granola-heights-multifamily-development-in-winnipeg", "claim": "Granola Heights multifamily project"}
+  ]
+}

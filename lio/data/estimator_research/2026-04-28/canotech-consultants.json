@@ -1,0 +1,41 @@
+{
+  "company": "Canotech Consultants Ltd",
+  "researched_at": "2026-04-28T16:10:00Z",
+  "website": "https://canotech.net",
+  "estimator_found": true,
+  "estimators": [
+    {
+      "name": "Graeme Fardoe",
+      "title": "Managing Partner / Senior Project Manager (estimating role oversight at the partner level)",
+      "email": "g***@canotech.net (likely graeme@canotech.net or gfardoe@canotech.net)",
+      "phone": null,
+      "linkedin": null,
+      "tenure_years_at_company": null,
+      "prior_firms": [],
+      "education": [],
+      "personalization_hooks": [
+        "Third-generation family business — Canotech founded 1988 by Bob and Ted Fardoe (grandfather + father), now Graeme + Alanna Fardoe + Randy Bowles run it. Strong family/legacy angle.",
+        "Project range $500K–$15M — sweet spot for Ashrah-size painting scopes",
+        "Commercial / industrial / institutional GC — diverse paint scope variety",
+        "Office at 544 Prest Ave W (St. James / West Winnipeg) — a small detail that shows local knowledge",
+        "They're actively hiring estimators — they have estimating capacity but it's lean. A reliable sub on-tap reduces their bid-prep load."
+      ],
+      "sources": [
+        {"url": "https://www.zoominfo.com/p/Graeme-Fardoe/-1384134359", "claim": "Managing Partner, Senior PM"},
+        {"url": "https://canotech.net/about/", "claim": "Founded 1988 by Bob and Ted Fardoe; third-generation family"},
+        {"url": "https://www.glassdoor.com/job-listing/estimator-canotech-consultants-ltd-JV_IC2286709_KO0,9_KE10,34.htm?jl=1009816373057", "claim": "Active Estimator job posting; project range $500K–$15M"}
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "fallback_contact": {
+    "name": "Ted Fardoe",
+    "title": "President & Senior Project Manager",
+    "rationale": "Father, second generation, still active per ZoomInfo. If Graeme doesn't respond, Ted is the senior decision-maker."
+  },
+  "needs_review_flags": [
+    "Estimator role is being recruited — there may be a current Senior Estimator whose name didn't surface in search; check Canotech LinkedIn employee list manually",
+    "Site canotech.net returns 403 to bots, so team page not directly readable",
+    "Confirm specific dedicated estimator name — Graeme is Managing Partner, not estimator title"
+  ]
+}

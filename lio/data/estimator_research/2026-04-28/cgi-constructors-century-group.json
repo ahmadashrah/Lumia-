@@ -1,0 +1,28 @@
+{
+  "company": "CGI Constructors / Century Group",
+  "researched_at": "2026-04-28T16:10:00Z",
+  "website": "https://cgigc.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Chris Lacasse",
+    "title": "Area Manager, Prairies — CGI Constructors (Winnipeg)",
+    "linkedin": "https://www.linkedin.com/in/chris-lacasse-699b1a1b5/",
+    "rationale": "Chris is the Prairies Area Manager based out of Winnipeg, came up through estimating (started his career as an Estimator), 25+ years experience. He runs the Winnipeg office and decides who's on the bid list. Best single contact at CGI Winnipeg. Office: 7-45 Beghin Avenue, Winnipeg, MB R2J 4B9, phone (431) 478-6567."
+  },
+  "needs_review_flags": [
+    "No dedicated Winnipeg estimator surfaced in search; CGI may run estimating from Toronto HQ with Chris coordinating locally",
+    "Worth checking CGI's people page for additional Winnipeg-based names"
+  ],
+  "personalization_hooks": [
+    "Chris started as an Estimator, 25+ years construction — he speaks the estimator's language",
+    "CGI is a national GC with local Winnipeg office — bidding their work gives Ashrah cross-Canada reference potential",
+    "Office on Beghin Ave (Transcona/East Winnipeg)",
+    "Mention Ashrah's automated daily reports — multi-region GCs care more about consistent reporting"
+  ],
+  "sources": [
+    {"url": "https://cgigc.com/people/chris-lacasse/", "claim": "Chris Lacasse — Area Manager Prairies, started as Estimator, 25+ years"},
+    {"url": "https://www.cgigc.com/contact/", "claim": "Winnipeg office address and phone"},
+    {"url": "https://www.linkedin.com/in/chris-lacasse-699b1a1b5/", "claim": "Chris Lacasse LinkedIn — CGI Constructors"}
+  ]
+}

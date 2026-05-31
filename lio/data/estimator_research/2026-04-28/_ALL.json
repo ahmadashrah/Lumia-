@@ -1,0 +1,2094 @@
+[
+  {
+    "company": "Aecon Group",
+    "researched_at": "2026-04-28T16:00:00Z",
+    "website": "https://www.aecon.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Sean Huang",
+      "title": "Aecon Construction Group employee — Winnipeg-based",
+      "rationale": "Identified on LinkedIn as Winnipeg-based Aecon employee; only public name confirmed in Winnipeg. Aecon's Winnipeg presence is heavy civil/transmission utilities (lower fit for commercial painting). Aecon has active Sr. Estimator, Transmission and Jr. Estimator postings in Winnipeg — phone the office and ask for the Winnipeg estimating department."
+    },
+    "needs_review_flags": [
+      "Aecon Winnipeg is utilities/transmission-focused, not vertical commercial — likely lower fit for Ashrah's painting services",
+      "No named estimator surfaced in public search; recommend phoning the Winnipeg office and asking estimating department",
+      "Manual LinkedIn lookup likely needed to identify the actual Winnipeg estimator(s)"
+    ],
+    "sources": [
+      {
+        "url": "https://jobs.aecon.com/job/Winnipeg-Sr_-Estimator,-Transmission-MB/580722717/",
+        "claim": "Aecon has Senior Estimator role in Winnipeg (Transmission)"
+      },
+      {
+        "url": "https://jobs.aecon.com/job/Winnipeg-Jr_-Estimator-MB/593042417/",
+        "claim": "Junior Estimator posting in Winnipeg"
+      },
+      {
+        "url": "https://www.linkedin.com/in/sean-huang-04700443/",
+        "claim": "Sean Huang — Aecon Construction Group, Winnipeg-based"
+      }
+    ]
+  },
+  {
+    "company": "Akribia Framing",
+    "researched_at": "2026-04-28T16:00:00Z",
+    "website": "https://www.akribiaframing.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": null,
+      "title": null,
+      "rationale": "Phone 204-257-4242 and ask for the estimating department or owner. Akribia is a framing subcontractor (commercial buildings in Winnipeg, MB and Western Canada). Note that as a framing sub themselves, Akribia is more of a peer/partner than a GC-buyer of painting — they sometimes GC small projects but the strongest angle is partnership: refer painting to them when they need a sub on builds where they're framing."
+    },
+    "needs_review_flags": [
+      "Akribia is primarily a framing subcontractor, not a GC — this may be a partner relationship rather than a bid-list opportunity",
+      "No public leadership names surfaced",
+      "Phone 204-257-4242 to introduce and ask who handles their estimating / who they recommend painters work with"
+    ],
+    "sources": [
+      {
+        "url": "https://www.akribiaframing.ca/",
+        "claim": "Company exists, framing services Winnipeg / Manitoba / Western Canada"
+      },
+      {
+        "url": "https://www.findglocal.com/CA/Unknown/110336443835436/Akribia-Framing",
+        "claim": "Phone number 204-257-4242"
+      },
+      {
+        "url": "https://ca.linkedin.com/company/akribia-framing",
+        "claim": "Akribia Framing LinkedIn company page exists"
+      }
+    ]
+  },
+  {
+    "company": "Alair Homes Winnipeg",
+    "researched_at": "2026-04-28T16:05:00Z",
+    "website": "https://alairhomes.com/winnipeg/",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Warren Koop",
+      "title": "Owner / Principal, Alair Homes Winnipeg",
+      "rationale": "Alair Winnipeg is a franchise owned by Warren Koop. He is the decision-maker for trade selection. Alair primarily does custom homes and renovations — lighter commercial fit, but high-end residential paint scopes are a real opportunity. Warren is a third-generation Manitoba builder, grew up on job sites with his father, and is involved with Habitat for Humanity (community/charity hook for Ahmad). Started Alair Manitoba in 2015. Office: 126 Cordova St, Winnipeg, MB R3N 1A1."
+    },
+    "needs_review_flags": [
+      "Alair is residential/reno-focused — different fit than commercial GC; consider only if Ashrah pursues high-end residential paint",
+      "No separate estimator role surfaced; Warren is the buyer"
+    ],
+    "personalization_hooks": [
+      "Third-generation Manitoba home builder — strong shared-Manitoba-roots angle",
+      "Habitat for Humanity involvement (per Alair team page bio) — community connection if Ahmad has any Habitat ties",
+      "Started Alair Manitoba franchise from scratch in 2015 — entrepreneur-to-entrepreneur framing works",
+      "Office is in St. James (Cordova St)"
+    ],
+    "sources": [
+      {
+        "url": "https://alairhomes.com/winnipeg/meet-the-team/",
+        "claim": "Warren Koop is Owner/Principal of Alair Homes Winnipeg"
+      },
+      {
+        "url": "https://ca.linkedin.com/in/warren-koop-91a07b109",
+        "claim": "Warren Koop LinkedIn — Alair Homes Winnipeg"
+      },
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/home-builders/alair-homes-winnipeg-0057-65215",
+        "claim": "Started 25/2/2015, located 126 Cordova St"
+      },
+      {
+        "url": "https://www.homebuilders.mb.ca/members/alair-homes-winnipeg/",
+        "claim": "Manitoba Home Builders Association member"
+      }
+    ]
+  },
+  {
+    "company": "Bird Construction Group",
+    "researched_at": "2026-04-28T16:00:00Z",
+    "website": "https://www.bird.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Jason Miller",
+        "title": "Estimator, Bird Construction (Winnipeg)",
+        "email": null,
+        "phone": null,
+        "linkedin": "https://www.linkedin.com/in/jason-miller-704440158/",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [
+          "Red River College"
+        ],
+        "personalization_hooks": [
+          "Red River College alum — very strong shared-pipeline angle for Ahmad (Ashrah's painters often come through Red River trades programs)",
+          "Estimator at Bird Winnipeg — directly on the buyer profile Ashrah is targeting",
+          "Bird is a publicly traded national GC (TSX: BDT) with active Winnipeg projects across institutional, commercial, industrial",
+          "Mention Ashrah's automated 5:30 PM daily site reports — large GCs like Bird care about subs whose paperwork doesn't slow them down"
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/jason-miller-704440158/",
+            "claim": "Title and Winnipeg location"
+          },
+          {
+            "url": "https://ca.linkedin.com/jobs/bird-construction-jobs-winnipeg-mb",
+            "claim": "Bird actively hiring in Winnipeg"
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "name": "Umar Sharif",
+        "title": "Senior Manager, Estimating — Bird Construction (Winnipeg, MB)",
+        "email": null,
+        "phone": null,
+        "linkedin": "https://www.linkedin.com/in/umar-sharif-241b2a3b/",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Senior Manager of Estimating in Winnipeg — runs the estimating function, decides who's on the bid list",
+          "This is the highest-leverage contact at Bird Winnipeg for a painting sub",
+          "Pitch the 6-day delay forecasting — senior estimators care about subs who flag schedule risk early because that protects their own bid math"
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/umar-sharif-241b2a3b/",
+            "claim": "Title 'Snr. Manager, Estimating' at Bird Construction"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Bird Construction Winnipeg office",
+      "title": "Reception",
+      "rationale": "Bird's Winnipeg office can route to estimating; both Jason Miller and Umar Sharif are public on LinkedIn and reachable via InMail or by guessing firstname.lastname@bird.ca pattern."
+    },
+    "needs_review_flags": [
+      "Email pattern at Bird should be confirmed — likely firstname.lastname@bird.ca but verify",
+      "Tenure for both contacts not yet confirmed"
+    ]
+  },
+  {
+    "company": "Black & McDonald Limited",
+    "researched_at": "2026-04-28T16:00:00Z",
+    "website": "https://blackandmcdonald.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": null,
+      "title": "Black & McDonald Midwest office, Winnipeg (Unit 6 - 60 Dunlop Avenue)",
+      "rationale": "Black & McDonald is primarily a multi-trade contractor (electrical, mechanical, utilities) — paint is not a typical scope. Their Winnipeg office is at Unit 6 - 60 Dunlop Avenue. Lower fit for Ashrah, but they do operate as a GC on facility maintenance contracts. Phone the Midwest office; ask for facilities/PM department. Skip estimator angle — pursue them only if Ashrah wants industrial maintenance painting work."
+    },
+    "needs_review_flags": [
+      "Black & McDonald Winnipeg is utilities-focused — lower fit for commercial painting",
+      "Lower priority — recommend deprioritizing in favour of higher-fit GCs",
+      "If pursued, target should be facilities/maintenance lead, not estimator"
+    ],
+    "sources": [
+      {
+        "url": "https://ca.indeed.com/cmp/Black-&-McDonald-Limited/reviews?fcountry=CA&floc=Winnipeg,+MB",
+        "claim": "Black & McDonald has Winnipeg presence"
+      },
+      {
+        "url": "https://www.linkedin.com/in/davidbedeau/",
+        "claim": "David Bedeau — Senior Estimator Western Utilities Region (location not confirmed Winnipeg)"
+      }
+    ]
+  },
+  {
+    "company": "Blue Lake Construction",
+    "researched_at": "2026-04-28T16:05:00Z",
+    "website": "https://bluelakeconst.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Raul Gonzales",
+      "title": "President, Blue Lake Construction & Consulting Engineers Corp.",
+      "rationale": "Small-to-mid GC; Raul is the decision-maker. Per BBB, Blue Lake handles new builds (residential, commercial, industrial), renovations, design-build, and assists with permits + initial cost estimates — likely Raul does estimating personally given firm size. Best play: phone the office, ask for Raul, lead with a 2-line value prop on automated daily reports (small GCs hate paperwork)."
+    },
+    "needs_review_flags": [
+      "No dedicated estimator surfaced; firm is small enough that the President likely handles estimating",
+      "Phone the company directly — no public email for Raul"
+    ],
+    "personalization_hooks": [
+      "Small/owner-led GC — fast decision-maker, no committee",
+      "Pitch the 5:30 PM automated daily report as a 'pretend you have admin staff' angle",
+      "Cross-sector (commercial, industrial, residential) — variety of paint scopes possible"
+    ],
+    "sources": [
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/building-and-construction/blue-lake-construction-consulting-engineers-corp-0057-65818",
+        "claim": "Raul Gonzales is President"
+      },
+      {
+        "url": "https://www.bluelakeconst.com/",
+        "claim": "Company website / services scope"
+      }
+    ]
+  },
+  {
+    "company": "Bobsled Construction",
+    "researched_at": "2026-04-28T16:05:00Z",
+    "website": "https://bob-sled.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "James Melendez",
+      "title": "Operations Manager, Bobsled Construction",
+      "email": "james@bob-sled.ca",
+      "rationale": "James is the operational lead at Bobsled and the email is publicly listed on their team page — best direct contact. Bobsled is a design-build firm co-owned by Monteyne Architecture (founder/principal Tom Monteyne). They focus on multifamily/niche/tech projects (e.g., Granola Heights multifamily). Office: 194 Sherbrook St, Winnipeg, MB R3C 2B6. Phone: 204-947-3155."
+    },
+    "needs_review_flags": [
+      "Small design-build firm; estimating likely handled by James or Tom directly, no dedicated estimator title",
+      "Multifamily/architectural niche — paint scopes will be specified, design-driven"
+    ],
+    "personalization_hooks": [
+      "Design-build with Monteyne Architecture — appreciation for craft and finish quality matters; Ashrah's clean post-job process is a strong angle",
+      "Office on Sherbrook St — West End / Wolseley area",
+      "Recently completed Granola Heights multifamily — reference it as a tangible local project",
+      "James's email is public (james@bob-sled.ca) — direct outreach is easy"
+    ],
+    "sources": [
+      {
+        "url": "https://www.bob-sled.ca/team",
+        "claim": "James Melendez Operations Manager / team listing"
+      },
+      {
+        "url": "https://www.bob-sled.ca/team/19/james-melendez",
+        "claim": "James Melendez profile and email"
+      },
+      {
+        "url": "https://www.bob-sled.ca/team/12/tom-monteyne",
+        "claim": "Tom Monteyne — Monteyne Architecture co-owner"
+      },
+      {
+        "url": "https://canada.constructconnect.com/joc/news/projects/2023/03/the-scoop-on-the-granola-heights-multifamily-development-in-winnipeg",
+        "claim": "Granola Heights multifamily project"
+      }
+    ]
+  },
+  {
+    "company": "Bockstael Construction Limited",
+    "researched_at": "2026-04-28T16:05:00Z",
+    "website": "https://bockstael.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Brad Harder",
+        "title": "Manager, Preconstruction (formerly Construction Estimator)",
+        "email": null,
+        "phone": null,
+        "linkedin": "https://www.linkedin.com/in/brad-harder-64a8826a/",
+        "tenure_years_at_company": null,
+        "prior_firms": [
+          "Kiewit",
+          "SADB",
+          "McMahon Services"
+        ],
+        "education": [],
+        "personalization_hooks": [
+          "Former Kiewit — progressed from QC Technician to Estimating Engineer, Lead Electrical Field Engineer, Lead Estimator, Project Engineer. Heavy infrastructure background brought into a 110-year Manitoba commercial builder",
+          "Was Senior Estimator at SADB and Building Services Estimator at McMahon Services prior to Bockstael — values rigorous estimating discipline",
+          "Now leads ALL preconstruction at Bockstael — decides the bid list. Highest-leverage single contact in this list of 30",
+          "Bockstael is 100+ years old, family-owned-feel — pitch Ashrah's structured painter training program as 'long-term reliability' to match their multigenerational reputation",
+          "His Kiewit background means he respects subs that bring data and forecasting — lead with the 6-day delay forecasting tool"
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/brad-harder-64a8826a/",
+            "claim": "Title and tenure progression"
+          },
+          {
+            "url": "https://rocketreach.co/brad-harder-email_26191286",
+            "claim": "Preconstruction Manager title at Bockstael"
+          },
+          {
+            "url": "https://theorg.com/org/bockstael-construction/org-chart/brad-harder",
+            "claim": "Construction Estimator → Manager, Preconstruction"
+          },
+          {
+            "url": "https://www.zoominfo.com/p/Bradley-Harder/3997527555",
+            "claim": "Email pattern b***@bockstael.com (likely brad.harder@bockstael.com)"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Bockstael office",
+      "title": "Reception / Estimating",
+      "rationale": "Bockstael also has a posted Estimator job (https://bockstael.com/bockstael_careers/estimator/) — they may have additional junior estimators reporting to Brad. If Brad isn't reachable, ask reception for the estimating department."
+    },
+    "needs_review_flags": [
+      "Email pattern likely brad.harder@bockstael.com but ZoomInfo only shows masked b***@bockstael.com — confirm",
+      "Tenure years at Bockstael not yet pinned — LinkedIn shows progression but exact start year needs confirmation"
+    ]
+  },
+  {
+    "company": "Bonafide Construction Solutions Ltd",
+    "researched_at": "2026-04-28T16:05:00Z",
+    "website": "https://www.bonafideconstruction.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Jeff Herlick",
+      "title": "President / Owner (likely current — son of founder)",
+      "rationale": "Bonafide was founded in 1995 by Ralph Herlick. Jeff Herlick has been with the company 20+ years, started as a general labourer and worked up — likely runs it now. George Trudeau also has experience there with construction PM, contract mgmt, cost analysis (could be the estimating-side contact). Office: 225 Gunn Rd, Winnipeg, MB R2C 2Z2. Phone: 204-661-0117. Specializes in commercial renovations — solid fit for paint."
+    },
+    "needs_review_flags": [
+      "Confirm whether Jeff Herlick or Ralph Herlick is currently President",
+      "George Trudeau may be the cost-analysis/estimating contact — verify role",
+      "No website linked in the original target list; bonafideconstruction.ca confirmed"
+    ],
+    "personalization_hooks": [
+      "Family-run Manitoba business since 1995 — Herlick family second generation — community/legacy angle",
+      "Specializes in commercial renovations — high-frequency paint scope fit",
+      "Located in Transcona/East Winnipeg (Gunn Rd) — easy to mention if Ahmad has projects nearby",
+      "Smaller firm — direct call to owner is more effective than email"
+    ],
+    "sources": [
+      {
+        "url": "https://www.bonafideconstruction.ca/",
+        "claim": "Company exists, commercial reno focus"
+      },
+      {
+        "url": "https://www.linkedin.com/in/george-trudeau-26294212/",
+        "claim": "George Trudeau — Bonafide Construction Solutions, PM/contract/cost analysis"
+      },
+      {
+        "url": "https://nicelocal.ca/winnipeg/building/bonafide_construction_solutions/",
+        "claim": "Phone 204-661-0117, address 225 Gunn Rd"
+      }
+    ]
+  },
+  {
+    "company": "Bree-Dan Construction Ltd.",
+    "researched_at": "2026-04-28T16:10:00Z",
+    "website": "https://breedan.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Kevin Burton",
+      "title": "President / General Manager, Bree-Dan Construction Ltd.",
+      "email": "k***@breedan.ca (likely kevin@breedan.ca or kburton@breedan.ca)",
+      "rationale": "Family-run firm, no dedicated estimator title surfaced. Kevin runs estimating personally based on size of company and his Carpenter background. Brandan Burton (Executive VP, likely his son or nephew) is the secondary contact."
+    },
+    "needs_review_flags": [
+      "No dedicated estimator title in the company; estimating is owner-handled",
+      "Confirm exact email pattern (firstname@breedan.ca vs firstinitial+lastname)"
+    ],
+    "personalization_hooks": [
+      "Kevin Burton is a Red River College Carpenter program graduate — STRONG shared-trades-pipeline angle. Ahmad's painters often come through Red River. Lead with this.",
+      "Family-run company (Burton family — Kevin + Brandan + Amy Bree on accounting) — second-generation Manitoba builder vibes",
+      "Pitch the structured painter training — resonates with a President who came up through trades himself",
+      "Commercial + residential mix — paint scope variety"
+    ],
+    "sources": [
+      {
+        "url": "https://ca.linkedin.com/in/kevin-burton-74515a63",
+        "claim": "Kevin Burton — Bree-Dan Construction Ltd, Red River College Carpenter"
+      },
+      {
+        "url": "https://www.zoominfo.com/p/Kevin-Burton/10395713757",
+        "claim": "General Manager title, email pattern @breedan.ca"
+      },
+      {
+        "url": "https://www.zoominfo.com/p/Brandan-Burton/9959870332",
+        "claim": "Brandan Burton — Executive VP"
+      },
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/general-contractor/bree-dan-construction-ltd-0057-33694",
+        "claim": "BBB profile / Winnipeg general contractor"
+      }
+    ]
+  },
+  {
+    "company": "Canotech Consultants Ltd",
+    "researched_at": "2026-04-28T16:10:00Z",
+    "website": "https://canotech.net",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Graeme Fardoe",
+        "title": "Managing Partner / Senior Project Manager (estimating role oversight at the partner level)",
+        "email": "g***@canotech.net (likely graeme@canotech.net or gfardoe@canotech.net)",
+        "phone": null,
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Third-generation family business — Canotech founded 1988 by Bob and Ted Fardoe (grandfather + father), now Graeme + Alanna Fardoe + Randy Bowles run it. Strong family/legacy angle.",
+          "Project range $500K–$15M — sweet spot for Ashrah-size painting scopes",
+          "Commercial / industrial / institutional GC — diverse paint scope variety",
+          "Office at 544 Prest Ave W (St. James / West Winnipeg) — a small detail that shows local knowledge",
+          "They're actively hiring estimators — they have estimating capacity but it's lean. A reliable sub on-tap reduces their bid-prep load."
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/p/Graeme-Fardoe/-1384134359",
+            "claim": "Managing Partner, Senior PM"
+          },
+          {
+            "url": "https://canotech.net/about/",
+            "claim": "Founded 1988 by Bob and Ted Fardoe; third-generation family"
+          },
+          {
+            "url": "https://www.glassdoor.com/job-listing/estimator-canotech-consultants-ltd-JV_IC2286709_KO0,9_KE10,34.htm?jl=1009816373057",
+            "claim": "Active Estimator job posting; project range $500K–$15M"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Ted Fardoe",
+      "title": "President & Senior Project Manager",
+      "rationale": "Father, second generation, still active per ZoomInfo. If Graeme doesn't respond, Ted is the senior decision-maker."
+    },
+    "needs_review_flags": [
+      "Estimator role is being recruited — there may be a current Senior Estimator whose name didn't surface in search; check Canotech LinkedIn employee list manually",
+      "Site canotech.net returns 403 to bots, so team page not directly readable",
+      "Confirm specific dedicated estimator name — Graeme is Managing Partner, not estimator title"
+    ]
+  },
+  {
+    "company": "CGI Constructors / Century Group",
+    "researched_at": "2026-04-28T16:10:00Z",
+    "website": "https://cgigc.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Chris Lacasse",
+      "title": "Area Manager, Prairies — CGI Constructors (Winnipeg)",
+      "linkedin": "https://www.linkedin.com/in/chris-lacasse-699b1a1b5/",
+      "rationale": "Chris is the Prairies Area Manager based out of Winnipeg, came up through estimating (started his career as an Estimator), 25+ years experience. He runs the Winnipeg office and decides who's on the bid list. Best single contact at CGI Winnipeg. Office: 7-45 Beghin Avenue, Winnipeg, MB R2J 4B9, phone (431) 478-6567."
+    },
+    "needs_review_flags": [
+      "No dedicated Winnipeg estimator surfaced in search; CGI may run estimating from Toronto HQ with Chris coordinating locally",
+      "Worth checking CGI's people page for additional Winnipeg-based names"
+    ],
+    "personalization_hooks": [
+      "Chris started as an Estimator, 25+ years construction — he speaks the estimator's language",
+      "CGI is a national GC with local Winnipeg office — bidding their work gives Ashrah cross-Canada reference potential",
+      "Office on Beghin Ave (Transcona/East Winnipeg)",
+      "Mention Ashrah's automated daily reports — multi-region GCs care more about consistent reporting"
+    ],
+    "sources": [
+      {
+        "url": "https://cgigc.com/people/chris-lacasse/",
+        "claim": "Chris Lacasse — Area Manager Prairies, started as Estimator, 25+ years"
+      },
+      {
+        "url": "https://www.cgigc.com/contact/",
+        "claim": "Winnipeg office address and phone"
+      },
+      {
+        "url": "https://www.linkedin.com/in/chris-lacasse-699b1a1b5/",
+        "claim": "Chris Lacasse LinkedIn — CGI Constructors"
+      }
+    ]
+  },
+  {
+    "company": "CIC Inc.",
+    "researched_at": "2026-04-28T16:10:00Z",
+    "website": "https://cic-inc.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Rudy Penner",
+      "title": "President, CIC Inc.",
+      "rationale": "Small (~10 employees, ~$1.9M revenue) GC; Rudy is the principal. CIC has an Estimator/Project Manager combined role per their team structure. With the size, the President is likely involved in bid decisions directly. CIC specializes in restaurant + commercial GC with 30+ years history — high-frequency repeat-paint work (chain rollouts). Office: 865 Wall St, Winnipeg, MB R3G 2T9. Phone: 204-988-2199."
+    },
+    "needs_review_flags": [
+      "Estimator role is combined with PM — fetch cic-inc.ca/meet-our-team-employees/ manually to identify current Estimator/PM names",
+      "Restaurant focus = lots of franchise/chain work — Ashrah should mention any restaurant-chain refinish experience"
+    ],
+    "personalization_hooks": [
+      "30+ years in restaurant + commercial — chain franchise work means recurring paint scopes (refresh cycles)",
+      "Small firm, owner-led decision-making — quick bid-list moves",
+      "Wall St / West End office",
+      "Pitch the 5:30 PM auto-report angle — restaurant clients are demanding on schedule and presentation; CIC will value a sub that handles that paperwork itself",
+      "Post-job professional cleaning is HUGE for restaurants reopening to customers — lead with that"
+    ],
+    "sources": [
+      {
+        "url": "https://cic-inc.ca/meet-our-team-employees/",
+        "claim": "Team structure includes Estimator/PM combined role"
+      },
+      {
+        "url": "https://www.zoominfo.com/c/cic-inc/356610202",
+        "claim": "Rudy Penner is principal/President"
+      },
+      {
+        "url": "https://cic-inc.ca/",
+        "claim": "Restaurant + commercial GC, 30+ years"
+      },
+      {
+        "url": "https://www.bbb.org/manitoba/business-reviews/contractors-general/cic-in-winnipeg-mb-56332",
+        "claim": "BBB Winnipeg listing"
+      }
+    ]
+  },
+  {
+    "company": "Con-Pro Canada (Con-Pro Industries Canada Ltd.)",
+    "researched_at": "2026-04-28T16:10:00Z",
+    "website": "https://conprocanada.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Pritesh Shah",
+        "title": "Chief Estimator, Con-Pro Industries Canada Ltd.",
+        "email": "p***@conpro.mb.ca (likely pritesh@conpro.mb.ca or pshah@conpro.mb.ca)",
+        "phone": "204-233-3717 (main)",
+        "linkedin": "https://www.linkedin.com/in/priteshshahchiefestimator/",
+        "tenure_years_at_company": 14,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Chief Estimator at Con-Pro since 2012 (~14 years tenure) — deep institutional knowledge, has seen many subs come and go. Reliability and reputation matter to him.",
+          "Title literally calls out 'chief estimator' on his LinkedIn URL slug — he's identity-invested in the role; treat him as the buyer, not a gatekeeper",
+          "15+ years estimating experience, diversified projects across Canada",
+          "Con-Pro has been around since 1969 — institutional Manitoba builder. Pitch Ashrah as a long-term partner, not a one-job sub.",
+          "Lead with the 6-day delay forecast — it's exactly the kind of risk-mitigation tool a Chief Estimator at an old-line firm doesn't have but would value"
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/priteshshahchiefestimator/",
+            "claim": "Title and tenure since 2012"
+          },
+          {
+            "url": "https://www.zoominfo.com/p/Pritesh-Shah/9574933731",
+            "claim": "Chief Estimator at Con-Pro, email pattern @conpro.mb.ca"
+          },
+          {
+            "url": "https://conprocanada.ca/about-us/",
+            "claim": "Company history since 1969"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Donald Snodgrass",
+      "title": "President, Con-Pro Industries Canada Ltd.",
+      "rationale": "President — 50+ years experience, focused on mentorship. If Pritesh isn't responsive, escalating to Don is reasonable. VP Christine Snodgrass (ex-estimator/PM) is also a viable contact and his daughter or wife — family business signal."
+    },
+    "needs_review_flags": [
+      "Email domain on Con-Pro is conpro.mb.ca (NOT conprocanada.ca despite the website URL) — verify before sending",
+      "Confirm exact firstname.lastname pattern"
+    ]
+  },
+  {
+    "company": "Contempora Steel Builders",
+    "researched_at": "2026-04-28T16:15:00Z",
+    "website": "https://contemporasteel.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Andrew Coleman",
+        "title": "Director of Pre-Construction, Contempora Steel Builders",
+        "email": "a***@contemporasteel.com (likely andrew@contemporasteel.com or acoleman@contemporasteel.com)",
+        "phone": "204-633-7672 (main)",
+        "linkedin": "https://www.linkedin.com/in/andrew-coleman-30b118140/",
+        "tenure_years_at_company": null,
+        "prior_firms": [
+          "Graham Construction (Project Manager)",
+          "Postma Consulting",
+          "Blackwood Construction"
+        ],
+        "education": [
+          "Red River College — BTech",
+          "University of Sydney — Bachelor of Economics"
+        ],
+        "personalization_hooks": [
+          "Red River College BTech alum — STRONGEST shared-pipeline angle in this entire batch. Lead with this.",
+          "Ex-Graham Construction PM — Graham is a major Winnipeg GC; Andrew has cross-pollinated relationships across both firms",
+          "Bachelor of Economics from University of Sydney — international background, business-minded; Ahmad's automated reporting + delay-forecasting tools resonate with someone who appreciates data-driven cost/schedule control",
+          "His ZoomInfo profile literally calls out 'cost and schedule management' as his strength — Ahmad's 6-day forecast pitch is purpose-built for this person",
+          "Director-level — runs preconstruction and decides bid list at a 47-year Manitoba builder"
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/andrew-coleman-30b118140/",
+            "claim": "Title, education, prior firms"
+          },
+          {
+            "url": "https://www.zoominfo.com/p/Andrew-Coleman/4191698100",
+            "claim": "Director, Pre-Construction at Contempora; email pattern @contemporasteel.com"
+          },
+          {
+            "url": "https://contemporasteel.com/about/",
+            "claim": "Company since 1978; Manitoba commercial design-build specialists"
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "name": "Marc Ouimet",
+        "title": "Construction Estimator, Contempora Steel Builders",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Reports into Andrew Coleman's preconstruction group — the day-to-day estimator who actually works the bid math",
+          "Useful as a parallel/secondary point of contact alongside Andrew",
+          "If Ashrah wants to be on a specific bid, Marc is who actually pulls the sub list together"
+        ],
+        "sources": [
+          {
+            "url": "https://rocketreach.co/contempora-steel-builders-management_b4595ff2fc5d5758",
+            "claim": "Marc Ouimet listed as Construction Estimator"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "George Constantinides",
+      "title": "Owner / Sales Director (President), Contempora Steel Builders",
+      "email": "g***@contemporasteel.com",
+      "rationale": "George owns the company (bought it from founder Russ Edwards in 1997), University of Manitoba Architecture grad (1990), came up the firm: draftsman → designer → estimator → sales/owner. Strong Winnipeg roots — born and raised. He came up THROUGH estimating himself, so he respects the discipline. Mention U of M Architecture if Ahmad has any U of M ties."
+    },
+    "needs_review_flags": [
+      "Confirm exact email format @contemporasteel.com",
+      "Marc Ouimet LinkedIn not surfaced — try direct search"
+    ]
+  },
+  {
+    "company": "Davian Construction Ltd",
+    "researched_at": "2026-04-28T16:15:00Z",
+    "website": "https://www.davianconstruction.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Ian A. Balcain",
+      "title": "President / Owner, Davian Construction Ltd",
+      "rationale": "Small commercial+residential reno/repair GC at 740 Logan Ave, Winnipeg. Ian is the President per BBB. Sasan Dorniani is listed as Project Manager — likely also handles estimating given firm size. Phone the office, ask for Ian or Sasan. Davian has BBB Accreditation and 20+ years history."
+    },
+    "needs_review_flags": [
+      "No dedicated estimator surfaced; firm size suggests President + PM handle estimating between them",
+      "Mixed commercial/residential — clarify Ahmad's scope fit"
+    ],
+    "personalization_hooks": [
+      "Small owner-led GC on Logan Ave (West End / industrial district) — fast bid decisions",
+      "Sasan Dorniani as PM is the practical day-to-day contact",
+      "Mix of business, commercial, residential reno — variety of paint scopes"
+    ],
+    "sources": [
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/home-renovation/davian-construction-ltd-0057-14074",
+        "claim": "Ian A. Balcain — President; Sasan Dorniani — PM; Laurie Reader — Admin"
+      },
+      {
+        "url": "https://www.davianconstruction.com/ourteam",
+        "claim": "Team page exists"
+      },
+      {
+        "url": "https://www.yellowpages.ca/bus/Manitoba/Winnipeg/Davian-Construction-Ltd/2219375.html",
+        "claim": "Address 740 Logan Ave"
+      }
+    ]
+  },
+  {
+    "company": "EllisDon Corporation (Winnipeg office)",
+    "researched_at": "2026-04-28T16:15:00Z",
+    "website": "https://www.ellisdon.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": null,
+      "title": "EllisDon Winnipeg office — Estimating department",
+      "rationale": "EllisDon is a national GC; Winnipeg presence exists (e.g., active Concrete & Formwork PM job posting in Winnipeg) but no specific Winnipeg-based estimator surfaced in public search. Their Winnipeg estimating likely runs through regional structure tied to Calgary/Toronto. RECOMMENDED: Phone EllisDon Winnipeg office; ask for the local estimating lead. Also try direct LinkedIn search for 'EllisDon Winnipeg' employees with estimator title."
+    },
+    "needs_review_flags": [
+      "EllisDon Winnipeg office contact details should be confirmed — office address not surfaced directly",
+      "Manual LinkedIn search by location ('Winnipeg' + 'EllisDon') needed to find specific estimator names",
+      "EllisDon has lots of named estimators company-wide but none clearly tied to Winnipeg in search results — Doug MacArthur, Nathira Saour, Tanner Fedorchuk are EllisDon estimators but locations not Winnipeg-confirmed"
+    ],
+    "personalization_hooks": [
+      "EllisDon is one of the biggest GCs in Canada — getting on their bid list opens national opportunities, not just Winnipeg",
+      "Lead with the automation pitch (5:30 PM auto-reports, 6-day delay forecast) — large GCs are the ones who care most about subs that integrate cleanly with their PM systems"
+    ],
+    "sources": [
+      {
+        "url": "https://www.ellisdon.com/",
+        "claim": "EllisDon corporate site"
+      },
+      {
+        "url": "https://theorg.com/org/ellisdon-corporation/org-chart/richard-whyte",
+        "claim": "Richard Whyte — SVP Preconstruction & Estimating, Civil Division (national, not Winnipeg-specific)"
+      }
+    ]
+  },
+  {
+    "company": "Ellmar Construction Inc.",
+    "researched_at": "2026-04-28T16:15:00Z",
+    "website": "https://ellmar.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": null,
+      "title": null,
+      "rationale": "Phone 204-284-0358. Ellmar specializes in concrete & asphalt, excavation & grading, snow removal — civil/site-prep, NOT vertical building. They are a civil sub themselves, not a commercial GC. LOW FIT for Ashrah's commercial painting services. Recommend deprioritizing."
+    },
+    "needs_review_flags": [
+      "Ellmar is civil/sitework, NOT a vertical GC — likely no painting scope",
+      "Recommend removing from Ashrah's target list",
+      "If kept, only as a peer/referral relationship"
+    ],
+    "personalization_hooks": [
+      "Concrete/asphalt/excavation focus — peer subcontractor, not a buyer of paint"
+    ],
+    "sources": [
+      {
+        "url": "https://ellmar.ca/",
+        "claim": "Services: concrete & asphalt, excavation & grading, snow removal"
+      },
+      {
+        "url": "https://canada247.info/explore/manitoba/winnipeg/south_river_heights/ellmar-construction-inc-204-284-0358.html",
+        "claim": "Phone 204-284-0358, address 1345 Taylor Ave"
+      },
+      {
+        "url": "https://winnipegconstruction.ca/membership/directory/page/16/",
+        "claim": "WCA member"
+      }
+    ]
+  },
+  {
+    "company": "FABCA Construction Ltd",
+    "researched_at": "2026-04-28T16:15:00Z",
+    "website": "https://fabca.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Colin Richards",
+        "title": "FABCA Construction Ltd — BTCM (likely PM/Estimator role; FABCA contact page lists him as a primary contact)",
+        "email": "Colin@fabca.ca",
+        "phone": "(204) 227-4582",
+        "linkedin": "https://ca.linkedin.com/in/colin-richards-4b857a124",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [
+          "BTCM (Bachelor of Technology in Construction Management — Red River College or equivalent)"
+        ],
+        "personalization_hooks": [
+          "BTCM credential — likely Red River College Construction Management graduate. STRONG shared-pipeline angle.",
+          "One of three named contacts on FABCA's public contact page — clearly involved in client/sub interactions",
+          "Direct email and direct phone are public — very easy first-touch",
+          "FABCA was a sub on Winnipeg Police HQ (the high-profile project that generated subsequent litigation/inquiry) — be tactful; do not reference the controversy",
+          "Boutique Manitoba commercial GC on Academy Road — Ashrah is geographically convenient as a Winnipeg sub"
+        ],
+        "sources": [
+          {
+            "url": "https://fabca.ca/contact/",
+            "claim": "Direct email and phone for Colin Richards"
+          },
+          {
+            "url": "https://ca.linkedin.com/in/colin-richards-4b857a124",
+            "claim": "LinkedIn — Fabca Construction"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Greg Fiorentino, P.Eng.",
+      "title": "President, FABCA Construction Ltd",
+      "email": "Greg@fabca.ca",
+      "phone": "(204) 782-7542",
+      "rationale": "Greg is the company President and a P.Eng. — engineering rigor and risk management are values he respects. Ashrah's 6-day delay forecasting will resonate. Fabio Fiorentino (BBA, BTCM) is also on the contact page (Fabio@fabca.ca / 204-470-4846) — likely a younger family member."
+    },
+    "needs_review_flags": [
+      "Verify Colin's exact title — 'BTCM' is a credential, not a title; he may be Estimator, PM, or something else",
+      "FABCA has past Winnipeg Police HQ litigation history — DO NOT reference in outreach"
+    ]
+  },
+  {
+    "company": "Form Structures Western",
+    "researched_at": "2026-04-28T16:20:00Z",
+    "website": null,
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": null,
+      "title": null,
+      "rationale": "Could not locate this company. Tracker has typo 'formstructuresweastren.ca'; tried 'formstructureswestern.ca' and various search permutations — no public listing found. May be defunct, may operate under a different legal name, or may be very small/obscure. Recommend Ashrah confirm the name with whoever sourced it. Possible adjacent firms: Westland Construction Ltd., Western Construction Services, Wiebe's Steel Structures."
+    },
+    "needs_review_flags": [
+      "Company name unverified — possibly typo, possibly defunct",
+      "RECOMMEND: Ahmad to confirm or remove from target list",
+      "If keeping, search MB corporate registry by name"
+    ],
+    "personalization_hooks": [],
+    "sources": []
+  },
+  {
+    "company": "Gardon Construction Ltd.",
+    "researched_at": "2026-04-28T16:20:00Z",
+    "website": "https://gardonconstruction.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Shane Johnson",
+        "title": "Chief Estimator, Gardon Construction Ltd.",
+        "email": "sjohnson@gardonconstruction.com",
+        "phone": null,
+        "linkedin": "https://www.linkedin.com/in/shane-johnson-001a58a1/",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [
+          "Associate of Sciences (AS)"
+        ],
+        "personalization_hooks": [
+          "Direct email is public (sjohnson@gardonconstruction.com) — easiest first-touch in this entire batch of 30",
+          "Chief Estimator title — runs the bid list at Gardon",
+          "AS degree (sciences background) — values data; Ashrah's 6-day delay forecasting and structured reporting will land",
+          "Gardon is a mid-sized Manitoba commercial GC — reach out with a short note + a one-pager on the daily report system"
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/shane-johnson-001a58a1/",
+            "claim": "Title: Chief Estimator at Gardon Construction"
+          },
+          {
+            "url": "https://www.zoominfo.com/p/Shane-Johnson/2299419947",
+            "claim": "Email confirmed: sjohnson@gardonconstruction.com"
+          },
+          {
+            "url": "https://www.gardonconstruction.com/our-team",
+            "claim": "Team page exists"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": null,
+      "title": null,
+      "rationale": "Shane is the named Chief Estimator with public email — go direct. Gardon's Our Team page lists additional staff if needed."
+    },
+    "needs_review_flags": [
+      "Confirm Shane's tenure years",
+      "Identify any junior estimators reporting to Shane"
+    ]
+  },
+  {
+    "company": "Gateway Construction & Engineering Ltd.",
+    "researched_at": "2026-04-28T16:20:00Z",
+    "website": "https://gatewayconstruction.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Wayne Fehr",
+        "title": "Chief Estimator / Estimating Manager, Gateway Construction & Engineering Ltd.",
+        "email": "wayne (pattern)@gatewayconstruction.ca (likely wfehr@gatewayconstruction.ca or wayne@gatewayconstruction.ca)",
+        "phone": "204-233-8550 (main)",
+        "linkedin": "https://ca.linkedin.com/in/wayne-fehr-005180145",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Chief Estimator AND Estimating Manager — owns the bid list at a 50+ year Manitoba GC",
+          "Gateway since 1973 — institutional builder, deep MB roots; pitch Ashrah's 'protect the client's reputation' framing — that's literally what 50 years of reputation looks like",
+          "Diverse work: commercial, multifamily, institutional, renovations, industrial, bridges — high-frequency paint scope",
+          "Office on Archibald Street (East Winnipeg / Mission Junction)",
+          "Ahmad to mention the structured painter training program — a 50-year firm cares about workforce reliability"
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/p/Wayne-Fehr/-1082342783",
+            "claim": "Chief Estimator at Gateway Construction & Engineering"
+          },
+          {
+            "url": "https://ca.linkedin.com/in/wayne-fehr-005180145",
+            "claim": "LinkedIn — Gateway Construction and Engineering Ltd"
+          },
+          {
+            "url": "https://gatewayconstruction.ca/our-team/",
+            "claim": "Team page lists him"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Jacques Gauthier",
+      "title": "Senior Project Manager, Gateway Construction & Engineering",
+      "rationale": "If Wayne unavailable, Jacques is a Senior PM contact at Gateway. General office: general@gatewayconstruction.ca / 204-233-8550."
+    },
+    "needs_review_flags": [
+      "Confirm exact email pattern @gatewayconstruction.ca for Wayne (firstname vs first-initial+lastname)"
+    ]
+  },
+  {
+    "company": "Graham Construction & Engineering Inc. (Winnipeg)",
+    "researched_at": "2026-04-28T16:20:00Z",
+    "website": "https://www.grahambuilds.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Stephane Gagnon",
+      "title": "Graham Construction (Winnipeg-area; LinkedIn signals Winnipeg involvement)",
+      "linkedin": "https://www.linkedin.com/in/stephane-gagnon-32a7b925/",
+      "rationale": "No specific Winnipeg estimator name surfaced in public search. Graham is a major employee-owned national GC. Their Winnipeg office: 126 Commerce Dr, Winnipeg, MB R3P 0Z6, phone 204-897-4600. RECOMMENDED: Phone the Winnipeg office and ask for the Buildings preconstruction lead. Also: Andrew Coleman (now at Contempora Steel Builders, see contempora-steel-builders.json) is a former Graham PM — Ahmad could ask Andrew for a warm intro to the Graham Winnipeg estimating team."
+    },
+    "needs_review_flags": [
+      "No Winnipeg-specific Graham estimator name found in search",
+      "Graham has thousands of employees nationally; Winnipeg-specific filter needed via direct LinkedIn employee search filtered by location",
+      "Active leverage: warm intro through Andrew Coleman at Contempora (ex-Graham PM)"
+    ],
+    "personalization_hooks": [
+      "Graham is employee-owned — culture fit angle: pitch Ashrah as a sub that respects the long-term partnership model",
+      "Office on Commerce Drive (CentrePort area)",
+      "WARM INTRO opportunity: Andrew Coleman at Contempora Steel was previously a PM at Graham — Ahmad should approach Andrew first, then leverage to Graham"
+    ],
+    "sources": [
+      {
+        "url": "https://www.grahambuilds.com/locations/winnipeg/",
+        "claim": "Winnipeg office details"
+      },
+      {
+        "url": "https://www.yellowpages.ca/bus/Manitoba/Winnipeg/Graham-Construction/8143126.html",
+        "claim": "Address and phone"
+      },
+      {
+        "url": "https://www.linkedin.com/in/stephane-gagnon-32a7b925/",
+        "claim": "Stephane Gagnon at Graham (location signal)"
+      }
+    ]
+  },
+  {
+    "company": "Harris Holdings / Harris Builders",
+    "researched_at": "2026-04-28T16:20:00Z",
+    "website": "https://harrisbuilders.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Bryan Harris",
+      "title": "President / Owner, Harris Builders (Harris Holdings Ltd)",
+      "rationale": "Family-run business since 1950 (75 years). Bryan is the principal. Specializes in residential single-family new construction + renovations — light commercial fit. Office: 4-2090 Corydon Avenue, Winnipeg. Phone the office and ask for Bryan. Position Ashrah as a residential-finish-quality painter if pursuing."
+    },
+    "needs_review_flags": [
+      "Harris is residential-focused, not commercial GC — lower fit for Ashrah's commercial pitch",
+      "If Ashrah pursues high-end residential, this becomes a good fit; otherwise deprioritize",
+      "Estimating handled by owner directly given firm size"
+    ],
+    "personalization_hooks": [
+      "75 years in business, since 1950 — third-generation Manitoba builder vibes; legacy/community angle",
+      "Corydon Ave office (River Heights / Crescentwood) — South Winnipeg upscale residential focus",
+      "Ahmad's post-job professional cleaning will appeal — residential clients live in the space"
+    ],
+    "sources": [
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/general-contractor/harris-builders-0057-32173",
+        "claim": "Bryan Harris President; since 1950"
+      },
+      {
+        "url": "https://www.dnb.com/business-directory/company-profiles.harris_holdings_ltd.b5f24ab7401cffed8f11abf0037e6172.html",
+        "claim": "Harris Holdings Ltd company profile"
+      }
+    ]
+  },
+  {
+    "company": "Harwood Design Builders",
+    "researched_at": "2026-04-28T16:25:00Z",
+    "website": "https://harwoodbuilders.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Wayne Sage",
+      "title": "Owner, Harwood Design Builders",
+      "email": "wayne@harwoodbuilders.com (likely)",
+      "rationale": "Three principals: Wayne Sage (owner), Jeff Halstead and Trevor Bjarnarson (co-owners managing day-to-day). Harwood is residential reno-focused (high-end Winnipeg renovations). Light commercial fit. If Ashrah pursues high-end residential paint, Harwood is a strong candidate; otherwise medium fit. Phone the office; ask for Jeff or Trevor (operational decision-makers)."
+    },
+    "needs_review_flags": [
+      "Harwood is residential reno-focused — different fit than commercial GC pursuit",
+      "Co-owners Jeff Halstead and Trevor Bjarnarson run operations; they're better day-to-day contacts than Wayne",
+      "Confirm exact email pattern @harwoodbuilders.com"
+    ],
+    "personalization_hooks": [
+      "Three-owner partnership model — pitch a multi-decision-maker firm with the 'protect your reputation' angle (renovations live or die on finish quality)",
+      "High-end Winnipeg residential reno — post-job professional cleaning and zero-callback paint quality are differentiators",
+      "Manitoba Home Builders Association member"
+    ],
+    "sources": [
+      {
+        "url": "https://www.zoominfo.com/p/Wayne-Sage/1236579630",
+        "claim": "Wayne Sage Owner, email pattern @harwoodbuilders.com"
+      },
+      {
+        "url": "https://harwoodbuilders.com/",
+        "claim": "Company website / Winnipeg renovations focus"
+      },
+      {
+        "url": "https://www.homebuilders.mb.ca/members/harwood-design-builders-ltd/",
+        "claim": "MHBA member"
+      }
+    ]
+  },
+  {
+    "company": "Hedman Construction Ltd.",
+    "researched_at": "2026-04-28T16:25:00Z",
+    "website": "https://hedmanconst.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "David Hedman",
+      "title": "Owner, Hedman Construction Ltd.",
+      "phone": "204-284-0277",
+      "rationale": "Commercial GC since 1997 (~28 years). David is the owner — likely runs estimating personally. Hedman explicitly markets 'quick, accurate budget estimates' for property managers / leasing agents — they value speed in the bid process, which means they value subs that turn around bids fast. Office: 557 Marion St, Saint Boniface. Graham Wiebe was listed as a contact on a city contractor document — possible secondary contact."
+    },
+    "needs_review_flags": [
+      "No dedicated estimator surfaced; David likely owns the estimating function",
+      "Verify Graham Wiebe role at Hedman"
+    ],
+    "personalization_hooks": [
+      "Commercial GC since 1997 — institutional Manitoba builder",
+      "Explicitly markets fast budget estimates for property managers — pitch Ashrah's 24-hour bid turnaround as an aligned value",
+      "St. Boniface office — south-east Winnipeg",
+      "Property-management-driven bid flow = high-frequency repeat tenant-improvement work, lots of paint scope"
+    ],
+    "sources": [
+      {
+        "url": "https://hedmanconst.com/",
+        "claim": "Hedman commercial GC; quick budget estimates value prop"
+      },
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/general-contractor/hedman-construction-ltd-0057-31605",
+        "claim": "Owner David Hedman"
+      },
+      {
+        "url": "https://www.yellowpages.ca/bus/Manitoba/Saint-Boniface/Hedman-Construction-Ltd/2312300.html",
+        "claim": "Address 557 Marion St"
+      }
+    ]
+  },
+  {
+    "company": "Ironclad Developments Inc.",
+    "researched_at": "2026-04-28T16:25:00Z",
+    "website": "https://www.ironcladdevelopments.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Ryan Van Damme",
+      "title": "CEO, Ironclad Developments Inc.",
+      "linkedin_alt": "https://www.linkedin.com/in/kevindumontier/",
+      "rationale": "Ironclad is a Winnipeg-HQ multi-family developer (since 2014, ~$160M revenue, 94 employees) with national presence. They're VERTICALLY INTEGRATED — own land acquisition through construction through property management. They're also actively HIRING a Senior Estimator right now to support multifamily construction. RECOMMENDED ANGLE: pitch to Ryan or Kevin Dumontier (also surfaced in search). Multi-family residential = MASSIVE recurring paint scope (turnover painting between tenants). This is one of the strongest fit + opportunity targets in the entire batch."
+    },
+    "needs_review_flags": [
+      "Senior Estimator role currently OPEN at Ironclad — once filled, that person will be the right buyer",
+      "Worth Ahmad watching their LinkedIn for the new estimator hire announcement",
+      "Identify the current Construction Director who's hiring the estimator — that's the interim buyer"
+    ],
+    "personalization_hooks": [
+      "MULTI-FAMILY VOLUME PLAY — Ironclad's $160M revenue + 94 employees + active development pipeline = recurring turnover paint work AND new-build paint scopes",
+      "Vertically integrated (land → build → manage) — they keep work in-house with trusted subs once relationship is established",
+      "National scale with Winnipeg HQ — Ahmad gets multi-province potential",
+      "Currently hiring Senior Estimator — Ahmad could literally be the first sub to introduce themselves to that person on day one",
+      "Recent reconciliation project: $18M Dakota Tipi development — partnership angle on Indigenous-led projects (worth flagging if Ahmad has any related capacity)"
+    ],
+    "sources": [
+      {
+        "url": "https://www.ironcladdevelopments.ca/",
+        "claim": "Multi-family Winnipeg HQ developer, vertically integrated"
+      },
+      {
+        "url": "https://www.zoominfo.com/c/ironclad-properties/369169458",
+        "claim": "Revenue $159.8M, 94 employees, CEO Ryan Van Damme"
+      },
+      {
+        "url": "https://www.linkedin.com/in/kevindumontier/",
+        "claim": "Kevin Dumontier — Ironclad Developments Inc."
+      },
+      {
+        "url": "https://renx.ca/ironclad-launch-winnipeg-multires-project-during-pandemic",
+        "claim": "Active multifamily development pipeline"
+      },
+      {
+        "url": "https://www.portageonline.com/articles/reconciliation-in-action-dakota-tipis-18m-development-marks-first-of-many-projects-in-portage-area",
+        "claim": "$18M Dakota Tipi project"
+      }
+    ]
+  },
+  {
+    "company": "Jilmark Construction Ltd.",
+    "researched_at": "2026-04-28T16:25:00Z",
+    "website": "https://jilmark.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "David Regehr-Wiens",
+        "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "One of four-person team that handles estimating + site supervision + project admin — wears multiple hats so VALUES tools that reduce admin load (Ashrah's automated daily reports = direct fit)",
+          "Jilmark works heritage buildings, apartments, condos, offices, warehouses, dealerships, churches, schools — wide paint scope variety"
+        ],
+        "sources": [
+          {
+            "url": "https://www.jilmark.com/our-team",
+            "claim": "Estimating team listing"
+          },
+          {
+            "url": "https://www.theconstructionsource.ca/2022/02/03/jilmark-construction/",
+            "claim": "Multi-role team description"
+          }
+        ],
+        "confidence": "medium"
+      },
+      {
+        "name": "Gilles Comte",
+        "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "personalization_hooks": [
+          "Same multi-role team as David — same pitch applies"
+        ],
+        "sources": [
+          {
+            "url": "https://www.jilmark.com/our-team",
+            "claim": "Estimating team listing"
+          }
+        ],
+        "confidence": "medium"
+      },
+      {
+        "name": "Josh Penner",
+        "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "personalization_hooks": [
+          "Same multi-role team — likely the youngest, may be most receptive to new tools/tech pitches"
+        ],
+        "sources": [
+          {
+            "url": "https://www.jilmark.com/our-team",
+            "claim": "Estimating team listing"
+          }
+        ],
+        "confidence": "medium"
+      },
+      {
+        "name": "Steven Baars",
+        "title": "Estimating / Site Supervision / Project Administration — Jilmark Construction Ltd.",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "personalization_hooks": [
+          "Same multi-role team"
+        ],
+        "sources": [
+          {
+            "url": "https://www.jilmark.com/our-team",
+            "claim": "Estimating team listing"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "John Froese",
+      "title": "Owner / Founder, Jilmark Construction Ltd.",
+      "linkedin": "https://www.linkedin.com/in/john-froese-832b994b/",
+      "rationale": "John is the founder — 35+ years construction experience, founded Jilmark in 2001 after 26 years in commercial construction. He's still hands-on (attends regular site meetings). Strong multi-decade Winnipeg roots. Specialty in apartments and condominiums = high-volume paint scope. Personal involvement angle: ask him how he got started; he'll respect a founder-to-founder approach from Ahmad."
+    },
+    "needs_review_flags": [
+      "Confirm exact email format @jilmark.com",
+      "LinkedIn profiles for the four-person estimating team should be located individually for tenure data"
+    ]
+  },
+  {
+    "company": "Kenmare Developments Inc.",
+    "researched_at": "2026-04-28T16:25:00Z",
+    "website": "https://kenmaredevelopments.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Kyle Kostenuk, C.E.T.",
+      "title": "President, Kenmare Developments Inc.",
+      "linkedin": "https://www.linkedin.com/in/kyle-kostenuk-c-e-t-2990a612a/",
+      "rationale": "Kyle is President AND a Certified Engineering Technologist (C.E.T.) — he came up technical, respects estimating discipline, and likely runs the estimating function himself at firm size. Kenmare is involved in significant projects: $18M Dakota Tipi development at The Forks (145-unit, traditional Dakota lands) — major Indigenous-led project with reconciliation framing. Engagement angle: lead with respect for the partnership work + Ashrah's structured painter training (workforce reliability matters when your projects are politically visible)."
+    },
+    "needs_review_flags": [
+      "No dedicated estimator surfaced — Kyle likely handles or oversees directly",
+      "Confirm whether Kenmare keeps construction in-house or partners with a GC"
+    ],
+    "personalization_hooks": [
+      "Kyle is C.E.T. (Certified Engineering Technologist) — values data and technical rigour. Lead with the 6-day delay forecast pitch.",
+      "DAKOTA TIPI / FORKS PROJECT ($18M, 145 units, reconciliation framing) — major upcoming work; ask Kyle directly about painting subcontracting on this one",
+      "Kenmare is small enough that the President is reachable directly via LinkedIn",
+      "If Ahmad has any Indigenous community connections or has worked Indigenous-led projects, lead with that"
+    ],
+    "sources": [
+      {
+        "url": "https://www.linkedin.com/in/kyle-kostenuk-c-e-t-2990a612a/",
+        "claim": "Kyle Kostenuk C.E.T. — Kenmare Developments"
+      },
+      {
+        "url": "https://www.zoominfo.com/p/Kyle-Kostenuk/12505497283",
+        "claim": "President at Kenmare Developments"
+      },
+      {
+        "url": "https://www.portageonline.com/articles/reconciliation-in-action-dakota-tipis-18m-development-marks-first-of-many-projects-in-portage-area",
+        "claim": "Dakota Tipi $18M project, Forks 145-unit development"
+      }
+    ]
+  },
+  {
+    "company": "Kiewit (Winnipeg regional office)",
+    "researched_at": "2026-04-28T16:25:00Z",
+    "website": "https://www.kiewit.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": null,
+      "title": "Kiewit Winnipeg Regional Office — Western Canada District",
+      "rationale": "Kiewit's Winnipeg presence is HEAVY CIVIL / INFRASTRUCTURE — utilities, transmission, transportation. NOT vertical commercial buildings. They have an active Senior Estimator - Infrastructure (Winnipeg) job posting. This is a LOW FIT for a commercial painting subcontractor. Kiewit will not bid out commercial paint scopes from their Winnipeg office in any meaningful volume. Recommend deprioritizing or removing from list. Adam Cleveland is the company-wide Chief Estimator (Director, National Preconstruction) but is not Winnipeg-based or a relevant target for Ashrah."
+    },
+    "needs_review_flags": [
+      "Kiewit Winnipeg = heavy civil/infrastructure — LOW FIT for commercial painting",
+      "RECOMMEND removing from Ashrah's commercial-painting target list",
+      "Note for memory: Brad Harder at Bockstael is ex-Kiewit — that's the more leveraged Kiewit-related angle"
+    ],
+    "personalization_hooks": [],
+    "sources": [
+      {
+        "url": "https://kiewitcareers.kiewit.com/job/Winnipeg-Senior-Estimator-Infrastructure-(Winnipeg)-MB/1234176100/",
+        "claim": "Senior Estimator Infrastructure Winnipeg posting; civil/infrastructure focus"
+      },
+      {
+        "url": "https://www.zoominfo.com/p/Adam-Cleveland/2190881692",
+        "claim": "Adam Cleveland Director National Preconstruction & Chief Estimator (national, not Winnipeg)"
+      }
+    ]
+  },
+  {
+    "company": "LD Builders",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://ldbuilders.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Larry Dyck",
+      "title": "Founder / President",
+      "rationale": "Founder of LD Builders for 45+ years; no public estimator listed. Phone (204) 334-7628 to ask for estimating department. Todd Hamilton is also referenced as leadership."
+    },
+    "needs_review_flags": [
+      "No estimator name surfaced in WebSearch or company website.",
+      "Recommend phone outreach: (204) 334-7628 — ask for estimating department.",
+      "Email general info@ldbuilders.ca and ask to be referred to estimator."
+    ]
+  },
+  {
+    "company": "Ledcor Construction (Winnipeg office)",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.ledcor.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Leighton Engen",
+      "title": "Ledcor (Winnipeg-area, role unclear)",
+      "rationale": "LinkedIn search surfaced Leighton Engen as a Ledcor employee, but role and exact location not confirmed. Active job posting for Senior Estimator, ICI Construction in Winnipeg suggests team is being built / replaced — strong timing signal."
+    },
+    "needs_review_flags": [
+      "Active Ledcor Senior Estimator ICI posting in Winnipeg — Ahmad should monitor and reach out the moment a hire is announced on LinkedIn.",
+      "Ledcor is a national firm; estimating chains can be matrixed. Consider reaching out via Ledcor's Buildings District Manager in Winnipeg.",
+      "No publicly named current Winnipeg estimator surfaced."
+    ],
+    "sources": [
+      {
+        "url": "https://jobs.ledcor.com/jobs/16762396-senior-estimator-ici-construction",
+        "claim": "Active Senior Estimator ICI Construction posting in Winnipeg, MB"
+      },
+      {
+        "url": "https://www.jobs.ca/job/ac5c9376-9576-490e-952e-fb5d820d0959",
+        "claim": "Senior Estimator Building Construction posting at Ledcor Winnipeg"
+      }
+    ]
+  },
+  {
+    "company": "Maple Leaf Construction Ltd.",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://mapleleafconstruction.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Erin Fitzpatrick",
+      "title": "Vice President",
+      "rationale": "Listed as VP and on Board of Directors. Family-run firm — Fitzpatrick name is on multiple board seats (Blake, Jack, Garrett Fitzpatrick). Maple Leaf is heavy civil/paving (777 Erin St) and lower fit for a commercial paint sub, but Ahmad can ask about commercial buildings work / commercial development arm."
+    },
+    "needs_review_flags": [
+      "Maple Leaf Construction is primarily heavy civil / asphalt / paving — fit for commercial painting sub is limited but they do commercial development.",
+      "Currently posted: Project Manager & Estimator role — signal that estimating capacity is being built.",
+      "No publicly named individual estimator. Phone (204) 783-7091 and ask for estimating dept."
+    ],
+    "sources": [
+      {
+        "url": "https://mapleleafconstruction.mb.ca/our-company/management-team/",
+        "claim": "Board includes Erin Fitzpatrick, Barry Brown, Blake Fitzpatrick, Jack Fitzpatrick, Kevin Brown, Garrett Fitzpatrick"
+      },
+      {
+        "url": "https://www.zoominfo.com/p/Erin-Fitzpatrick/1098648142",
+        "claim": "Erin Fitzpatrick listed as VP at Maple Leaf Construction"
+      },
+      {
+        "url": "https://rocketreach.co/maple-leaf-construction-ltd-profile_b4473ab5faee6c20",
+        "claim": "Company profile incl. employee directory"
+      }
+    ]
+  },
+  {
+    "company": "Mint Construction (Winnipeg)",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://mint-construction.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Mint Construction main contact",
+      "title": "via website contact form",
+      "rationale": "Winnipeg Mint Construction at 301-1661 Portage Ave is a small commercial/residential GC. No public estimator named. Note: separate company 'MiNT Construction LLC' (Utah) and 'MINT Projects' (Calgary) exist — do not confuse them."
+    },
+    "needs_review_flags": [
+      "Multiple companies share the 'Mint' name — confirm Winnipeg-based entity before outreach.",
+      "Winnipeg Mint = small commercial/residential GC; estimator likely is the owner.",
+      "Recommend website contact form as cold-outreach channel; phone fallback."
+    ],
+    "sources": [
+      {
+        "url": "https://mint-construction.ca/",
+        "claim": "Mint Construction Winnipeg website — commercial & residential contractor"
+      },
+      {
+        "url": "https://mint-construction.ca/contact/",
+        "claim": "Contact page for Winnipeg-based Mint Construction"
+      }
+    ]
+  },
+  {
+    "company": "OB1 Contracting Ltd.",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": null,
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Michael O'Brien",
+      "title": "Owner",
+      "rationale": "OB1 = pavement restoration / utility cut services contractor. Lower fit for interior commercial painting (their work is asphalt/road), but Peter Deduke and Kadeem Hossain are LinkedIn-associated employees if needed."
+    },
+    "needs_review_flags": [
+      "OB1's primary services are pavement restoration / utility cuts — limited fit for commercial painting sub.",
+      "Lower priority for the BD push; consider de-prioritizing.",
+      "Phone: 204-880-8113"
+    ],
+    "sources": [
+      {
+        "url": "https://411smartsearch.ca/businesses/ob-1-contracting-ltd/",
+        "claim": "OB1 Contracting profile and phone"
+      },
+      {
+        "url": "https://ca.linkedin.com/in/peter-deduke-087065ba",
+        "claim": "Peter Deduke, OB1 Contracting LinkedIn"
+      },
+      {
+        "url": "https://ca.linkedin.com/in/kadeem-hossain-2bb35810b",
+        "claim": "Kadeem Hossain, OB1 Contracting Road Construction"
+      }
+    ]
+  },
+  {
+    "company": "Oswald Construction Ltd",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": null,
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Graeme MacMillan",
+      "title": "Oswald Construction Ltd (role unconfirmed)",
+      "rationale": "Public LinkedIn profile associated with Oswald. Company is 11-50 employees, founded 1954, focused on turnkey residential — limited commercial painting fit but worth a touch."
+    },
+    "needs_review_flags": [
+      "Oswald Construction primarily does turnkey residential; commercial fit is moderate.",
+      "Estimator may be the owner. Phone Assiniboia Chamber listing or BBB profile.",
+      "Address: 3067 Ness Ave, Winnipeg."
+    ],
+    "sources": [
+      {
+        "url": "https://ca.linkedin.com/in/graeme-macmillan-84453568",
+        "claim": "Graeme MacMillan associated with Oswald Construction Ltd on LinkedIn"
+      },
+      {
+        "url": "https://www.zoominfo.com/c/oswald-construction-ltd/372057620",
+        "claim": "Oswald Construction Ltd company info and employee count"
+      }
+    ]
+  },
+  {
+    "company": "PCL Construction (Winnipeg)",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.pcl.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "April Seno",
+        "title": "Junior Estimator",
+        "email": null,
+        "phone": null,
+        "linkedin": "https://www.linkedin.com/in/april-seno-88731179/",
+        "tenure_years_at_company": 3,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Joined PCL Winnipeg as Junior Estimator in April 2023 — early-career, more receptive to new sub relationships.",
+          "Junior estimator role means she's likely doing a lot of the qty takeoff and trade-contractor outreach — exactly the seat that decides whether Ashrah gets bid invites for divisional packages.",
+          "PCL Winnipeg has multiple active estimator + senior estimator postings — team is growing; new hires need new sub relationships fast.",
+          "Hook: position Ashrah as 'easy to bid against' (clean takeoff format, fast turnaround on RFIs) — that solves a junior estimator's daily pain."
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/april-seno-88731179/",
+            "claim": "April Seno listed as Junior Estimator at PCL Construction, Winnipeg, since April 2023"
+          },
+          {
+            "url": "https://careers.pcl.com/job/Winnipeg-Estimator-MB/1287560400/",
+            "claim": "Active PCL Winnipeg Estimator posting"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Kelly Wallace",
+      "title": "Vice President and District Manager — PCL",
+      "rationale": "VP/DM is the senior decision-maker locally. If estimator path doesn't open the door, a 'hello from a fellow Winnipeg owner' note to district leadership can route Ahmad to the estimating chief."
+    },
+    "needs_review_flags": [
+      "April Seno's title is 'Junior' Estimator — she may not be the bid-list decision-maker. Goal: get on her radar so she nominates Ashrah upward.",
+      "Identify and confirm PCL Winnipeg Chief Estimator name in a follow-up pass — likely a Gold Seal CE.",
+      "PCL is the largest GC on this list — high-value target."
+    ]
+  },
+  {
+    "company": "Qualico Developments",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.qualico.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Qualico Winnipeg Regional Office",
+      "title": "Regional HQ contact",
+      "rationale": "Qualico is a multi-divisional integrated real-estate firm (homebuilding, multi-family, commercial development, property mgmt). Estimator(s) sit inside specific operating divisions (Broadview Homes, etc.), not at corporate. Better to identify the operating division Ahmad wants to chase first, then research that division's estimator."
+    },
+    "needs_review_flags": [
+      "Qualico is a holding company — estimators live inside operating divisions. Need to choose the right division (e.g. Broadview Homes Winnipeg, Sterling Homes, or Qualico Commercial).",
+      "For commercial painting, the relevant divisions are likely Qualico Properties (commercial) and the multi-family arm — not the single-family homebuilding divisions.",
+      "Phone Winnipeg HQ: (204) 233-2451 to ask which division handles commercial sub-trade procurement."
+    ],
+    "sources": [
+      {
+        "url": "https://www.qualico.com/our-company/locations/winnipeg",
+        "claim": "Qualico Winnipeg regional office at One Dr. David Friesen Drive"
+      },
+      {
+        "url": "https://www.broadviewhomeswpg.com/about-us",
+        "claim": "Broadview Homes Winnipeg is a Qualico company"
+      }
+    ]
+  },
+  {
+    "company": "Regent Construction Inc",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "http://www.regentconstruction.ca/",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Ron Schledwitz",
+        "title": "Project Manager / GSC / Estimator / Safety Coordinator",
+        "email": null,
+        "phone": "204-231-3456",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Wears multiple hats (PM + Estimator + GSC + Safety) — he is the bid-list owner at Regent.",
+          "GSC = Gold Seal Certified, a credibility cue Ahmad can match when pitching Ashrah's training / safety angle.",
+          "Regent has been doing commercial/industrial GC since 1987 (25+ years) — Ron has likely seen many painting subs come and go; the 'protect your reputation' pitch lands well.",
+          "Small-team firm at 919 Dugald Rd — Ron is reachable; Ahmad should call (204) 231-3456 and ask for Ron directly."
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/c/regent-construction-ltd/358389137",
+            "claim": "Ron Schledwitz role at Regent Construction"
+          },
+          {
+            "url": "http://www.regentconstruction.ca/",
+            "claim": "Regent Construction commercial since 1987"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Darlene Clark",
+      "title": "Vice President",
+      "rationale": "VP and represents the company with architects, engineers, owners — strong fallback if Ron is unreachable."
+    },
+    "needs_review_flags": [
+      "Confirm Ron Schledwitz's exact email format via RocketReach or a quick call.",
+      "ZoomInfo also lists 'Steve Wasiuta' as President and 'Buck Yates' as Owner — verify hierarchy."
+    ]
+  },
+  {
+    "company": "Rempel Builders",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.rempelbuilders.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Frank Ambrosio",
+        "title": "Estimator & Project Manager",
+        "email": null,
+        "phone": "(204) 227-4662",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Combined Estimator + PM role means Frank owns the bid AND the trade selection — fewer hand-offs, faster yes/no.",
+          "Rempel = energy-efficient residential focus + renovations (kitchens, basements, additions, whole-home) — fit for Ashrah is moderate; targeting their commercial / additions work is the angle.",
+          "Small team — Ahmad can drop by 1386 Loudoun Rd in person or call directly."
+        ],
+        "sources": [
+          {
+            "url": "https://www.rempelbuilders.ca/",
+            "claim": "Rempel Builders address (1386 Loudoun Road) and phone"
+          },
+          {
+            "url": "https://rocketreach.co/rempel-builders-profile_b7e42cadc071c061",
+            "claim": "Frank Ambrosio referenced as Estimator & PM at Rempel Builders"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Ivan Plett",
+      "title": "Rempel Builders (LinkedIn-associated)",
+      "rationale": "Backup contact identified via LinkedIn search."
+    },
+    "needs_review_flags": [
+      "Rempel is residential-renovation heavy — lower priority per the original brief; Ahmad flagged this himself.",
+      "Confirm Frank Ambrosio's exact title and email via direct call."
+    ]
+  },
+  {
+    "company": "Ridgix Building Solutions Inc",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://ridgix.com",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Ryan Ridge",
+      "title": "CEO / Commercial Project Manager",
+      "rationale": "Founder/CEO and runs commercial PM in a small (~12-yr-old) framing+GC firm — he is functionally the estimator. Direct outreach to Ryan is the play."
+    },
+    "needs_review_flags": [
+      "Ridgix is primarily a commercial framing sub that has expanded into GC — they bid commercial multi-family (apartments, condos, lofts) and offices in MB/SK/ON.",
+      "As a framer-turned-GC, Ridgix knows the sub-trade pain — Ashrah's '5:30 PM daily reports' angle resonates strongly with frame-then-paint sequencing.",
+      "Started 2012; Ryan Ridge has scaled it personally — community angle is strong."
+    ],
+    "sources": [
+      {
+        "url": "https://ridgix.com/about-us/",
+        "claim": "Ryan Ridge listed as CEO / Commercial PM, founded 2012"
+      },
+      {
+        "url": "https://ridgix.com/commercial-framing-winnipeg-manitoba/",
+        "claim": "Ridgix commercial scope — multi-family, office, MB/SK/ON"
+      }
+    ]
+  },
+  {
+    "company": "SNR Construction Ltd.",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://snrconstruction.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Colin Boisjoli, P.Eng., MBA",
+      "title": "Vice President, Construction",
+      "rationale": "VP Construction — direct decision-maker on subcontractor relationships. SNR is currently HIRING an estimator, so the VP is functionally also gatekeeping bids until the seat is filled."
+    },
+    "needs_review_flags": [
+      "STRONG TIMING SIGNAL: SNR is actively hiring an Estimator (snrconstruction.ca/were-hiring/). Ahmad should reach out NOW — Colin is in 'I need bids and I have no estimator' mode.",
+      "SNR is the construction arm of Shindico Realty (large MB commercial real-estate firm) — getting on SNR's bid list = recurring multi-year work.",
+      "Pitch angle: 'I noticed you're looking for an estimator — here's a sub partner who can hand you accurate numbers in 48 hrs while you fill that seat.'",
+      "Confirm Colin's email format via RocketReach; LinkedIn URL: https://www.linkedin.com/in/colin-boisjoli/"
+    ],
+    "sources": [
+      {
+        "url": "https://snrconstruction.ca/about-us/",
+        "claim": "SNR Construction is wholly owned by Shindico Realty"
+      },
+      {
+        "url": "https://snrconstruction.ca/were-hiring/",
+        "claim": "SNR is actively hiring an Estimator"
+      },
+      {
+        "url": "https://www.linkedin.com/in/colin-boisjoli/",
+        "claim": "Colin Boisjoli LinkedIn — VP Construction at SNR"
+      },
+      {
+        "url": "https://shindico.com/index.php/component/content/article/new-construction-company-winnipeg-snrconstruction",
+        "claim": "SNR is Shindico's construction arm"
+      }
+    ]
+  },
+  {
+    "company": "Stand Tall Contracting",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.standtallinc.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Jason Zarrillo",
+        "title": "CEO (functions as estimator)",
+        "email": null,
+        "phone": null,
+        "linkedin": "https://ca.linkedin.com/in/jason-zarrillo-aa857196",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Customer reviews specifically cite Jason coming to the site personally to do estimates — he is the bid owner.",
+          "Stand Tall = 'Stand Tall Painting and Contracting Inc.' on BBB — they have an in-house painting capability already, which is BOTH a hurdle (overlap) AND an opening (overflow capacity). Ahmad pitch = 'when your in-house team is booked, we keep your reputation intact.'",
+          "Small commercial / retail fit-up specialist — high frequency of small jobs = recurring sub-trade need.",
+          "COR-certified — safety alignment with Ashrah's training narrative."
+        ],
+        "sources": [
+          {
+            "url": "https://www.bbb.org/ca/mb/winnipeg/profile/home-renovation/stand-tall-painting-and-contracting-inc-0057-62726",
+            "claim": "Stand Tall Painting and Contracting Inc. BBB listing — in-house painting capability"
+          },
+          {
+            "url": "https://ca.linkedin.com/in/jason-zarrillo-aa857196",
+            "claim": "Jason Zarrillo, CEO Stand Tall"
+          },
+          {
+            "url": "https://www.standtallinc.com/commercial/commercial-projects/",
+            "claim": "Commercial fit-up and retail maintenance scope; COR-certified"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Gilliane Delequis",
+      "title": "Office Manager",
+      "rationale": "Office Manager is the gatekeeper for inbound sub inquiries — get on her good side first."
+    },
+    "needs_review_flags": [
+      "Stand Tall has in-house painting — Ashrah pitch must explicitly address overflow / specialized scope, not compete head-on.",
+      "Address: 3635 Eldridge Ave, Winnipeg."
+    ]
+  },
+  {
+    "company": "Thomas Design Builders Ltd",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://thomasdesignbuilders.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Jeff Miller",
+        "title": "President / Owner (background in construction estimating)",
+        "email": null,
+        "phone": "204-500-1213",
+        "linkedin": "https://ca.linkedin.com/in/jeff-miller-4a1b6827",
+        "tenure_years_at_company": 24,
+        "prior_firms": [],
+        "education": [
+          "Red River College — Design & Construction Technology Diploma (C.E.T.), 1999"
+        ],
+        "personalization_hooks": [
+          "STRONG ANGLE: Jeff is a Red River College Design & Construction Technology grad (1999, C.E.T.). Same Winnipeg trades-college community Ahmad can leverage for shared-alumni open.",
+          "Joined Thomas Design Builders in 2002 — 24 years at the firm. President-track lifer; he values long-term sub relationships, not one-off bids.",
+          "Background explicitly in construction estimating + project management — he reads bids closely. Ashrah's accurate-takeoff pitch lands.",
+          "TDB has been design-build since 1980 — 45+ years of repeat-client commercial work; getting on the bid list is a long-term annuity.",
+          "22-employee shop at 2395 Unit C McGillivray Blvd — small enough that Jeff personally responds."
+        ],
+        "sources": [
+          {
+            "url": "https://thomasdesignbuilders.ca/about/",
+            "claim": "Jeff Miller graduated Red River College 1999 with Design & Construction Technology Diploma C.E.T.; joined TDB 2002"
+          },
+          {
+            "url": "https://ca.linkedin.com/in/jeff-miller-4a1b6827",
+            "claim": "Jeff Miller LinkedIn — Owner/President Thomas Design Builders Ltd."
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Stephanie Borchardt",
+      "title": "Thomas Design Builders Ltd",
+      "rationale": "LinkedIn-associated employee, role unconfirmed — fallback if Jeff doesn't respond."
+    },
+    "needs_review_flags": [
+      "Jeff Miller is the highest-confidence Red River College alumni angle on this list — Ahmad must use this hook.",
+      "Sean Feeney is also linked to TDB on LinkedIn."
+    ]
+  },
+  {
+    "company": "Tractus Projects",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://tractusprojects.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Lisa Fedorchuk",
+        "title": "Project Manager (with explicit estimating responsibilities)",
+        "email": null,
+        "phone": "204-942-6035",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Tractus team page explicitly says Lisa's fortes are 'estimating, project planning, scheduling, procuring' and she sees projects 'from estimating to occupancy' — she is the estimator on her jobs.",
+          "PM-Estimator combined seat = she's the trade-pick decision-maker, not just a number-cruncher.",
+          "Tractus does commercial / retail / restaurant / institutional fit-ups — fast-turn schedules where Ashrah's '5:30 PM daily reports' & 6-day delay forecasting solve a real Lisa pain.",
+          "Located at 835 King Edward — Ahmad's local advantage, easy in-person drop-by."
+        ],
+        "sources": [
+          {
+            "url": "https://tractusprojects.com/team/lisa-fedorchuk/",
+            "claim": "Lisa Fedorchuk PM at Tractus, fortes incl. estimating"
+          },
+          {
+            "url": "https://www.zoominfo.com/p/Lisa-Fedorchuk/3461843170",
+            "claim": "Lisa Fedorchuk at Tractus, email l***@tractusprojects.com"
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "name": "Chad Horrill",
+        "title": "Senior Project Manager",
+        "email": null,
+        "phone": "204-942-6035",
+        "linkedin": "https://ca.linkedin.com/in/chad-horrill-676b9484",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Senior PM = bid-list decision authority on bigger Tractus jobs. Likely owns trade procurement on larger commercial fit-ups.",
+          "LinkedIn bio cites 'community engagement' — possible board / charity hook for Ahmad to share connections.",
+          "Tenured at Tractus — relationship-based; cold pitches without warm intro will struggle, so position via shared community angle."
+        ],
+        "sources": [
+          {
+            "url": "https://ca.linkedin.com/in/chad-horrill-676b9484",
+            "claim": "Chad Horrill, Senior PM at Tractus Projects"
+          },
+          {
+            "url": "https://www.zoominfo.com/p/Chad-Horrill/1600542882",
+            "claim": "Chad Horrill, Senior PM, c***@tractusprojects.com"
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "name": "Joe Paletta",
+        "title": "Project Manager",
+        "email": null,
+        "phone": "204-942-6035",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Third PM at Tractus — Ahmad should reach all three because each likely owns their own bid lists on different jobs."
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/p/Joe-Paletta/3102253204",
+            "claim": "Joe Paletta, PM at Tractus, j***@tractusprojects.com"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Tractus Projects general line",
+      "title": "Front desk",
+      "rationale": "Their brand promise is 'we always answer the phone' — call 204-942-6035 and ask for any of the three PMs."
+    },
+    "needs_review_flags": [
+      "Email format inferred as firstinitial-or-firstname@tractusprojects.com — verify before sending.",
+      "Tractus = highest-yield single target on the list (3 named PMs with estimating authority + local proximity)."
+    ]
+  },
+  {
+    "company": "Valdek Construction Inc",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://valdekconstruction.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Matt Adamiec",
+        "title": "Founder / Owner (functions as estimator)",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "tenure_years_at_company": 12,
+        "prior_firms": [
+          "KGS Group (technologist, structural)"
+        ],
+        "education": [
+          "Red River College — Civil Engineering Diploma (structural focus)"
+        ],
+        "personalization_hooks": [
+          "STRONG ANGLE: Matt is a Red River College Civil Engineering Diploma grad — direct shared-alumni hook for Ahmad.",
+          "Prior firm: KGS Group (well-known Winnipeg structural consulting engineer) — Matt has the structural-eng vocabulary and respects accurate takeoffs.",
+          "Grew up in a contracting household with his dad — values relationships and craftsmanship narrative; Ashrah's painter-training story will resonate.",
+          "Founded 2014 (12 years in) — small enough that Matt personally bids every job; he is the entire estimating department.",
+          "Won 'Best of TrustedPros 2020' across 6 categories incl. Painting — they have in-house painting capability; pitch as overflow / specialty (high-end finishes, large commercial scale)."
+        ],
+        "sources": [
+          {
+            "url": "https://valdekconstruction.com/about-us/",
+            "claim": "Matt Adamiec, RRC Civil Engineering grad, prior at KGS Group, founded Valdek 2014"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Valdek main line via website",
+      "title": "Contact form",
+      "rationale": "Single-owner shop — Matt is the only relevant contact. Use website contact form or LinkedIn search by name."
+    },
+    "needs_review_flags": [
+      "Valdek is renovation-focused (basements, kitchens, baths, additions) — commercial scope is limited. Lower-priority target unless they're growing into commercial fit-up.",
+      "In-house painting capability noted — frame the pitch as overflow / specialty.",
+      "Address: 1354 Spruce St, Winnipeg."
+    ]
+  },
+  {
+    "company": "Vulcan Construction",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://vulcanconstruction.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Kevin Farkas",
+        "title": "Sales Estimator",
+        "email": null,
+        "phone": null,
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Title 'Sales Estimator' is unusual — combined sales + estimating means Kevin owns both qualifying the project AND pricing it. He IS the front door.",
+          "Vulcan does residential + commercial across MB — get on Kevin's bid list for the commercial / multi-family side.",
+          "LinkedIn page vulcan-construction-winnipeg confirms he is Winnipeg-based.",
+          "Sales-mindset estimator responds well to clear value props — Ashrah's '6-day delay forecasting' is a sellable feature he can pitch upward."
+        ],
+        "sources": [
+          {
+            "url": "https://ca.linkedin.com/company/vulcan-construction-winnipeg",
+            "claim": "Vulcan Construction Winnipeg LinkedIn — Kevin Farkas listed as Sales Estimator"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Vulcan Construction main line",
+      "title": "via website",
+      "rationale": "Reach via vulcanconstruction.ca contact form if Kevin's direct line isn't surfaced."
+    },
+    "needs_review_flags": [
+      "Confirm Kevin Farkas's email format and exact LinkedIn URL via RocketReach.",
+      "Verify Vulcan's commercial vs residential split — TrustedPros listing suggests both."
+    ]
+  },
+  {
+    "company": "Westland Construction Ltd.",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.westlandconstructionltd.com",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Emily Mason",
+        "title": "Estimator",
+        "email": null,
+        "phone": "204-633-6272",
+        "linkedin": "https://www.linkedin.com/in/emily-mason/",
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Named estimator at a 40+ year Winnipeg commercial GC with COR certification since 2004 — this is exactly the seat to be on.",
+          "Westland scope = commercial / institutional / industrial new + reno — broad fit for Ashrah's commercial painting offering.",
+          "Westland's published Quality Management System explicitly references estimating-through-completion processes — Emily owns the front of that pipeline.",
+          "Smaller estimating team at a 20-person firm — high impact per relationship.",
+          "Located at Unit 1-475 Dovercourt Dr — Ahmad can drop documents in person."
+        ],
+        "sources": [
+          {
+            "url": "https://www.linkedin.com/in/emily-mason/",
+            "claim": "Emily Mason listed as Estimator at WESTLAND CONSTRUCTION, INC. on LinkedIn"
+          },
+          {
+            "url": "https://www.westlandconstructionltd.com/our-company",
+            "claim": "Westland founded 1979, COR-certified since 2004, ~20 employees"
+          }
+        ],
+        "confidence": "medium"
+      }
+    ],
+    "fallback_contact": {
+      "name": "Peter Grose",
+      "title": "President / CEO",
+      "rationale": "President of Westland Construction Ltd. Reasonable warm-fallback if Emily doesn't engage."
+    },
+    "needs_review_flags": [
+      "LinkedIn 'Emily Mason' name is common — verify the right Emily Mason via her Winnipeg location and Westland affiliation. Consider phoning 204-633-6272 to confirm she still holds the role.",
+      "Other named Westland staff: Rosario Vassallo (PM), Hubert Verrier (Superintendent), Kevin Curtain (PM), Chris Houghton."
+    ]
+  },
+  {
+    "company": "Winnipeg Building & Decorating Ltd. (WBD)",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://wbdmb.ca",
+    "estimator_found": true,
+    "estimators": [
+      {
+        "name": "Dale Frandsen",
+        "title": "Senior Estimator",
+        "email": null,
+        "phone": "(204) 942-6121",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Senior Estimator at a 70+ year Winnipeg institution — Dale is the bid-list owner.",
+          "WBD scope = insurance restoration + commercial reno + new construction. Insurance restoration jobs are high-frequency/repeatable painting work — strong fit for Ashrah.",
+          "Email format pgbldg.com / wpgbldg.com — likely dale@wpgbldg.com or dfrandsen@wpgbldg.com (verify).",
+          "WBD founded 1953 by Donald T. MacAngus — heritage-firm gravitas; Ahmad's 'protect your reputation' framing fits their identity."
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/p/Dale-Frandsen/942515555",
+            "claim": "Dale Frandsen, Senior Estimator, Winnipeg Building & Decorating, email format ****@pgbldg.com"
+          },
+          {
+            "url": "https://wbdmb.ca/about/",
+            "claim": "WBD founded 1953 by Donald T. MacAngus; commercial reno + insurance restoration + new construction"
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "name": "Matthew Keys",
+        "title": "Project Managing Estimator",
+        "email": null,
+        "phone": "(204) 942-6121",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "PM-Estimator hybrid = he both bids the work and manages it — once Ashrah is on his short list, repeat work is automatic.",
+          "Email format pgbldg.com — likely mkeys@wpgbldg.com or matthew@wpgbldg.com."
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/p/Matthew-Keys/2422123396",
+            "claim": "Matthew Keys, Project Managing Estimator at WBD, email format ****@pgbldg.com"
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "name": "Darci-lee Tessier",
+        "title": "Project Assistant & Estimator",
+        "email": null,
+        "phone": "(204) 942-6121",
+        "linkedin": null,
+        "tenure_years_at_company": null,
+        "prior_firms": [],
+        "education": [],
+        "personalization_hooks": [
+          "Junior estimator role — most receptive to new sub relationships.",
+          "Email visible as d***@wpgbldg.com — likely dtessier@wpgbldg.com.",
+          "Often the gatekeeper for incoming bid invitations — befriending her opens the door for Dale and Matthew."
+        ],
+        "sources": [
+          {
+            "url": "https://www.zoominfo.com/p/Darci-lee-Tessier/11347994650",
+            "claim": "Darci-lee Tessier, Project Assistant & Estimator at WBD, email d***@wpgbldg.com"
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "fallback_contact": {
+      "name": "WBD main line",
+      "title": "(204) 942-6121",
+      "rationale": "70-year-old firm with 3 named estimators — direct approach via the published estimator names is the best path."
+    },
+    "needs_review_flags": [
+      "WBD is the strongest single target on the list: 3 named estimators, 70-year heritage firm, commercial+insurance restoration scope.",
+      "Email domain confusion: ZoomInfo shows pgbldg.com, RocketReach/website may show wpgbldg.com — verify before sending.",
+      "Address: 1586 Wall St, Winnipeg."
+    ]
+  },
+  {
+    "company": "WinnPro Construction Ltd.",
+    "researched_at": "2026-04-28T00:00:00Z",
+    "website": "https://www.winnproconstruction.ca",
+    "estimator_found": false,
+    "estimators": [],
+    "fallback_contact": {
+      "name": "Bert Krahn",
+      "title": "President",
+      "rationale": "First-generation owner of a 15+ year commercial GC. In a firm this size, Bert is functionally the lead estimator. Barbara Krahn is listed as Partner. Landon Krahn (LinkedIn-associated, likely family) is also at WinnPro."
+    },
+    "needs_review_flags": [
+      "Family-run shop — 'Krahn' surname pattern suggests succession in progress; Landon Krahn (LinkedIn) may be the next-gen estimator-in-training; worth a direct LinkedIn message.",
+      "Phone: 1-204-989-5941; Email: info@winnpro.ca; Address: Unit A - 48 Speers Rd, Winnipeg.",
+      "WinnPro scope = food industries, industrial, retail, commercial offices — strong fit for Ashrah."
+    ],
+    "sources": [
+      {
+        "url": "https://www.winnproconstruction.ca/",
+        "claim": "WinnPro Construction commercial scope and contact info"
+      },
+      {
+        "url": "https://ca.linkedin.com/in/landon-krahn-7865a29",
+        "claim": "Landon Krahn LinkedIn, WinnPro Construction"
+      },
+      {
+        "url": "https://www.bbb.org/ca/mb/winnipeg/profile/building-materials/winnpro-construction-ltd-0057-23089",
+        "claim": "Bert Krahn President, Barbara Krahn Partner"
+      }
+    ]
+  }
+]

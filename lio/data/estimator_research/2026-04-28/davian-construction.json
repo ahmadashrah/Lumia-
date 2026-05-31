@@ -1,0 +1,26 @@
+{
+  "company": "Davian Construction Ltd",
+  "researched_at": "2026-04-28T16:15:00Z",
+  "website": "https://www.davianconstruction.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Ian A. Balcain",
+    "title": "President / Owner, Davian Construction Ltd",
+    "rationale": "Small commercial+residential reno/repair GC at 740 Logan Ave, Winnipeg. Ian is the President per BBB. Sasan Dorniani is listed as Project Manager — likely also handles estimating given firm size. Phone the office, ask for Ian or Sasan. Davian has BBB Accreditation and 20+ years history."
+  },
+  "needs_review_flags": [
+    "No dedicated estimator surfaced; firm size suggests President + PM handle estimating between them",
+    "Mixed commercial/residential — clarify Ahmad's scope fit"
+  ],
+  "personalization_hooks": [
+    "Small owner-led GC on Logan Ave (West End / industrial district) — fast bid decisions",
+    "Sasan Dorniani as PM is the practical day-to-day contact",
+    "Mix of business, commercial, residential reno — variety of paint scopes"
+  ],
+  "sources": [
+    {"url": "https://www.bbb.org/ca/mb/winnipeg/profile/home-renovation/davian-construction-ltd-0057-14074", "claim": "Ian A. Balcain — President; Sasan Dorniani — PM; Laurie Reader — Admin"},
+    {"url": "https://www.davianconstruction.com/ourteam", "claim": "Team page exists"},
+    {"url": "https://www.yellowpages.ca/bus/Manitoba/Winnipeg/Davian-Construction-Ltd/2219375.html", "claim": "Address 740 Logan Ave"}
+  ]
+}

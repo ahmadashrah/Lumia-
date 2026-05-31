@@ -1,0 +1,28 @@
+{
+  "company": "Graham Construction & Engineering Inc. (Winnipeg)",
+  "researched_at": "2026-04-28T16:20:00Z",
+  "website": "https://www.grahambuilds.com",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Stephane Gagnon",
+    "title": "Graham Construction (Winnipeg-area; LinkedIn signals Winnipeg involvement)",
+    "linkedin": "https://www.linkedin.com/in/stephane-gagnon-32a7b925/",
+    "rationale": "No specific Winnipeg estimator name surfaced in public search. Graham is a major employee-owned national GC. Their Winnipeg office: 126 Commerce Dr, Winnipeg, MB R3P 0Z6, phone 204-897-4600. RECOMMENDED: Phone the Winnipeg office and ask for the Buildings preconstruction lead. Also: Andrew Coleman (now at Contempora Steel Builders, see contempora-steel-builders.json) is a former Graham PM — Ahmad could ask Andrew for a warm intro to the Graham Winnipeg estimating team."
+  },
+  "needs_review_flags": [
+    "No Winnipeg-specific Graham estimator name found in search",
+    "Graham has thousands of employees nationally; Winnipeg-specific filter needed via direct LinkedIn employee search filtered by location",
+    "Active leverage: warm intro through Andrew Coleman at Contempora (ex-Graham PM)"
+  ],
+  "personalization_hooks": [
+    "Graham is employee-owned — culture fit angle: pitch Ashrah as a sub that respects the long-term partnership model",
+    "Office on Commerce Drive (CentrePort area)",
+    "WARM INTRO opportunity: Andrew Coleman at Contempora Steel was previously a PM at Graham — Ahmad should approach Andrew first, then leverage to Graham"
+  ],
+  "sources": [
+    {"url": "https://www.grahambuilds.com/locations/winnipeg/", "claim": "Winnipeg office details"},
+    {"url": "https://www.yellowpages.ca/bus/Manitoba/Winnipeg/Graham-Construction/8143126.html", "claim": "Address and phone"},
+    {"url": "https://www.linkedin.com/in/stephane-gagnon-32a7b925/", "claim": "Stephane Gagnon at Graham (location signal)"}
+  ]
+}

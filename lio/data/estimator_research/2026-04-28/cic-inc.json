@@ -1,0 +1,29 @@
+{
+  "company": "CIC Inc.",
+  "researched_at": "2026-04-28T16:10:00Z",
+  "website": "https://cic-inc.ca",
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Rudy Penner",
+    "title": "President, CIC Inc.",
+    "rationale": "Small (~10 employees, ~$1.9M revenue) GC; Rudy is the principal. CIC has an Estimator/Project Manager combined role per their team structure. With the size, the President is likely involved in bid decisions directly. CIC specializes in restaurant + commercial GC with 30+ years history — high-frequency repeat-paint work (chain rollouts). Office: 865 Wall St, Winnipeg, MB R3G 2T9. Phone: 204-988-2199."
+  },
+  "needs_review_flags": [
+    "Estimator role is combined with PM — fetch cic-inc.ca/meet-our-team-employees/ manually to identify current Estimator/PM names",
+    "Restaurant focus = lots of franchise/chain work — Ashrah should mention any restaurant-chain refinish experience"
+  ],
+  "personalization_hooks": [
+    "30+ years in restaurant + commercial — chain franchise work means recurring paint scopes (refresh cycles)",
+    "Small firm, owner-led decision-making — quick bid-list moves",
+    "Wall St / West End office",
+    "Pitch the 5:30 PM auto-report angle — restaurant clients are demanding on schedule and presentation; CIC will value a sub that handles that paperwork itself",
+    "Post-job professional cleaning is HUGE for restaurants reopening to customers — lead with that"
+  ],
+  "sources": [
+    {"url": "https://cic-inc.ca/meet-our-team-employees/", "claim": "Team structure includes Estimator/PM combined role"},
+    {"url": "https://www.zoominfo.com/c/cic-inc/356610202", "claim": "Rudy Penner is principal/President"},
+    {"url": "https://cic-inc.ca/", "claim": "Restaurant + commercial GC, 30+ years"},
+    {"url": "https://www.bbb.org/manitoba/business-reviews/contractors-general/cic-in-winnipeg-mb-56332", "claim": "BBB Winnipeg listing"}
+  ]
+}

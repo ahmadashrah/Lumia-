@@ -1,0 +1,19 @@
+{
+  "drafted_at": "2026-05-05T19:38:25.616986",
+  "drafted_for_mission": "60-day BD outreach (2026-04-28 → 2026-06-27)",
+  "id": "fabca-colin-richards",
+  "to_name": "Colin Richards",
+  "to_email": "colin@fabca.ca",
+  "company": "FABCA Construction",
+  "segment": "GC",
+  "angle_used": "Estimator: AI bid in 24h, 13% lower + RRC alumni hook",
+  "subject": "Painting bids in 24 hours for FABCA",
+  "body": "Hi Colin,\n\nBTCM credential — same Winnipeg trades-college pipeline our crews come through. Quick intro.\n\nFABCA's retail TI book is volume-heavy. Painting subs slow your bid book down with week-long turnarounds and bloated estimator-overhead numbers. Ashrah's AI estimator returns a 95%-detailed bid in 24 hours, at least 13% lower than human-estimated subs. Plus Lumia auto-status during execution.\n\nWant us on FABCA's painting bid list?",
+  "cta": "Want us on FABCA's painting bid list?",
+  "signals_used": "FABCA TI sequence. Colin = BTCM credential (likely RRC alum).",
+  "needs_review_flags": [
+    "Email guessed at colin@fabca.ca — VERIFY.",
+    "Stagger from Greg and Fabio.",
+    "BTCM credential suggests Red River College alumni angle — Ahmad can lean on shared-pipeline if it lands."
+  ]
+}

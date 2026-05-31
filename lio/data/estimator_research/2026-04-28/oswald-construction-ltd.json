@@ -1,0 +1,21 @@
+{
+  "company": "Oswald Construction Ltd",
+  "researched_at": "2026-04-28T00:00:00Z",
+  "website": null,
+  "estimator_found": false,
+  "estimators": [],
+  "fallback_contact": {
+    "name": "Graeme MacMillan",
+    "title": "Oswald Construction Ltd (role unconfirmed)",
+    "rationale": "Public LinkedIn profile associated with Oswald. Company is 11-50 employees, founded 1954, focused on turnkey residential — limited commercial painting fit but worth a touch."
+  },
+  "needs_review_flags": [
+    "Oswald Construction primarily does turnkey residential; commercial fit is moderate.",
+    "Estimator may be the owner. Phone Assiniboia Chamber listing or BBB profile.",
+    "Address: 3067 Ness Ave, Winnipeg."
+  ],
+  "sources": [
+    {"url": "https://ca.linkedin.com/in/graeme-macmillan-84453568", "claim": "Graeme MacMillan associated with Oswald Construction Ltd on LinkedIn"},
+    {"url": "https://www.zoominfo.com/c/oswald-construction-ltd/372057620", "claim": "Oswald Construction Ltd company info and employee count"}
+  ]
+}

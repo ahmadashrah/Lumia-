@@ -859,7 +859,10 @@ HTML = """<!DOCTYPE html>
   <!-- EMPLOYEE AUTH BAR -->
   <div class="emp-bar">
     <span>&#128100; Signed in as <strong>{{ employee_name }}</strong></span>
-    <a href="/employee-logout">Sign out</a>
+    <span style="margin-left:auto;display:flex;gap:14px;">
+      <a href="/crew-chat" style="font-weight:600;">💬 Crew Chat</a>
+      <a href="/employee-logout">Sign out</a>
+    </span>
   </div>
 
   <!-- LANGUAGE BAR -->
@@ -2521,6 +2524,339 @@ def employee_logout():
 
 
 # ---------------------------------------------------------------------------
+# CREW CHAT — internal team channel for employees (one shared "general" room)
+#   Stores every message in crew_chat_messages. Nightly job summarizes each
+#   employee's voice/tone/topics into employee_profiles for Lumia to learn from.
+# ---------------------------------------------------------------------------
+
+CREW_CHAT_HTML = r"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lumia — Crew Chat</title>
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v3.png">
+<meta name="theme-color" content="#1F3864">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+         background:#eef1f7; color:#1F3864; display:flex; flex-direction:column; }
+  header { background:#1F3864; color:#fff; padding:14px 16px; display:flex;
+           align-items:center; justify-content:space-between; box-shadow:0 1px 4px rgba(0,0,0,.12); }
+  header .ttl { font-weight:700; font-size:18px; letter-spacing:.3px; }
+  header .me  { font-size:12px; opacity:.85; }
+  header a    { color:#fff; text-decoration:none; opacity:.85; font-size:13px; }
+  #messages { flex:1; overflow-y:auto; padding:14px 12px 6px; display:flex;
+              flex-direction:column; gap:8px; }
+  .msg { max-width:78%; padding:9px 12px; border-radius:14px; line-height:1.35;
+         font-size:15px; word-wrap:break-word; white-space:pre-wrap; }
+  .msg .who  { font-size:11px; font-weight:700; opacity:.7; margin-bottom:2px; letter-spacing:.3px; }
+  .msg .when { font-size:10px; opacity:.55; margin-top:4px; }
+  .mine { align-self:flex-end; background:#1F3864; color:#fff; border-bottom-right-radius:4px; }
+  .mine .who, .mine .when { color:#cfd8e6; opacity:.85; }
+  .other { align-self:flex-start; background:#fff; color:#1F3864;
+           border:1px solid #d8deeb; border-bottom-left-radius:4px; }
+  .system { align-self:center; background:#f3f5f9; color:#56607a;
+            font-size:12px; padding:6px 12px; border-radius:10px; }
+  .daysep { align-self:center; font-size:11px; color:#88909e; padding:6px 0; letter-spacing:.5px; text-transform:uppercase; }
+  footer { background:#fff; border-top:1px solid #d8deeb; padding:8px 10px;
+           padding-bottom: calc(8px + env(safe-area-inset-bottom));
+           display:flex; gap:8px; align-items:flex-end; }
+  textarea { flex:1; resize:none; border:1px solid #c8d0e0; border-radius:18px;
+             padding:10px 14px; font:inherit; min-height:42px; max-height:120px; outline:none;
+             background:#fafbfd; color:#1F3864; }
+  textarea:focus { border-color:#1F3864; background:#fff; }
+  button#send { background:#1F3864; color:#fff; border:none; border-radius:18px;
+                padding:10px 18px; font-weight:700; font-size:15px; cursor:pointer; min-height:42px; }
+  button#send:disabled { opacity:.45; cursor:not-allowed; }
+  #status { font-size:11px; color:#88909e; padding:0 14px 4px; min-height:14px; }
+</style>
+</head><body>
+<header>
+  <div>
+    <div class="ttl">Crew Chat</div>
+    <div class="me">Signed in as <strong>{{ employee_name }}</strong></div>
+  </div>
+  <div><a href="/">← Back</a></div>
+</header>
+
+<div id="messages"><div class="system">Loading messages…</div></div>
+<div id="status"></div>
+<footer>
+  <textarea id="input" placeholder="Message the crew…" rows="1" maxlength="2000"></textarea>
+  <button id="send">Send</button>
+</footer>
+
+<script>
+(function () {
+  const ME       = {{ employee_name|tojson }};
+  const msgsEl   = document.getElementById('messages');
+  const inputEl  = document.getElementById('input');
+  const sendBtn  = document.getElementById('send');
+  const statusEl = document.getElementById('status');
+
+  let lastId  = 0;
+  let lastDay = '';
+  let polling = false;
+
+  function fmtClock(iso) {
+    const d = new Date(iso);
+    let h = d.getHours(); const m = String(d.getMinutes()).padStart(2,'0');
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return h + ':' + m + ' ' + ap;
+  }
+  function fmtDay(iso) {
+    const d = new Date(iso);
+    const today = new Date();
+    const yest  = new Date(); yest.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yest.toDateString())  return 'Yesterday';
+    return d.toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'});
+  }
+  function escapeHtml(s) {
+    return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderMsg(m) {
+    const day = fmtDay(m.created_at);
+    if (day !== lastDay) {
+      const sep = document.createElement('div');
+      sep.className = 'daysep'; sep.textContent = day;
+      msgsEl.appendChild(sep);
+      lastDay = day;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (m.employee_name === ME ? 'mine' : 'other');
+    wrap.innerHTML =
+      (m.employee_name === ME ? '' : '<div class="who">' + escapeHtml(m.employee_name) + '</div>') +
+      escapeHtml(m.body) +
+      '<div class="when">' + fmtClock(m.created_at) + '</div>';
+    msgsEl.appendChild(wrap);
+  }
+
+  async function poll() {
+    if (polling) return;
+    polling = true;
+    try {
+      const r = await fetch('/api/crew-chat/messages?since=' + lastId, {credentials:'same-origin'});
+      const j = await r.json();
+      if (j.ok && j.messages && j.messages.length) {
+        if (lastId === 0) msgsEl.innerHTML = '';
+        j.messages.forEach(renderMsg);
+        lastId = j.messages[j.messages.length - 1].id;
+        msgsEl.scrollTop = msgsEl.scrollHeight;
+      } else if (lastId === 0) {
+        msgsEl.innerHTML = '<div class="system">No messages yet — say hi 👋</div>';
+      }
+      statusEl.textContent = '';
+    } catch (e) {
+      statusEl.textContent = 'Reconnecting…';
+    } finally {
+      polling = false;
+    }
+  }
+
+  async function send() {
+    const body = inputEl.value.trim();
+    if (!body) return;
+    sendBtn.disabled = true; statusEl.textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/crew-chat/send', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({body: body})
+      });
+      const j = await r.json();
+      if (j.ok) { inputEl.value = ''; inputEl.style.height = 'auto'; statusEl.textContent = ''; poll(); }
+      else { statusEl.textContent = 'Could not send: ' + (j.error || 'unknown error'); }
+    } catch (e) {
+      statusEl.textContent = 'Could not send (offline?)';
+    } finally {
+      sendBtn.disabled = false;
+    }
+  }
+
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+  });
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  sendBtn.addEventListener('click', send);
+
+  // Initial load + light polling every 4 s while tab is visible
+  poll();
+  setInterval(() => { if (!document.hidden) poll(); }, 4000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+})();
+</script>
+</body></html>"""
+
+
+def _crew_chat_sender_name() -> str:
+    """Resolve who the message is from for the current session."""
+    return (session.get("employee_name")
+            or session.get("name")
+            or (session.get("role") == "owner" and "Owner")
+            or "").strip()
+
+
+@app.route("/crew-chat")
+@require_employee
+def crew_chat_page():
+    return render_template_string(CREW_CHAT_HTML, employee_name=_crew_chat_sender_name())
+
+
+@app.route("/api/crew-chat/messages")
+@require_employee
+def api_crew_chat_messages():
+    """Return messages with id > since (default: last 100)."""
+    if not supabase_client:
+        return jsonify({"ok": True, "messages": []})
+    try:
+        since = int(request.args.get("since") or 0)
+    except (TypeError, ValueError):
+        since = 0
+    try:
+        q = supabase_client.table("crew_chat_messages") \
+            .select("id,employee_name,body,language,source,created_at")
+        if since > 0:
+            rows = q.gt("id", since).order("id", desc=False).limit(200).execute().data or []
+        else:
+            rows = q.order("id", desc=True).limit(100).execute().data or []
+            rows = list(reversed(rows))
+        return jsonify({"ok": True, "messages": rows})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "messages": []}), 500
+
+
+@app.route("/api/crew-chat/send", methods=["POST"])
+@require_employee
+def api_crew_chat_send():
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Storage not configured."}), 500
+    sender = _crew_chat_sender_name()
+    if not sender:
+        return jsonify({"ok": False, "error": "Could not determine your name."}), 400
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "Empty message."}), 400
+    if len(body) > 2000:
+        body = body[:2000]
+    # Resolve sender's preferred language for the audit trail / future learning
+    lang = "en"
+    try:
+        rows = supabase_client.table("employees") \
+            .select("language").eq("name", sender).limit(1).execute().data or []
+        if rows and rows[0].get("language"):
+            lang = (rows[0]["language"] or "en").lower()
+    except Exception:
+        pass
+    try:
+        supabase_client.table("crew_chat_messages").insert({
+            "employee_name": sender,
+            "body":          body,
+            "language":      lang,
+            "source":        "web",
+        }).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# --- Learning job — summarize each employee's communication style nightly ---
+def _learn_employee_profiles():
+    """For every employee active in the last 14 days, ask Claude Haiku for a
+    short profile of their tone, topics, language, and emoji style. Store
+    in employee_profiles. Cheap (Haiku, < $0.01/run for a 20-person crew)."""
+    if not supabase_client:
+        return
+    try:
+        # Last 14 days of messages, then group by employee in Python
+        from datetime import datetime, timedelta, timezone
+        since_dt = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        rows = supabase_client.table("crew_chat_messages") \
+            .select("employee_name,body,language,created_at") \
+            .gte("created_at", since_dt) \
+            .order("created_at", desc=False).limit(5000).execute().data or []
+    except Exception as exc:
+        print(f"[Crew Learn] Could not fetch messages: {exc}")
+        return
+    if not rows:
+        print("[Crew Learn] No messages in last 14 days — skipping")
+        return
+
+    by_name: dict = {}
+    for r in rows:
+        nm = r.get("employee_name") or "?"
+        by_name.setdefault(nm, []).append(r)
+    print(f"[Crew Learn] Profiling {len(by_name)} employees from {len(rows)} messages")
+
+    try:
+        ai = _anthropic.Anthropic()
+    except Exception as exc:
+        print(f"[Crew Learn] Anthropic client error: {exc}")
+        return
+    model = os.getenv("CREW_LEARN_MODEL", "claude-haiku-4-5")
+
+    for name, msgs in by_name.items():
+        sample = msgs[-100:]  # cap to last 100 per person
+        excerpt = "\n".join(f"[{m.get('created_at','')[:10]}] {m.get('body','')}" for m in sample)
+        if len(excerpt) > 12000:
+            excerpt = excerpt[-12000:]
+        prompt = (
+            f"You are Lumia's voice-profile analyst for Ashrah Painting.\n\n"
+            f"Below are the last {len(sample)} chat messages from {name} in the crew channel. "
+            f"Build a short, useful profile of how {name} communicates so that Lumia can match "
+            f"their tone when speaking with or about them.\n\n"
+            f"Return JSON only (no markdown, no commentary), exactly:\n"
+            f"{{\n"
+            f'  "summary":       "2-3 sentences about who they are in chat (role on team, what they talk about).",\n'
+            f'  "tone":          "one short phrase (e.g. dry, warm, terse, joking, professional)",\n'
+            f'  "topics":        ["short", "list", "of", "things they bring up"],\n'
+            f'  "language_pref": "en | ar | fr",\n'
+            f'  "emoji_style":   "none | rare | frequent | specific emojis they use",\n'
+            f'  "quirks":        "any habits Lumia should know (greeting phrases, sign-offs, code-switching, etc.)"\n'
+            f"}}\n\n"
+            f"MESSAGES:\n{excerpt}"
+        )
+        try:
+            resp = ai.messages.create(
+                model=model, max_tokens=600,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = "".join(b.text for b in resp.content if hasattr(b, "text") and b.text).strip()
+            # Strip accidental code fences
+            if text.startswith("```"):
+                text = text.split("```", 2)[1]
+                if text.startswith("json"): text = text[4:]
+                text = text.strip("` \n")
+            profile = json.loads(text)
+        except Exception as exc:
+            print(f"[Crew Learn] {name}: profile build failed — {exc}")
+            continue
+        try:
+            supabase_client.table("employee_profiles").upsert({
+                "employee_name": name,
+                "summary":       profile.get("summary"),
+                "tone":          profile.get("tone"),
+                "topics":        profile.get("topics") or [],
+                "language_pref": (profile.get("language_pref") or "en").lower()[:2],
+                "emoji_style":   profile.get("emoji_style"),
+                "quirks":        profile.get("quirks"),
+                "message_count": len(msgs),
+                "last_active":   msgs[-1].get("created_at"),
+                "updated_at":    datetime.now(timezone.utc).isoformat(),
+            }, on_conflict="employee_name").execute()
+            print(f"[Crew Learn] Updated profile for {name} ({len(msgs)} msgs, tone='{profile.get('tone')}')")
+        except Exception as exc:
+            print(f"[Crew Learn] {name}: upsert failed — {exc}")
+
+
+# ---------------------------------------------------------------------------
 # SET PASSWORD (via emailed link)
 # ---------------------------------------------------------------------------
 SET_PASSWORD_HTML = """<!DOCTYPE html>
@@ -3020,6 +3356,7 @@ def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
             }
 
     notified = []
+    failed   = []   # list of (name, reason) for the owner alert
     for name in employee_names:
         info = info_map.get(name, {})
         phone = _normalize_phone(info.get("phone") or "")
@@ -3028,6 +3365,7 @@ def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
             lang = "en"
 
         # Prefer SMS
+        sms_fail_detail = ""
         if phone:
             body = _assignment_sms_body(name, job_info, lang)
             ok, detail = _send_sms(phone, body, category="sms_assignment")
@@ -3035,17 +3373,66 @@ def _notify_assigned_employees(job_info: dict, employee_names: list) -> list:
                 notified.append(name)
                 print(f"[Job SMS] Sent to {name} ({lang}) {phone}")
                 continue
-            print(f"[Job SMS] Failed for {name}: {detail} — trying email fallback")
+            sms_fail_detail = detail or "unknown"
+            # Common case: Twilio 21610 = recipient texted STOP
+            short = "phone unsubscribed (replied STOP)" if "21610" in sms_fail_detail else f"SMS failed: {sms_fail_detail[:120]}"
+            print(f"[Job SMS] Failed for {name}: {sms_fail_detail} — trying email fallback")
 
         # Fallback: email (no phone, or SMS failed)
         email = info.get("email")
         if not email:
-            print(f"[Job Notify] No phone or email for {name} — skipped")
+            reason = "no phone and no email on file" if not phone else f"SMS failed and no email on file (phone: {short if phone else ''})"
+            print(f"[Job Notify] {name}: {reason} — skipped")
+            failed.append((name, reason))
             continue
         ok = _email_assignment(name, email, job_info)
         if ok:
             notified.append(name)
+        else:
+            reason = "email delivery failed" if not phone else f"SMS blocked ({short}) and email delivery failed"
+            failed.append((name, reason))
+
+    # If anyone fell through every channel, alert the owner
+    if failed:
+        try:
+            _alert_owner_notify_failures(job_info, failed)
+        except Exception as exc:
+            print(f"[Job Notify] Owner alert failed: {exc}")
     return notified
+
+
+def _alert_owner_notify_failures(job_info: dict, failed: list) -> None:
+    """When one or more assigned employees couldn't be reached by SMS or email,
+    email the owner so they can follow up manually."""
+    import httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    owner = os.getenv("OWNER_EMAIL", "ahmdashrah@gmail.com")
+    if not resend_key or not failed:
+        return
+    site = job_info.get("site_address") or job_info.get("client_name") or "the new site"
+    lines = "\n".join(f"  • {name} — {reason}" for name, reason in failed)
+    text = (
+        f"Heads up — Lumia could NOT notify the following crew about the assignment to {site}:\n\n"
+        f"{lines}\n\n"
+        f"Most common cause: the employee texted STOP to the Lumia number at some point. "
+        f"They need to text START to +1-320-431-3790 to re-subscribe. "
+        f"Until then, please tell them about this job in person or by phone.\n\n— Lumia"
+    )
+    try:
+        httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={
+                "from":    "Lumia <noreply@ashrah.ai>",
+                "to":      [owner],
+                "subject": f"⚠️ Crew not reached for {site}",
+                "text":    text,
+            },
+            timeout=15,
+        )
+        print(f"[Job Notify] Owner alerted about {len(failed)} unreached crew")
+    except Exception as exc:
+        print(f"[Job Notify] Owner alert send error: {exc}")
 
 
 def _email_assignment(name: str, email: str, job_info: dict) -> bool:
@@ -3075,7 +3462,12 @@ def _email_assignment(name: str, email: str, job_info: dict) -> bool:
             },
             timeout=15,
         )
-        return r.status_code in (200, 201)
+        ok = r.status_code in (200, 201)
+        if ok:
+            print(f"[Job Email fallback] Sent to {name} → {email}")
+        else:
+            print(f"[Job Email fallback] FAILED for {name} → {email} ({r.status_code}) {r.text[:200]}")
+        return ok
     except Exception as exc:
         print(f"[Job Email fallback] Error for {name}: {exc}")
         return False
@@ -16583,6 +16975,9 @@ if _acquire_scheduler_lock():
                            id="sms_arrival", replace_existing=True)
         _scheduler.add_job(_send_crew_evening_reminder, "cron", hour=16, minute=30,
                            id="sms_evening", replace_existing=True)
+        # Crew Chat: learn each employee's communication style nightly (Haiku, cheap)
+        _scheduler.add_job(_learn_employee_profiles, "cron", hour=3, minute=15,
+                           id="crew_learn_profiles", replace_existing=True)
         _scheduler.start()
         print("[Scheduler] STARTED in this worker — daily reports 18:00, escalations 20:00, "
               "tender reminders 08:00, attention digest 07:00, Zoho scan every 15 min (Winnipeg)")

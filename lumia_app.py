@@ -860,6 +860,7 @@ HTML = """<!DOCTYPE html>
   <div class="emp-bar">
     <span>&#128100; Signed in as <strong>{{ employee_name }}</strong></span>
     <span style="margin-left:auto;display:flex;gap:14px;">
+      <a href="/messages" style="font-weight:600;">📨 Management</a>
       <a href="/crew-chat" style="font-weight:600;">💬 Crew Chat</a>
       <a href="/employee-logout">Sign out</a>
     </span>
@@ -2854,6 +2855,661 @@ def _learn_employee_profiles():
             print(f"[Crew Learn] Updated profile for {name} ({len(msgs)} msgs, tone='{profile.get('tone')}')")
         except Exception as exc:
             print(f"[Crew Learn] {name}: upsert failed — {exc}")
+
+
+# ===========================================================================
+# DIRECT MESSAGES — crew ⇄ management (President / VP Ops / CFO)
+#   • Employees text only the 3 managers. Managers text any employee anytime.
+#   • Arabic-in / English-out: each message is auto-translated to the reader's
+#     language (employees read their own language, managers read English).
+#   • Every message fires an SMS to the recipient with a magic link to reply.
+#   • Opening the link is timestamped (read receipt) so you see who engages.
+#   • The President sees every thread, is alerted whenever the VP Ops or CFO
+#     is texted, and can post into any conversation.
+# ===========================================================================
+import secrets as _dm_secrets
+
+DM_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://lumia.ashrah.ai")
+
+# Management roster — (canonical name substring, role, display title). Order = display order.
+DM_MANAGERS = [
+    ("Ahmad Ashrah", "president", "President"),
+    ("Abdel",        "vp_ops",    "VP Operations"),
+    ("Sharmaine",    "cfo",        "CFO"),
+]
+DM_PRESIDENT_NAME = "Ahmad Ashrah"
+DM_ROLE_TITLE = {"president": "President", "vp_ops": "VP Operations",
+                 "cfo": "CFO", "employee": "Crew"}
+
+
+def _dm_role_for(name: str):
+    """If name is one of the 3 managers, return (canonical_name, role, title); else None.
+
+    Matching is deliberately careful so look-alikes don't collide:
+      • Single-token roster names (Abdel, Sharmaine) match on first-name prefix,
+        so 'Abdel Al Hadi' and 'Abdelhadi' both map to VP Ops.
+      • Multi-token roster names (Ahmad Ashrah) require ALL their parts to be
+        present, so 'Ahmad Shatat' does NOT match 'Ahmad Ashrah' (president)."""
+    low = (name or "").strip().lower()
+    if not low:
+        return None
+    tokens = low.split()
+    first = tokens[0] if tokens else ""
+    flat = low.replace(" ", "")
+    for canon, role, title in DM_MANAGERS:
+        cparts = canon.lower().split()
+        if len(cparts) == 1:
+            cp = cparts[0]
+            if first == cp or first.startswith(cp) or cp in flat:
+                return canon, role, title
+        else:
+            # Require every part of the full name to be matched by some token
+            if all(any(t == cp or t.startswith(cp) or cp.startswith(t) for t in tokens)
+                   for cp in cparts):
+                return canon, role, title
+    return None
+
+
+def _dm_is_manager(name: str) -> bool:
+    return _dm_role_for(name) is not None
+
+
+def _dm_is_president(name: str) -> bool:
+    r = _dm_role_for(name)
+    return bool(r and r[1] == "president")
+
+
+def _dm_emp_field(name: str, field: str, default=""):
+    if not supabase_client or not name:
+        return default
+    try:
+        rows = supabase_client.table("employees").select(field).eq("name", name).limit(1).execute().data or []
+        if rows and rows[0].get(field) is not None:
+            return rows[0][field]
+    except Exception:
+        pass
+    return default
+
+
+def _dm_emp_language(name: str) -> str:
+    return (_dm_emp_field(name, "language", "en") or "en").lower()[:2]
+
+
+def _dm_translate(text: str, target_lang: str) -> str:
+    """Translate to target_lang via Haiku. Best-effort: returns input unchanged
+    on any failure. Cheap (Haiku); only called when languages differ."""
+    text = (text or "").strip()
+    if not text or target_lang not in ("en", "ar", "fr"):
+        return text
+    try:
+        ai = _anthropic.Anthropic()
+        model = os.getenv("CREW_LEARN_MODEL", "claude-haiku-4-5")
+        lang_name = {"en": "English", "ar": "Arabic", "fr": "French"}[target_lang]
+        resp = ai.messages.create(
+            model=model, max_tokens=900,
+            system=(f"You are a translator for a painting company's internal staff messaging. "
+                    f"Translate the user's message into {lang_name}. Keep it natural, plain, and faithful — "
+                    f"preserve names, addresses, and numbers exactly. If it is already in {lang_name}, "
+                    f"return it unchanged. Output ONLY the translation: no notes, no quotes, no preamble."),
+            messages=[{"role": "user", "content": text}],
+        )
+        out = "".join(b.text for b in resp.content if hasattr(b, "text") and b.text).strip()
+        return out or text
+    except Exception as exc:
+        print(f"[DM translate] {exc}")
+        return text
+
+
+def _dm_post_message(employee_name: str, manager_name: str, sender_name: str,
+                     body: str, src_lang: str = None) -> dict:
+    """Insert one DM into the thread keyed by (employee_name, manager_name),
+    compute English + employee-language renderings, then notify the right people."""
+    if not supabase_client:
+        return None
+    mrole = _dm_role_for(manager_name)
+    if not mrole:
+        return None
+    manager_canon, manager_role, manager_title = mrole
+
+    sinfo = _dm_role_for(sender_name)
+    sender_role = sinfo[1] if sinfo else "employee"
+    if sinfo:
+        sender_name = sinfo[0]
+
+    body = (body or "").strip()
+    if not body:
+        return None
+
+    emp_lang = _dm_emp_language(employee_name) or "en"
+    if not src_lang:
+        src_lang = "en" if sender_role != "employee" else emp_lang
+
+    # English rendering — what managers / president read
+    body_en = body if src_lang == "en" else _dm_translate(body, "en")
+    # Employee-language rendering — what the crew member reads
+    if emp_lang == "en":
+        body_emp = body if src_lang == "en" else body_en
+    else:
+        body_emp = body if src_lang == emp_lang else _dm_translate(body, emp_lang)
+
+    try:
+        ins = supabase_client.table("dm_messages").insert({
+            "employee_name": employee_name,
+            "manager_name":  manager_canon,
+            "manager_role":  manager_role,
+            "sender_name":   sender_name,
+            "sender_role":   sender_role,
+            "body":          body[:2000],
+            "lang":          src_lang,
+            "body_en":       (body_en or "")[:4000],
+            "body_emp":      (body_emp or "")[:4000],
+        }).execute().data
+    except Exception as exc:
+        print(f"[DM] insert failed: {exc}")
+        return None
+    msg = ins[0] if ins else None
+    if not msg:
+        return None
+
+    _dm_notify_for_message(msg, employee_name, manager_canon, manager_role,
+                           sender_name, sender_role)
+    return msg
+
+
+def _dm_notify_for_message(msg, employee_name, manager_canon, manager_role,
+                           sender_name, sender_role):
+    """Decide who gets an SMS magic-link and fire them off."""
+    recipients = []   # (name, role)
+    if sender_role == "employee":
+        recipients.append((manager_canon, manager_role))
+        # President is alerted whenever VP Ops or CFO is texted
+        if manager_role in ("vp_ops", "cfo"):
+            recipients.append((DM_PRESIDENT_NAME, "president"))
+    else:
+        # A manager (or the president) posted → the crew member is the recipient
+        recipients.append((employee_name, "employee"))
+        # President wants visibility into every manager message that isn't theirs
+        if sender_role != "president":
+            recipients.append((DM_PRESIDENT_NAME, "president"))
+        # If the President interjects in a VP/CFO thread, loop that manager in
+        if sender_role == "president" and manager_role != "president":
+            recipients.append((manager_canon, manager_role))
+
+    seen = set()
+    for rname, rrole in recipients:
+        if not rname or rname.strip().lower() == (sender_name or "").strip().lower():
+            continue
+        key = rname.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        _dm_send_notification(msg, employee_name, manager_canon, rname, rrole, sender_name)
+
+
+def _dm_send_notification(msg, employee_name, manager_canon, recipient_name,
+                          recipient_role, sender_name):
+    """Create a read-receipt token row and text the recipient a magic link."""
+    token = _dm_secrets.token_urlsafe(16)
+    try:
+        supabase_client.table("dm_notifications").insert({
+            "token":          token,
+            "message_id":     msg.get("id"),
+            "recipient_name": recipient_name,
+            "recipient_role": recipient_role,
+            "employee_name":  employee_name,
+            "manager_name":   manager_canon,
+            "channel":        "sms",
+        }).execute()
+    except Exception as exc:
+        print(f"[DM notify] token insert failed for {recipient_name}: {exc}")
+        return
+    phone = _dm_emp_field(recipient_name, "phone", "")
+    if not phone:
+        print(f"[DM notify] {recipient_name}: no phone on file — web only (token {token[:6]}…)")
+        return
+    rlang = _dm_emp_language(recipient_name)
+    preview_src = msg.get("body_emp") if recipient_role == "employee" else msg.get("body_en")
+    preview = (preview_src or msg.get("body") or "").strip().replace("\n", " ")
+    if len(preview) > 90:
+        preview = preview[:90] + "…"
+    link = f"{DM_BASE_URL}/m/{token}"
+    if rlang == "ar":
+        sms_body = f"رسالة جديدة من {sender_name}:\n«{preview}»\nللرد اضغط هنا: {link}"
+    elif rlang == "fr":
+        sms_body = f"Nouveau message de {sender_name} :\n«{preview}»\nRépondre : {link}"
+    else:
+        sms_body = f"New message from {sender_name}:\n\"{preview}\"\nReply here: {link}"
+    ok, detail = _send_sms(phone, sms_body, category="dm_notify")
+    if not ok:
+        print(f"[DM notify] SMS to {recipient_name} failed: {detail}")
+
+
+def _dm_session_name() -> str:
+    """Resolve the logged-in person's name for DM purposes. Owner = President."""
+    nm = (session.get("employee_name") or session.get("name") or "").strip()
+    if session.get("role") == "owner":
+        # Owner acts as President even if their employee name isn't on the roster
+        if not _dm_is_manager(nm):
+            return DM_PRESIDENT_NAME
+    return nm
+
+
+def _dm_can_view(viewer_name: str, employee_name: str, manager_name: str) -> bool:
+    if _dm_is_president(viewer_name):
+        return True
+    if (viewer_name or "").strip().lower() == (employee_name or "").strip().lower():
+        return True
+    vr, mr = _dm_role_for(viewer_name), _dm_role_for(manager_name)
+    return bool(vr and mr and vr[0] == mr[0])
+
+
+def _dm_render_messages_for(viewer_role: str, rows: list) -> list:
+    """Pick the right body rendering for the viewer and shape the payload."""
+    out = []
+    for r in rows:
+        if viewer_role == "employee":
+            text = r.get("body_emp") or r.get("body") or ""
+        else:
+            text = r.get("body_en") or r.get("body") or ""
+        translated = (text != (r.get("body") or ""))
+        out.append({
+            "id":          r.get("id"),
+            "sender_name": r.get("sender_name"),
+            "sender_role": r.get("sender_role"),
+            "role_title":  DM_ROLE_TITLE.get(r.get("sender_role"), ""),
+            "text":        text,
+            "original":    r.get("body"),
+            "translated":  translated,
+            "created_at":  r.get("created_at"),
+        })
+    return out
+
+
+# ---- Magic-link thread page (token auth, no login needed) -----------------
+DM_THREAD_HTML = r"""<!DOCTYPE html>
+<html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lumia — Message</title>
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v3.png">
+<meta name="theme-color" content="#1F3864">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
+  header{background:#1F3864;color:#fff;padding:13px 16px}
+  header .t{font-weight:700;font-size:17px}header .s{font-size:12px;opacity:.85;margin-top:2px}
+  #msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+  .m{max-width:80%;padding:9px 12px;border-radius:14px;line-height:1.35;font-size:15px;white-space:pre-wrap;word-wrap:break-word}
+  .m .w{font-size:11px;font-weight:700;opacity:.7;margin-bottom:2px}
+  .m .x{font-size:10px;opacity:.55;margin-top:4px}
+  .m .tr{font-size:10px;opacity:.6;font-style:italic;margin-top:3px}
+  .mine{align-self:flex-end;background:#1F3864;color:#fff;border-bottom-right-radius:4px}
+  .mine .w,.mine .x,.mine .tr{color:#cfd8e6}
+  .other{align-self:flex-start;background:#fff;border:1px solid #d8deeb;border-bottom-left-radius:4px}
+  .sys{align-self:center;background:#f3f5f9;color:#56607a;font-size:12px;padding:6px 12px;border-radius:10px}
+  footer{background:#fff;border-top:1px solid #d8deeb;padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;border:1px solid #c8d0e0;border-radius:18px;padding:10px 14px;font:inherit;min-height:42px;max-height:120px;outline:none;background:#fafbfd}
+  textarea:focus{border-color:#1F3864;background:#fff}
+  #send{background:#1F3864;color:#fff;border:none;border-radius:18px;padding:10px 18px;font-weight:700;font-size:15px;min-height:42px;cursor:pointer}
+  #send:disabled{opacity:.45}
+  #st{font-size:11px;color:#88909e;padding:0 14px 4px;min-height:14px}
+</style></head><body>
+<header><div class="t">{{ other_name }}</div><div class="s">{{ other_title }} · you are {{ viewer_title }}</div></header>
+<div id="msgs"><div class="sys">{{ 'جارٍ التحميل…' if viewer_lang=='ar' else 'Loading…' }}</div></div>
+<div id="st"></div>
+<footer>
+  <textarea id="in" rows="1" maxlength="2000" placeholder="{{ 'اكتب رسالتك…' if viewer_lang=='ar' else 'Type your message…' }}"></textarea>
+  <button id="send">{{ 'إرسال' if viewer_lang=='ar' else 'Send' }}</button>
+</footer>
+<script>
+(function(){
+  const TOKEN={{ token|tojson }}, ME={{ viewer|tojson }};
+  const M=document.getElementById('msgs'),I=document.getElementById('in'),B=document.getElementById('send'),S=document.getElementById('st');
+  let last=0, busy=false;
+  const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function clock(iso){const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
+  function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
+    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
+      +esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';
+    M.appendChild(w);}
+  async function poll(){if(busy)return;busy=true;try{
+    const r=await fetch('/api/dm/thread?token='+encodeURIComponent(TOKEN)+'&since='+last,{credentials:'same-origin'});
+    const j=await r.json();
+    if(j.ok&&j.messages){if(last===0)M.innerHTML='';j.messages.forEach(add);
+      if(j.messages.length){last=j.messages[j.messages.length-1].id;M.scrollTop=M.scrollHeight;}
+      else if(last===0)M.innerHTML='<div class="sys">No messages yet.</div>';}
+    S.textContent='';}catch(e){S.textContent='Reconnecting…';}finally{busy=false;}}
+  async function send(){const b=I.value.trim();if(!b)return;B.disabled=true;S.textContent='…';
+    try{const r=await fetch('/api/dm/reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,body:b})});
+      const j=await r.json();if(j.ok){I.value='';I.style.height='auto';poll();}else{S.textContent='Could not send: '+(j.error||'error');}}
+    catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
+  I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
+  I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  B.addEventListener('click',send);poll();setInterval(()=>{if(!document.hidden)poll();},4000);
+})();
+</script></body></html>"""
+
+
+# ---- Messaging hub (session login: crew, managers, president) --------------
+DM_HUB_HTML = r"""<!DOCTYPE html>
+<html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lumia — Messages</title>
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v3.png"><meta name="theme-color" content="#1F3864">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
+  header{background:#1F3864;color:#fff;padding:13px 16px;display:flex;justify-content:space-between;align-items:center}
+  header .t{font-weight:700;font-size:18px}header a{color:#fff;opacity:.85;text-decoration:none;font-size:13px}
+  #wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #list{overflow-y:auto;padding:8px}
+  .th{background:#fff;border:1px solid #d8deeb;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .th:active{background:#f4f6fb}
+  .th .nm{font-weight:700;font-size:15px}.th .rl{font-size:11px;color:#7a8197;margin-top:1px}
+  .th .pv{font-size:13px;color:#56607a;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62vw}
+  .th .rt{font-size:10px;text-align:right;color:#9098a8;min-width:64px}
+  .badge{display:inline-block;background:#e7ecf6;color:#1F3864;border-radius:8px;font-size:10px;font-weight:700;padding:2px 6px;margin-left:6px}
+  .seen{color:#2e7d32}.unseen{color:#c77700}
+  /* chat view */
+  #chat{display:none;flex:1;flex-direction:column;overflow:hidden}
+  #cbar{background:#28406e;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+  #cbar .bk{cursor:pointer;font-size:18px}#cbar .ct{font-weight:700}
+  #msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+  .m{max-width:80%;padding:9px 12px;border-radius:14px;line-height:1.35;font-size:15px;white-space:pre-wrap;word-wrap:break-word}
+  .m .w{font-size:11px;font-weight:700;opacity:.7;margin-bottom:2px}.m .x{font-size:10px;opacity:.55;margin-top:4px}
+  .m .tr{font-size:10px;opacity:.6;font-style:italic;margin-top:3px}
+  .mine{align-self:flex-end;background:#1F3864;color:#fff;border-bottom-right-radius:4px}.mine .w,.mine .x,.mine .tr{color:#cfd8e6}
+  .other{align-self:flex-start;background:#fff;border:1px solid #d8deeb;border-bottom-left-radius:4px}
+  .sys{align-self:center;background:#f3f5f9;color:#56607a;font-size:12px;padding:6px 12px;border-radius:10px}
+  footer{background:#fff;border-top:1px solid #d8deeb;padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:none;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;border:1px solid #c8d0e0;border-radius:18px;padding:10px 14px;font:inherit;min-height:42px;max-height:120px;outline:none;background:#fafbfd}
+  textarea:focus{border-color:#1F3864;background:#fff}
+  #send{background:#1F3864;color:#fff;border:none;border-radius:18px;padding:10px 18px;font-weight:700;min-height:42px;cursor:pointer}
+  #send:disabled{opacity:.45}#st{font-size:11px;color:#88909e;padding:0 14px 4px;min-height:14px}
+  .hd{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8b93a4;padding:10px 6px 4px;font-weight:700}
+</style></head><body>
+<header><div class="t">Messages</div><a href="/">← Back</a></header>
+<div id="wrap">
+  <div id="list"><div class="sys" style="margin:20px auto;">Loading…</div></div>
+  <div id="chat">
+    <div id="cbar"><span class="bk" onclick="closeChat()">←</span><span class="ct" id="ctitle"></span></div>
+    <div id="msgs"></div>
+    <div id="st"></div>
+    <footer id="foot"><textarea id="in" rows="1" maxlength="2000" placeholder="Type a message…"></textarea><button id="send">Send</button></footer>
+  </div>
+</div>
+<script>
+(function(){
+  const ME={{ viewer|tojson }}, ROLE={{ viewer_role|tojson }}, ISPREZ={{ 'true' if is_president else 'false' }};
+  const list=document.getElementById('list'),chat=document.getElementById('chat'),wrap=document.getElementById('wrap');
+  const msgs=document.getElementById('msgs'),I=document.getElementById('in'),B=document.getElementById('send'),S=document.getElementById('st'),foot=document.getElementById('foot');
+  let cur=null,last=0,busy=false,pollT=null;
+  const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function clock(iso){if(!iso)return'';const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
+  function when(iso){if(!iso)return'';const d=new Date(iso),now=new Date();if(d.toDateString()===now.toDateString())return clock(iso);return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});}
+
+  async function loadThreads(){
+    try{const r=await fetch('/api/dm/threads',{credentials:'same-origin'});const j=await r.json();
+      if(!j.ok){list.innerHTML='<div class="sys">'+esc(j.error||'Error')+'</div>';return;}
+      render(j.threads||[]);}catch(e){list.innerHTML='<div class="sys">Offline</div>';}
+  }
+  function render(ths){
+    if(!ths.length){list.innerHTML='<div class="sys" style="margin:20px auto;">No conversations yet.</div>';return;}
+    let html='';
+    if(ISPREZ){html+='<div class="hd">All conversations</div>';}
+    ths.forEach(t=>{
+      const seen=t.last_opened?('<span class="seen">seen '+when(t.last_opened)+'</span>'):(t.awaiting_open?'<span class="unseen">delivered</span>':'');
+      html+='<div class="th" onclick="openChat('+JSON.stringify(t.employee_name).replace(/"/g,'&quot;')+','+JSON.stringify(t.manager_name).replace(/"/g,'&quot;')+','+JSON.stringify(t.title).replace(/"/g,'&quot;')+')">'
+        +'<div style="min-width:0"><div class="nm">'+esc(t.title)+'</div>'
+        +(t.subtitle?'<div class="rl">'+esc(t.subtitle)+'</div>':'')
+        +'<div class="pv">'+esc(t.preview||'')+'</div></div>'
+        +'<div class="rt">'+when(t.last_at)+'<br>'+seen+'</div></div>';
+    });
+    list.innerHTML=html;
+  }
+  window.openChat=function(emp,mgr,title){
+    cur={employee:emp,manager:mgr};last=0;msgs.innerHTML='';
+    document.getElementById('ctitle').textContent=title;
+    list.style.display='none';chat.style.display='flex';foot.style.display='flex';
+    loadMsgs();if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},4000);
+  };
+  window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';list.style.display='block';cur=null;loadThreads();};
+  function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
+    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
+      +esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';
+    msgs.appendChild(w);}
+  async function loadMsgs(){if(busy||!cur)return;busy=true;try{
+    const r=await fetch('/api/dm/messages?employee='+encodeURIComponent(cur.employee)+'&manager='+encodeURIComponent(cur.manager)+'&since='+last,{credentials:'same-origin'});
+    const j=await r.json();if(j.ok&&j.messages){if(last===0&&!j.messages.length)msgs.innerHTML='<div class="sys">No messages yet — say hi.</div>';
+      j.messages.forEach(add);if(j.messages.length){last=j.messages[j.messages.length-1].id;msgs.scrollTop=msgs.scrollHeight;}}
+    S.textContent='';}catch(e){S.textContent='Reconnecting…';}finally{busy=false;}}
+  async function send(){const b=I.value.trim();if(!b||!cur)return;B.disabled=true;S.textContent='…';
+    try{const r=await fetch('/api/dm/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({employee:cur.employee,manager:cur.manager,body:b})});
+      const j=await r.json();if(j.ok){I.value='';I.style.height='auto';loadMsgs();}else{S.textContent='Could not send: '+(j.error||'error');}}
+    catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
+  I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
+  I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  B.addEventListener('click',send);loadThreads();
+})();
+</script></body></html>"""
+
+
+@app.route("/m/<token>")
+def dm_magic_link(token):
+    """Tokenized thread page from an SMS notification. Records the open time."""
+    if not supabase_client:
+        return "Messaging is not available right now.", 503
+    try:
+        rows = supabase_client.table("dm_notifications").select("*").eq("token", token).limit(1).execute().data or []
+    except Exception:
+        rows = []
+    if not rows:
+        return ("<div style='font-family:sans-serif;padding:40px;text-align:center;color:#1F3864'>"
+                "<h2>Link expired</h2><p>This message link is no longer valid.</p></div>"), 404
+    note = rows[0]
+    if not note.get("opened_at"):
+        try:
+            supabase_client.table("dm_notifications").update(
+                {"opened_at": datetime.utcnow().isoformat()}).eq("token", token).execute()
+            print(f"[DM] read receipt — {note.get('recipient_name')} opened token {token[:6]}…")
+        except Exception:
+            pass
+    viewer       = note.get("recipient_name")
+    viewer_role  = note.get("recipient_role")
+    employee     = note.get("employee_name")
+    manager      = note.get("manager_name")
+    viewer_lang  = _dm_emp_language(viewer)
+    # Who's on the other side of the header?
+    if viewer_role == "employee":
+        other_name, other_title = manager, DM_ROLE_TITLE.get(note.get("recipient_role"), "")
+        mr = _dm_role_for(manager)
+        other_title = mr[2] if mr else "Management"
+    else:
+        other_name, other_title = employee, "Crew"
+    return render_template_string(
+        DM_THREAD_HTML, token=token, viewer=viewer, viewer_lang=viewer_lang,
+        viewer_title=DM_ROLE_TITLE.get(viewer_role, "Crew"),
+        other_name=other_name, other_title=other_title)
+
+
+@app.route("/api/dm/thread")
+def api_dm_thread():
+    """Messages for a tokenized thread (magic-link auth)."""
+    if not supabase_client:
+        return jsonify({"ok": True, "messages": []})
+    token = request.args.get("token") or ""
+    try:
+        since = int(request.args.get("since") or 0)
+    except (TypeError, ValueError):
+        since = 0
+    rows = supabase_client.table("dm_notifications").select("*").eq("token", token).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Invalid link"}), 404
+    note = rows[0]
+    employee, manager, vrole = note.get("employee_name"), note.get("manager_name"), note.get("recipient_role")
+    q = supabase_client.table("dm_messages").select("*") \
+        .eq("employee_name", employee).eq("manager_name", manager)
+    if since > 0:
+        q = q.gt("id", since)
+    msgs = q.order("id", desc=False).limit(300).execute().data or []
+    return jsonify({"ok": True, "messages": _dm_render_messages_for(vrole, msgs)})
+
+
+@app.route("/api/dm/reply", methods=["POST"])
+def api_dm_reply():
+    """Reply within a tokenized thread (magic-link auth)."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "unavailable"}), 503
+    d = request.get_json(silent=True) or {}
+    token = d.get("token") or ""
+    body = (d.get("body") or "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "Empty message"}), 400
+    rows = supabase_client.table("dm_notifications").select("*").eq("token", token).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Invalid link"}), 404
+    note = rows[0]
+    sender = note.get("recipient_name")
+    msg = _dm_post_message(note.get("employee_name"), note.get("manager_name"), sender, body)
+    return jsonify({"ok": bool(msg)})
+
+
+@app.route("/messages")
+@require_employee
+def dm_hub_page():
+    """Logged-in messaging hub — adapts to crew / manager / president."""
+    viewer = _dm_session_name()
+    if not viewer:
+        return redirect(url_for("employee_login_page", next="/messages"))
+    role = _dm_role_for(viewer)
+    viewer_role = role[1] if role else "employee"
+    return render_template_string(
+        DM_HUB_HTML, viewer=viewer, viewer_role=viewer_role,
+        viewer_lang=_dm_emp_language(viewer),
+        is_president=(viewer_role == "president"))
+
+
+@app.route("/api/dm/threads")
+@require_employee
+def api_dm_threads():
+    """Thread list for the logged-in viewer."""
+    if not supabase_client:
+        return jsonify({"ok": True, "threads": []})
+    viewer = _dm_session_name()
+    vinfo = _dm_role_for(viewer)
+    vrole = vinfo[1] if vinfo else "employee"
+
+    # Pull all employees (the "guys") = everyone not on the management roster
+    emp_rows = supabase_client.table("employees").select("name").execute().data or []
+    all_emps = [e.get("name") for e in emp_rows if e.get("name") and not _dm_is_manager(e.get("name"))]
+
+    # Determine which (employee, manager) pairs this viewer may see
+    pairs = []
+    if vrole == "president":
+        for mgr_canon, mrole, mtitle in DM_MANAGERS:
+            for emp in all_emps:
+                pairs.append((emp, mgr_canon, mtitle))
+    elif vrole in ("vp_ops", "cfo"):
+        mgr_canon = vinfo[0]
+        for emp in all_emps:
+            pairs.append((emp, mgr_canon, vinfo[2]))
+    else:
+        # a crew member — their 3 manager threads
+        for mgr_canon, mrole, mtitle in DM_MANAGERS:
+            pairs.append((viewer, mgr_canon, mtitle))
+
+    # Latest message + read-receipt per pair
+    threads = []
+    for emp, mgr, mtitle in pairs:
+        last_rows = supabase_client.table("dm_messages").select("*") \
+            .eq("employee_name", emp).eq("manager_name", mgr) \
+            .order("id", desc=True).limit(1).execute().data or []
+        if not last_rows and not (vrole in ("president", "vp_ops", "cfo")):
+            # crew: still show empty manager threads so they can start one
+            pass
+        last = last_rows[0] if last_rows else None
+        preview = ""
+        last_at = None
+        if last:
+            preview = (last.get("body_emp") if vrole == "employee" else last.get("body_en")) or last.get("body") or ""
+            last_at = last.get("created_at")
+        # Read receipt: did the OTHER side open the most recent notification?
+        last_opened = None
+        awaiting = False
+        if last:
+            notif = supabase_client.table("dm_notifications").select("opened_at,recipient_name") \
+                .eq("employee_name", emp).eq("manager_name", mgr) \
+                .order("id", desc=True).limit(3).execute().data or []
+            for n in notif:
+                if n.get("recipient_name") != last.get("sender_name"):
+                    if n.get("opened_at"):
+                        last_opened = n.get("opened_at")
+                    else:
+                        awaiting = True
+                    break
+        # Title: who the viewer is talking to
+        if vrole in ("president", "vp_ops", "cfo"):
+            title = emp
+            subtitle = (f"with {mtitle}" if vrole == "president" else "Crew")
+        else:
+            title = mtitle
+            subtitle = mgr
+        threads.append({
+            "employee_name": emp, "manager_name": mgr,
+            "title": title, "subtitle": subtitle,
+            "preview": preview[:80], "last_at": last_at,
+            "last_opened": last_opened, "awaiting_open": awaiting,
+            "_sort": last_at or "",
+        })
+    # Sort: threads with activity first (newest), empty ones after
+    threads.sort(key=lambda t: t["_sort"], reverse=True)
+    for t in threads:
+        t.pop("_sort", None)
+    return jsonify({"ok": True, "threads": threads})
+
+
+@app.route("/api/dm/messages")
+@require_employee
+def api_dm_messages():
+    """Messages in a thread for a logged-in viewer (session auth)."""
+    if not supabase_client:
+        return jsonify({"ok": True, "messages": []})
+    viewer = _dm_session_name()
+    employee = request.args.get("employee") or ""
+    manager  = request.args.get("manager") or ""
+    if not _dm_can_view(viewer, employee, manager):
+        return jsonify({"ok": False, "error": "Not authorized for this thread"}), 403
+    try:
+        since = int(request.args.get("since") or 0)
+    except (TypeError, ValueError):
+        since = 0
+    vinfo = _dm_role_for(viewer)
+    vrole = vinfo[1] if vinfo else "employee"
+    q = supabase_client.table("dm_messages").select("*") \
+        .eq("employee_name", employee).eq("manager_name", manager)
+    if since > 0:
+        q = q.gt("id", since)
+    msgs = q.order("id", desc=False).limit(300).execute().data or []
+    return jsonify({"ok": True, "messages": _dm_render_messages_for(vrole, msgs)})
+
+
+@app.route("/api/dm/send", methods=["POST"])
+@require_employee
+def api_dm_send():
+    """Send a message in a thread as the logged-in viewer."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "unavailable"}), 503
+    viewer = _dm_session_name()
+    d = request.get_json(silent=True) or {}
+    employee = (d.get("employee") or "").strip()
+    manager  = (d.get("manager") or "").strip()
+    body     = (d.get("body") or "").strip()
+    if not (employee and manager and body):
+        return jsonify({"ok": False, "error": "Missing fields"}), 400
+    if not _dm_can_view(viewer, employee, manager):
+        return jsonify({"ok": False, "error": "Not authorized for this thread"}), 403
+    # The sender is the viewer (could be the employee, the thread's manager, or the president interjecting)
+    msg = _dm_post_message(employee, manager, viewer, body)
+    return jsonify({"ok": bool(msg)})
 
 
 # ---------------------------------------------------------------------------

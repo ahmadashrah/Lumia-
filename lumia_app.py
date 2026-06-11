@@ -2961,7 +2961,7 @@ def _dm_translate(text: str, target_lang: str) -> str:
 
 
 def _dm_post_message(employee_name: str, manager_name: str, sender_name: str,
-                     body: str, src_lang: str = None) -> dict:
+                     body: str, src_lang: str = None, audio_url: str = None) -> dict:
     """Insert one DM into the thread keyed by (employee_name, manager_name),
     compute English + employee-language renderings, then notify the right people."""
     if not supabase_client:
@@ -3003,6 +3003,7 @@ def _dm_post_message(employee_name: str, manager_name: str, sender_name: str,
             "lang":          src_lang,
             "body_en":       (body_en or "")[:4000],
             "body_emp":      (body_emp or "")[:4000],
+            "audio_url":     audio_url or None,
         }).execute().data
     except Exception as exc:
         print(f"[DM] insert failed: {exc}")
@@ -3120,6 +3121,7 @@ def _dm_render_messages_for(viewer_role: str, rows: list) -> list:
             "text":        text,
             "original":    r.get("body"),
             "translated":  translated,
+            "audio_url":   r.get("audio_url"),
             "created_at":  r.get("created_at"),
         })
     return out
@@ -3157,6 +3159,7 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
 <div id="msgs"><div class="sys">{{ 'جارٍ التحميل…' if viewer_lang=='ar' else 'Loading…' }}</div></div>
 <div id="st"></div>
 <footer>
+  <button id="mic" type="button" title="Voice" style="background:#eef1f7;color:#1F3864;border:none;border-radius:18px;padding:10px 13px;font-size:18px;min-height:42px;cursor:pointer">🎤</button>
   <textarea id="in" rows="1" maxlength="2000" placeholder="{{ 'اكتب رسالتك…' if viewer_lang=='ar' else 'Type your message…' }}"></textarea>
   <button id="send">{{ 'إرسال' if viewer_lang=='ar' else 'Send' }}</button>
 </footer>
@@ -3169,7 +3172,8 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
   function clock(iso){const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
   function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
     w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
-      +esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';
+      +(x.text?esc(x.text):'')+(x.audio_url?'<audio controls preload="none" src="'+esc(x.audio_url)+'" style="display:block;margin-top:6px;max-width:230px;height:36px"></audio>':'')
+      +(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';
     M.appendChild(w);}
   async function poll(){if(busy)return;busy=true;try{
     const r=await fetch('/api/dm/thread?token='+encodeURIComponent(TOKEN)+'&since='+last,{credentials:'same-origin'});
@@ -3184,7 +3188,19 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
     catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
   I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
   I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
-  B.addEventListener('click',send);poll();setInterval(()=>{if(!document.hidden)poll();},4000);
+  B.addEventListener('click',send);
+  function sendVoice(url,tr,lang){fetch('/api/dm/reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';poll();}else S.textContent='Could not send';});}
+  let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
+  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
+    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
+    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
+      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');fd.append('token',TOKEN);
+      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
+    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  mic.addEventListener('click',tog);
+  poll();setInterval(()=>{if(!document.hidden)poll();},4000);
 })();
 </script></body></html>"""
 
@@ -3234,7 +3250,7 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
     <div id="cbar"><span class="bk" onclick="closeChat()">←</span><span class="ct" id="ctitle"></span></div>
     <div id="msgs"></div>
     <div id="st"></div>
-    <footer id="foot"><textarea id="in" rows="1" maxlength="2000" placeholder="Type a message…"></textarea><button id="send">Send</button></footer>
+    <footer id="foot"><button id="mic" type="button" title="Voice" style="background:#eef1f7;color:#1F3864;border:none;border-radius:18px;padding:10px 13px;font-size:18px;min-height:42px;cursor:pointer">🎤</button><textarea id="in" rows="1" maxlength="2000" placeholder="Type a message…"></textarea><button id="send">Send</button></footer>
   </div>
 </div>
 <script>
@@ -3275,7 +3291,8 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
   window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';list.style.display='block';cur=null;loadThreads();};
   function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
     w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
-      +esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';
+      +(x.text?esc(x.text):'')+(x.audio_url?'<audio controls preload="none" src="'+esc(x.audio_url)+'" style="display:block;margin-top:6px;max-width:230px;height:36px"></audio>':'')
+      +(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';
     msgs.appendChild(w);}
   async function loadMsgs(){if(busy||!cur)return;busy=true;try{
     const r=await fetch('/api/dm/messages?employee='+encodeURIComponent(cur.employee)+'&manager='+encodeURIComponent(cur.manager)+'&since='+last,{credentials:'same-origin'});
@@ -3288,7 +3305,19 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
     catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
   I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
   I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
-  B.addEventListener('click',send);loadThreads();
+  B.addEventListener('click',send);
+  function sendVoice(url,tr,lang){if(!cur)return;fetch('/api/dm/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({employee:cur.employee,manager:cur.manager,body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';loadMsgs();}else S.textContent='Could not send';});}
+  let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
+  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
+    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
+    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
+      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');
+      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
+    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  mic.addEventListener('click',tog);
+  loadThreads();
 })();
 </script></body></html>"""
 
@@ -3361,7 +3390,8 @@ def api_dm_reply():
         return jsonify({"ok": False, "error": "unavailable"}), 503
     d = request.get_json(silent=True) or {}
     token = d.get("token") or ""
-    body = (d.get("body") or "").strip()
+    audio_url = d.get("audio_url") or None
+    body = (d.get("body") or "").strip() or ("🎤 Voice message" if audio_url else "")
     if not body:
         return jsonify({"ok": False, "error": "Empty message"}), 400
     rows = supabase_client.table("dm_notifications").select("*").eq("token", token).limit(1).execute().data or []
@@ -3369,7 +3399,8 @@ def api_dm_reply():
         return jsonify({"ok": False, "error": "Invalid link"}), 404
     note = rows[0]
     sender = note.get("recipient_name")
-    msg = _dm_post_message(note.get("employee_name"), note.get("manager_name"), sender, body)
+    msg = _dm_post_message(note.get("employee_name"), note.get("manager_name"), sender, body,
+                           src_lang=(d.get("lang") or None), audio_url=audio_url)
     return jsonify({"ok": bool(msg)})
 
 
@@ -3502,13 +3533,15 @@ def api_dm_send():
     d = request.get_json(silent=True) or {}
     employee = (d.get("employee") or "").strip()
     manager  = (d.get("manager") or "").strip()
-    body     = (d.get("body") or "").strip()
+    audio_url = d.get("audio_url") or None
+    body     = (d.get("body") or "").strip() or ("🎤 Voice message" if audio_url else "")
     if not (employee and manager and body):
         return jsonify({"ok": False, "error": "Missing fields"}), 400
     if not _dm_can_view(viewer, employee, manager):
         return jsonify({"ok": False, "error": "Not authorized for this thread"}), 403
     # The sender is the viewer (could be the employee, the thread's manager, or the president interjecting)
-    msg = _dm_post_message(employee, manager, viewer, body)
+    msg = _dm_post_message(employee, manager, viewer, body,
+                           src_lang=(d.get("lang") or None), audio_url=audio_url)
     return jsonify({"ok": bool(msg)})
 
 
@@ -3584,7 +3617,8 @@ def _dm_room_add_member(room_id, member_name: str, added_by: str) -> bool:
         return False
 
 
-def _dm_room_post(room_id, sender_name: str, body: str) -> dict:
+def _dm_room_post(room_id, sender_name: str, body: str, src_lang: str = None,
+                  audio_url: str = None) -> dict:
     """Post a message to a room. Pre-translates into every language present
     among the members, then notifies all members (except the sender)."""
     if not supabase_client:
@@ -3596,7 +3630,8 @@ def _dm_room_post(room_id, sender_name: str, body: str) -> dict:
     body = (body or "").strip()
     if not body:
         return None
-    src_lang = "en" if sender_role != "employee" else (_dm_emp_language(sender_name) or "en")
+    if not src_lang:
+        src_lang = "en" if sender_role != "employee" else (_dm_emp_language(sender_name) or "en")
 
     members = _dm_room_members(room_id)
     langs = {"en"}
@@ -3614,6 +3649,7 @@ def _dm_room_post(room_id, sender_name: str, body: str) -> dict:
             "body":         body[:2000],
             "lang":         src_lang,
             "translations": translations,
+            "audio_url":    audio_url or None,
         }).execute().data
     except Exception as exc:
         print(f"[Room] message insert failed: {exc}")
@@ -3683,6 +3719,7 @@ def _dm_room_render(viewer_name: str, rows: list) -> list:
             "role_title":  DM_ROLE_TITLE.get(r.get("sender_role"), ""),
             "text":        text,
             "translated":  text != (r.get("body") or ""),
+            "audio_url":   r.get("audio_url"),
             "created_at":  r.get("created_at"),
         })
     return out
@@ -3742,7 +3779,7 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
     <div id="cbar"><span class="bk" onclick="closeChat()">←</span><span class="ct" id="ctitle"></span><button class="add" onclick="openPicker('add')">＋ Add people</button></div>
     <div id="members"></div>
     <div id="msgs"></div><div id="st"></div>
-    <footer id="foot"><textarea id="in" rows="1" maxlength="2000" placeholder="Type a message…"></textarea><button id="send">Send</button></footer>
+    <footer id="foot"><button id="mic" type="button" title="Voice" style="background:#eef1f7;color:#1F3864;border:none;border-radius:18px;padding:10px 13px;font-size:18px;min-height:42px;cursor:pointer">🎤</button><textarea id="in" rows="1" maxlength="2000" placeholder="Type a message…"></textarea><button id="send">Send</button></footer>
   </div>
 </div>
 <div id="modal"><div id="sheet">
@@ -3778,7 +3815,8 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
     if(j.ok)membersEl.innerHTML=j.members.map(m=>'<span class="mb">'+esc(m.member_name)+(m.last_opened?' ✓':'')+'</span>').join('');}catch(e){}}
   function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
     w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
-      +esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';msgs.appendChild(w);}
+      +(x.text?esc(x.text):'')+(x.audio_url?'<audio controls preload="none" src="'+esc(x.audio_url)+'" style="display:block;margin-top:6px;max-width:230px;height:36px"></audio>':'')
+      +(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';msgs.appendChild(w);}
   async function loadMsgs(){if(busy||!cur)return;busy=true;try{const r=await fetch('/api/rooms/'+cur+'/messages?since='+last,{credentials:'same-origin'});
     const j=await r.json();if(j.ok&&j.messages){if(last===0&&!j.messages.length)msgs.innerHTML='<div class="sys">No messages yet.</div>';
       j.messages.forEach(add);if(j.messages.length){last=j.messages[j.messages.length-1].id;msgs.scrollTop=msgs.scrollHeight;}}S.textContent='';}
@@ -3790,6 +3828,17 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
   I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
   I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
   B.addEventListener('click',send);
+  function sendVoice(url,tr,lang){if(!cur)return;fetch('/api/rooms/'+cur+'/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';loadMsgs();}else S.textContent='Could not send';});}
+  let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
+  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
+    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
+    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
+      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');
+      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
+    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  mic.addEventListener('click',tog);
 
   // people picker
   window.openPicker=async function(m){mode=m;sel=new Set();
@@ -3834,14 +3883,14 @@ DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
 </style></head><body>
 <header><div class="t">{{ room_title }}</div><div class="s">{{ 'محادثة جماعية' if viewer_lang=='ar' else 'Group conversation' }}</div></header>
 <div id="msgs"><div class="sys">{{ 'جارٍ التحميل…' if viewer_lang=='ar' else 'Loading…' }}</div></div><div id="st"></div>
-<footer><textarea id="in" rows="1" maxlength="2000" placeholder="{{ 'اكتب رسالتك…' if viewer_lang=='ar' else 'Type your message…' }}"></textarea><button id="send">{{ 'إرسال' if viewer_lang=='ar' else 'Send' }}</button></footer>
+<footer><button id="mic" type="button" title="Voice" style="background:#eef1f7;color:#1F3864;border:none;border-radius:18px;padding:10px 13px;font-size:18px;min-height:42px;cursor:pointer">🎤</button><textarea id="in" rows="1" maxlength="2000" placeholder="{{ 'اكتب رسالتك…' if viewer_lang=='ar' else 'Type your message…' }}"></textarea><button id="send">{{ 'إرسال' if viewer_lang=='ar' else 'Send' }}</button></footer>
 <script>
 (function(){const TOKEN={{ token|tojson }},ME={{ viewer|tojson }};
   const M=document.getElementById('msgs'),I=document.getElementById('in'),B=document.getElementById('send'),S=document.getElementById('st');let last=0,busy=false;
   const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function clock(iso){const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
   function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
-    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')+esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';M.appendChild(w);}
+    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')+(x.text?esc(x.text):'')+(x.audio_url?'<audio controls preload="none" src="'+esc(x.audio_url)+'" style="display:block;margin-top:6px;max-width:230px;height:36px"></audio>':'')+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';M.appendChild(w);}
   async function poll(){if(busy)return;busy=true;try{const r=await fetch('/api/room-thread?token='+encodeURIComponent(TOKEN)+'&since='+last,{credentials:'same-origin'});const j=await r.json();
     if(j.ok&&j.messages){if(last===0)M.innerHTML='';j.messages.forEach(add);if(j.messages.length){last=j.messages[j.messages.length-1].id;M.scrollTop=M.scrollHeight;}else if(last===0)M.innerHTML='<div class="sys">No messages yet.</div>';}S.textContent='';}
     catch(e){S.textContent='Reconnecting…';}finally{busy=false;}}
@@ -3850,7 +3899,19 @@ DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
     catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
   I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
   I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
-  B.addEventListener('click',send);poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
+  B.addEventListener('click',send);
+  function sendVoice(url,tr,lang){fetch('/api/room-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';poll();}else S.textContent='Could not send';});}
+  let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
+  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
+    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
+    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
+      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');fd.append('token',TOKEN);
+      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
+    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  mic.addEventListener('click',tog);
+  poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
 </script></body></html>"""
 
 
@@ -4010,10 +4071,11 @@ def api_rooms_send(room_id):
     if not _dm_room_can_access(viewer, room_id):
         return jsonify({"ok": False, "error": "Not in this conversation"}), 403
     d = request.get_json(silent=True) or {}
-    body = (d.get("body") or "").strip()
+    audio_url = d.get("audio_url") or None
+    body = (d.get("body") or "").strip() or ("🎤 Voice message" if audio_url else "")
     if not body:
         return jsonify({"ok": False, "error": "Empty"}), 400
-    msg = _dm_room_post(room_id, viewer, body)
+    msg = _dm_room_post(room_id, viewer, body, src_lang=(d.get("lang") or None), audio_url=audio_url)
     return jsonify({"ok": bool(msg)})
 
 
@@ -4068,14 +4130,16 @@ def api_room_reply():
         return jsonify({"ok": False, "error": "unavailable"}), 503
     d = request.get_json(silent=True) or {}
     token = d.get("token") or ""
-    body = (d.get("body") or "").strip()
+    audio_url = d.get("audio_url") or None
+    body = (d.get("body") or "").strip() or ("🎤 Voice message" if audio_url else "")
     if not body:
         return jsonify({"ok": False, "error": "Empty"}), 400
     rows = supabase_client.table("dm_room_notifications").select("*").eq("token", token).limit(1).execute().data or []
     if not rows:
         return jsonify({"ok": False, "error": "Invalid link"}), 404
     note = rows[0]
-    msg = _dm_room_post(note.get("room_id"), note.get("recipient_name"), body)
+    msg = _dm_room_post(note.get("room_id"), note.get("recipient_name"), body,
+                        src_lang=(d.get("lang") or None), audio_url=audio_url)
     return jsonify({"ok": bool(msg)})
 
 
@@ -4964,6 +5028,95 @@ def api_upload_photo():
             print(f"[Photo Upload] Error: {exc}")
             return jsonify({"error": str(exc)}), 500
     return jsonify({"error": "Storage not configured"}), 500
+
+
+# ---------------------------------------------------------------------------
+# VOICE MESSAGES — record audio, transcribe + detect language with Gemini
+# ---------------------------------------------------------------------------
+def _transcribe_voice(audio_bytes: bytes, mime_type: str):
+    """Transcribe a voice note verbatim in its original language and detect the
+    language. Returns (transcript, lang). Best-effort: ('','') on any failure."""
+    key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not key or not audio_bytes:
+        return "", ""
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=key)
+        resp = client.models.generate_content(
+            model=os.getenv("VOICE_TRANSCRIBE_MODEL", "gemini-2.5-flash"),
+            contents=[
+                types.Part.from_bytes(data=audio_bytes, mime_type=(mime_type or "audio/webm").split(";")[0]),
+                ("Transcribe this voice note VERBATIM in its ORIGINAL spoken language "
+                 "(it may be English, Arabic, or French). Respond ONLY as compact JSON: "
+                 '{"transcript":"<exact words>","lang":"<en|ar|fr>"} — no markdown, no extra text.'),
+            ],
+        )
+        txt = (getattr(resp, "text", None) or "").strip()
+        if not txt:
+            # Fallback extraction from candidates
+            for cand in getattr(resp, "candidates", []) or []:
+                content = getattr(cand, "content", None)
+                for part in (getattr(content, "parts", []) or []):
+                    if getattr(part, "text", None):
+                        txt += part.text
+            txt = txt.strip()
+        if txt.startswith("```"):
+            txt = txt.split("```", 2)[1]
+            if txt.startswith("json"):
+                txt = txt[4:]
+            txt = txt.strip("` \n")
+        data = json.loads(txt)
+        return (data.get("transcript") or "").strip(), (data.get("lang") or "").lower()[:2]
+    except Exception as exc:
+        print(f"[Voice transcribe] {exc}")
+        return "", ""
+
+
+def _voice_authorized() -> bool:
+    """Allow a logged-in session OR a valid messaging magic-link token."""
+    if session.get("employee_name") or session.get("role"):
+        return True
+    tok = request.form.get("token") or request.args.get("token") or ""
+    if tok and supabase_client:
+        for tbl in ("dm_notifications", "dm_room_notifications"):
+            try:
+                r = supabase_client.table(tbl).select("token").eq("token", tok).limit(1).execute().data
+                if r:
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+@app.route("/api/voice/upload", methods=["POST"])
+def api_voice_upload():
+    """Receive a recorded voice note, store it, transcribe + detect language."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "Storage not configured"}), 503
+    if not _voice_authorized():
+        return jsonify({"ok": False, "error": "Not authorized"}), 401
+    if "audio" not in request.files:
+        return jsonify({"ok": False, "error": "No audio"}), 400
+    f = request.files["audio"]
+    data = f.read()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty recording"}), 400
+    if len(data) > 12 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "Recording too large (max ~12MB)"}), 400
+    mime = (f.content_type or "audio/webm")
+    ext = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3",
+           "audio/ogg": "ogg", "audio/wav": "wav", "audio/x-m4a": "m4a"}.get(mime.split(";")[0], "webm")
+    path = f"voice/{date.today().isoformat()}/{uuid.uuid4().hex}.{ext}"
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(
+            path, data, file_options={"content-type": mime})
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+    except Exception as exc:
+        print(f"[Voice Upload] Error: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    transcript, lang = _transcribe_voice(data, mime)
+    return jsonify({"ok": True, "url": url, "transcript": transcript, "lang": lang or ""})
 
 
 # ---------------------------------------------------------------------------

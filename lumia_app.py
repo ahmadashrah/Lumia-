@@ -860,8 +860,8 @@ HTML = """<!DOCTYPE html>
   <div class="emp-bar">
     <span>&#128100; Signed in as <strong>{{ employee_name }}</strong></span>
     <span style="margin-left:auto;display:flex;gap:14px;">
-      <a href="/messages" style="font-weight:600;">📨 Management</a>
-      <a href="/crew-chat" style="font-weight:600;">💬 Crew Chat</a>
+      <a href="/my-chat" style="font-weight:600;">💬 Message Owner &amp; VP</a>
+      <a href="/crew-chat" style="font-weight:600;">👷 Crew Chat</a>
       <a href="/employee-logout">Sign out</a>
     </span>
   </div>
@@ -2873,11 +2873,13 @@ DM_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://lumia.ashrah.ai")
 
 # Management roster — (canonical name substring, role, display title). Order = display order.
 DM_MANAGERS = [
-    ("Ahmad Ashrah", "president", "President"),
-    ("Abdel",        "vp_ops",    "VP Operations"),
-    ("Sharmaine",    "cfo",        "CFO"),
+    ("Ahmad Ashrah",  "president", "President"),
+    ("Abdel Al Hadi", "vp_ops",    "VP Operations"),
+    ("Sharmaine",     "cfo",        "CFO"),
 ]
 DM_PRESIDENT_NAME = "Ahmad Ashrah"
+# Members always present in a crew member's one-tap check-in chat
+DM_CREW_ROOM_MEMBERS = ["Ahmad Ashrah", "Abdel Al Hadi"]
 DM_ROLE_TITLE = {"president": "President", "vp_ops": "VP Operations",
                  "cfo": "CFO", "employee": "Crew"}
 
@@ -2926,6 +2928,15 @@ def _dm_emp_field(name: str, field: str, default=""):
         rows = supabase_client.table("employees").select(field).eq("name", name).limit(1).execute().data or []
         if rows and rows[0].get(field) is not None:
             return rows[0][field]
+    except Exception:
+        pass
+    # Fallback: prefix-match the first name token (handles minor name drift)
+    try:
+        first = (name or "").split()[0]
+        if first:
+            rows = supabase_client.table("employees").select(field).ilike("name", first + "%").limit(1).execute().data or []
+            if rows and rows[0].get(field) is not None:
+                return rows[0][field]
     except Exception:
         pass
     return default
@@ -3725,6 +3736,37 @@ def _dm_room_render(viewer_name: str, rows: list) -> list:
     return out
 
 
+def _dm_get_or_create_crew_room(employee_name: str):
+    """Find (or create) the single fixed chat for a crew member that always
+    contains the President + VP Ops. One per employee, keyed by crew_member."""
+    if not supabase_client or not employee_name:
+        return None
+    try:
+        rows = supabase_client.table("dm_rooms").select("id") \
+            .eq("crew_member", employee_name).limit(1).execute().data or []
+    except Exception as exc:
+        print(f"[Crew room] lookup failed: {exc}")
+        rows = []
+    if rows:
+        rid = rows[0]["id"]
+    else:
+        try:
+            ins = supabase_client.table("dm_rooms").insert({
+                "created_by":      "system",
+                "crew_member":     employee_name,
+                "last_message_at": datetime.utcnow().isoformat(),
+            }).execute().data
+            rid = ins[0]["id"]
+        except Exception as exc:
+            print(f"[Crew room] create failed: {exc}")
+            return None
+    # Ensure the three fixed members are present
+    _dm_room_add_member(rid, employee_name, "system")
+    for m in DM_CREW_ROOM_MEMBERS:
+        _dm_room_add_member(rid, m, "system")
+    return rid
+
+
 # ---- Owner/manager rooms hub ----------------------------------------------
 DM_ROOMS_HTML = r"""<!DOCTYPE html>
 <html lang="en"><head>
@@ -4141,6 +4183,84 @@ def api_room_reply():
     msg = _dm_room_post(note.get("room_id"), note.get("recipient_name"), body,
                         src_lang=(d.get("lang") or None), audio_url=audio_url)
     return jsonify({"ok": bool(msg)})
+
+
+# ---- Crew one-tap chat (employee ⇄ President + VP Ops) ---------------------
+SINGLE_ROOM_HTML = r"""<!DOCTYPE html>
+<html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lumia — {{ title }}</title><link rel="apple-touch-icon" href="/static/icons/icon-180-v3.png"><meta name="theme-color" content="#1F3864">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
+  header{background:#1F3864;color:#fff;padding:13px 16px;display:flex;justify-content:space-between;align-items:center}
+  header .t{font-weight:700;font-size:17px}header .s{font-size:12px;opacity:.85;margin-top:2px}header a{color:#fff;opacity:.85;text-decoration:none;font-size:13px}
+  #msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+  .m{max-width:80%;padding:9px 12px;border-radius:14px;line-height:1.35;font-size:15px;white-space:pre-wrap;word-wrap:break-word}
+  .m .w{font-size:11px;font-weight:700;opacity:.7;margin-bottom:2px}.m .x{font-size:10px;opacity:.55;margin-top:4px}.m .tr{font-size:10px;opacity:.6;font-style:italic;margin-top:3px}
+  .mine{align-self:flex-end;background:#1F3864;color:#fff;border-bottom-right-radius:4px}.mine .w,.mine .x,.mine .tr{color:#cfd8e6}
+  .other{align-self:flex-start;background:#fff;border:1px solid #d8deeb;border-bottom-left-radius:4px}
+  .sys{align-self:center;background:#f3f5f9;color:#56607a;font-size:12px;padding:6px 12px;border-radius:10px}
+  footer{background:#fff;border-top:1px solid #d8deeb;padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;border:1px solid #c8d0e0;border-radius:18px;padding:10px 14px;font:inherit;min-height:42px;max-height:120px;outline:none;background:#fafbfd}
+  textarea:focus{border-color:#1F3864;background:#fff}
+  #send{background:#1F3864;color:#fff;border:none;border-radius:18px;padding:10px 18px;font-weight:700;min-height:42px;cursor:pointer}#send:disabled{opacity:.45}
+  #st{font-size:11px;color:#88909e;padding:0 14px 4px;min-height:14px}
+</style></head><body>
+<header><div><div class="t">{{ title }}</div><div class="s">{{ 'الرئيس + مدير العمليات' if viewer_lang=='ar' else 'You · Owner · VP Ops' }}</div></div><a href="/">←</a></header>
+<div id="msgs"><div class="sys">{{ 'جارٍ التحميل…' if viewer_lang=='ar' else 'Loading…' }}</div></div><div id="st"></div>
+<footer>
+  <button id="mic" type="button" title="Voice" style="background:#eef1f7;color:#1F3864;border:none;border-radius:18px;padding:10px 13px;font-size:18px;min-height:42px;cursor:pointer">🎤</button>
+  <textarea id="in" rows="1" maxlength="2000" placeholder="{{ 'اكتب رسالتك…' if viewer_lang=='ar' else 'Type your message…' }}"></textarea>
+  <button id="send">{{ 'إرسال' if viewer_lang=='ar' else 'Send' }}</button>
+</footer>
+<script>
+(function(){const RID={{ room_id }},ME={{ viewer|tojson }};
+  const M=document.getElementById('msgs'),I=document.getElementById('in'),B=document.getElementById('send'),S=document.getElementById('st');let last=0,busy=false;
+  const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function clock(iso){const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
+  function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
+    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')+(x.text?esc(x.text):'')+(x.audio_url?'<audio controls preload="none" src="'+esc(x.audio_url)+'" style="display:block;margin-top:6px;max-width:230px;height:36px"></audio>':'')+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';M.appendChild(w);}
+  async function poll(){if(busy)return;busy=true;try{const r=await fetch('/api/rooms/'+RID+'/messages?since='+last,{credentials:'same-origin'});const j=await r.json();
+    if(j.ok&&j.messages){if(last===0)M.innerHTML='';j.messages.forEach(add);if(j.messages.length){last=j.messages[j.messages.length-1].id;M.scrollTop=M.scrollHeight;}else if(last===0)M.innerHTML='<div class="sys">No messages yet — say hi 👋</div>';}S.textContent='';}
+    catch(e){S.textContent='Reconnecting…';}finally{busy=false;}}
+  async function send(){const b=I.value.trim();if(!b)return;B.disabled=true;S.textContent='…';
+    try{const r=await fetch('/api/rooms/'+RID+'/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:b})});const j=await r.json();if(j.ok){I.value='';I.style.height='auto';poll();}else S.textContent='Could not send';}
+    catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
+  I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
+  I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  B.addEventListener('click',send);
+  function sendVoice(url,tr,lang){fetch('/api/rooms/'+RID+'/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';poll();}else S.textContent='Could not send';});}
+  let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
+  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
+    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
+    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
+      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');
+      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
+    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  mic.addEventListener('click',tog);
+  poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
+</script></body></html>"""
+
+
+@app.route("/my-chat")
+@require_employee
+def crew_my_chat():
+    """One-tap chat for a crew member with the Owner + VP Ops."""
+    viewer = _dm_session_name()
+    if not viewer:
+        return redirect(url_for("employee_login_page", next="/my-chat"))
+    # Managers/owner don't need their own crew room — send them to the hub
+    if session.get("role") == "owner" or _dm_is_manager(viewer):
+        return redirect("/team")
+    rid = _dm_get_or_create_crew_room(viewer)
+    if not rid:
+        return "Messaging is not available right now.", 503
+    title = "Owner & VP Ops" if _dm_emp_language(viewer) != "ar" else "الإدارة"
+    return render_template_string(SINGLE_ROOM_HTML, viewer=viewer,
+        viewer_lang=_dm_emp_language(viewer), room_id=rid, title=title)
 
 
 # ---------------------------------------------------------------------------

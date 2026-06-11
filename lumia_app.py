@@ -3202,14 +3202,23 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
   B.addEventListener('click',send);
   function sendVoice(url,tr,lang){fetch('/api/dm/reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';poll();}else S.textContent='Could not send';});}
   let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
-  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
-    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
-    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
-      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
-      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');fd.append('token',TOKEN);
-      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
-        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
-    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  const _hasMR=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+  const _fi=document.createElement('input');_fi.type='file';_fi.accept='audio/*';_fi.setAttribute('capture','microphone');_fi.style.display='none';document.body.appendChild(_fi);
+  _fi.addEventListener('change',()=>{const f=_fi.files&&_fi.files[0];if(f)upBlob(f,f.name||'v.m4a');_fi.value='';});
+  async function upBlob(blob,fn){if(!blob||blob.size<800){S.textContent='Too short — hold a bit longer';return;}
+    S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,fn);try{if(typeof TOKEN!=='undefined'&&TOKEN)fd.append('token',TOKEN);}catch(e){}
+    try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+      if(!j.ok){S.textContent='Voice failed: '+(j.error||'');return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}}
+  async function tog(){if(rec){try{mr.stop();}catch(e){}return;}
+    if(!_hasMR){_fi.click();return;}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];
+      let opt={};if(MediaRecorder.isTypeSupported){if(MediaRecorder.isTypeSupported('audio/webm'))opt={mimeType:'audio/webm'};else if(MediaRecorder.isTypeSupported('audio/mp4'))opt={mimeType:'audio/mp4'};}
+      mr=new MediaRecorder(stream,opt);
+      mr.ondataavailable=e=>{if(e.data&&e.data.size)rch.push(e.data);};
+      mr.onstop=()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';try{stream.getTracks().forEach(t=>t.stop());}catch(e){}
+        const mt=(mr.mimeType||'audio/webm');upBlob(new Blob(rch,{type:mt}),mt.indexOf('mp4')>=0?'v.mp4':'v.webm');};
+      mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
+    }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
   poll();setInterval(()=>{if(!document.hidden)poll();},4000);
 })();
@@ -3319,14 +3328,23 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
   B.addEventListener('click',send);
   function sendVoice(url,tr,lang){if(!cur)return;fetch('/api/dm/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({employee:cur.employee,manager:cur.manager,body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';loadMsgs();}else S.textContent='Could not send';});}
   let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
-  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
-    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
-    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
-      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
-      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');
-      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
-        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
-    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  const _hasMR=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+  const _fi=document.createElement('input');_fi.type='file';_fi.accept='audio/*';_fi.setAttribute('capture','microphone');_fi.style.display='none';document.body.appendChild(_fi);
+  _fi.addEventListener('change',()=>{const f=_fi.files&&_fi.files[0];if(f)upBlob(f,f.name||'v.m4a');_fi.value='';});
+  async function upBlob(blob,fn){if(!blob||blob.size<800){S.textContent='Too short — hold a bit longer';return;}
+    S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,fn);try{if(typeof TOKEN!=='undefined'&&TOKEN)fd.append('token',TOKEN);}catch(e){}
+    try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+      if(!j.ok){S.textContent='Voice failed: '+(j.error||'');return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}}
+  async function tog(){if(rec){try{mr.stop();}catch(e){}return;}
+    if(!_hasMR){_fi.click();return;}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];
+      let opt={};if(MediaRecorder.isTypeSupported){if(MediaRecorder.isTypeSupported('audio/webm'))opt={mimeType:'audio/webm'};else if(MediaRecorder.isTypeSupported('audio/mp4'))opt={mimeType:'audio/mp4'};}
+      mr=new MediaRecorder(stream,opt);
+      mr.ondataavailable=e=>{if(e.data&&e.data.size)rch.push(e.data);};
+      mr.onstop=()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';try{stream.getTracks().forEach(t=>t.stop());}catch(e){}
+        const mt=(mr.mimeType||'audio/webm');upBlob(new Blob(rch,{type:mt}),mt.indexOf('mp4')>=0?'v.mp4':'v.webm');};
+      mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
+    }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
   loadThreads();
 })();
@@ -3872,14 +3890,23 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
   B.addEventListener('click',send);
   function sendVoice(url,tr,lang){if(!cur)return;fetch('/api/rooms/'+cur+'/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';loadMsgs();}else S.textContent='Could not send';});}
   let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
-  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
-    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
-    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
-      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
-      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');
-      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
-        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
-    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  const _hasMR=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+  const _fi=document.createElement('input');_fi.type='file';_fi.accept='audio/*';_fi.setAttribute('capture','microphone');_fi.style.display='none';document.body.appendChild(_fi);
+  _fi.addEventListener('change',()=>{const f=_fi.files&&_fi.files[0];if(f)upBlob(f,f.name||'v.m4a');_fi.value='';});
+  async function upBlob(blob,fn){if(!blob||blob.size<800){S.textContent='Too short — hold a bit longer';return;}
+    S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,fn);try{if(typeof TOKEN!=='undefined'&&TOKEN)fd.append('token',TOKEN);}catch(e){}
+    try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+      if(!j.ok){S.textContent='Voice failed: '+(j.error||'');return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}}
+  async function tog(){if(rec){try{mr.stop();}catch(e){}return;}
+    if(!_hasMR){_fi.click();return;}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];
+      let opt={};if(MediaRecorder.isTypeSupported){if(MediaRecorder.isTypeSupported('audio/webm'))opt={mimeType:'audio/webm'};else if(MediaRecorder.isTypeSupported('audio/mp4'))opt={mimeType:'audio/mp4'};}
+      mr=new MediaRecorder(stream,opt);
+      mr.ondataavailable=e=>{if(e.data&&e.data.size)rch.push(e.data);};
+      mr.onstop=()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';try{stream.getTracks().forEach(t=>t.stop());}catch(e){}
+        const mt=(mr.mimeType||'audio/webm');upBlob(new Blob(rch,{type:mt}),mt.indexOf('mp4')>=0?'v.mp4':'v.webm');};
+      mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
+    }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
 
   // people picker
@@ -3944,14 +3971,23 @@ DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
   B.addEventListener('click',send);
   function sendVoice(url,tr,lang){fetch('/api/room-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';poll();}else S.textContent='Could not send';});}
   let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
-  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
-    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
-    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
-      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
-      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');fd.append('token',TOKEN);
-      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
-        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
-    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  const _hasMR=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+  const _fi=document.createElement('input');_fi.type='file';_fi.accept='audio/*';_fi.setAttribute('capture','microphone');_fi.style.display='none';document.body.appendChild(_fi);
+  _fi.addEventListener('change',()=>{const f=_fi.files&&_fi.files[0];if(f)upBlob(f,f.name||'v.m4a');_fi.value='';});
+  async function upBlob(blob,fn){if(!blob||blob.size<800){S.textContent='Too short — hold a bit longer';return;}
+    S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,fn);try{if(typeof TOKEN!=='undefined'&&TOKEN)fd.append('token',TOKEN);}catch(e){}
+    try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+      if(!j.ok){S.textContent='Voice failed: '+(j.error||'');return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}}
+  async function tog(){if(rec){try{mr.stop();}catch(e){}return;}
+    if(!_hasMR){_fi.click();return;}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];
+      let opt={};if(MediaRecorder.isTypeSupported){if(MediaRecorder.isTypeSupported('audio/webm'))opt={mimeType:'audio/webm'};else if(MediaRecorder.isTypeSupported('audio/mp4'))opt={mimeType:'audio/mp4'};}
+      mr=new MediaRecorder(stream,opt);
+      mr.ondataavailable=e=>{if(e.data&&e.data.size)rch.push(e.data);};
+      mr.onstop=()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';try{stream.getTracks().forEach(t=>t.stop());}catch(e){}
+        const mt=(mr.mimeType||'audio/webm');upBlob(new Blob(rch,{type:mt}),mt.indexOf('mp4')>=0?'v.mp4':'v.webm');};
+      mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
+    }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
   poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
 </script></body></html>"""
@@ -4207,7 +4243,7 @@ SINGLE_ROOM_HTML = r"""<!DOCTYPE html>
   #send{background:#1F3864;color:#fff;border:none;border-radius:18px;padding:10px 18px;font-weight:700;min-height:42px;cursor:pointer}#send:disabled{opacity:.45}
   #st{font-size:11px;color:#88909e;padding:0 14px 4px;min-height:14px}
 </style></head><body>
-<header><div><div class="t">{{ title }}</div><div class="s">{{ 'الرئيس + مدير العمليات' if viewer_lang=='ar' else 'You · Owner · VP Ops' }}</div></div><a href="/">←</a></header>
+<header><div><div class="t">{{ title }}</div><div class="s">{{ 'الرئيس + مدير العمليات' if viewer_lang=='ar' else 'You · Owner · VP Ops' }}</div></div><a href="/">{{ '← تسجيل' if viewer_lang=='ar' else '← Check-In' }}</a></header>
 <div id="msgs"><div class="sys">{{ 'جارٍ التحميل…' if viewer_lang=='ar' else 'Loading…' }}</div></div><div id="st"></div>
 <footer>
   <button id="mic" type="button" title="Voice" style="background:#eef1f7;color:#1F3864;border:none;border-radius:18px;padding:10px 13px;font-size:18px;min-height:42px;cursor:pointer">🎤</button>
@@ -4232,14 +4268,23 @@ SINGLE_ROOM_HTML = r"""<!DOCTYPE html>
   B.addEventListener('click',send);
   function sendVoice(url,tr,lang){fetch('/api/rooms/'+RID+'/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:tr,audio_url:url,lang:lang})}).then(r=>r.json()).then(j=>{if(j.ok){S.textContent='';poll();}else S.textContent='Could not send';});}
   let mr=null,rch=[],rec=false;const mic=document.getElementById('mic');
-  async function tog(){if(rec){mr.stop();return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];mr=new MediaRecorder(stream);
-    mr.ondataavailable=e=>{if(e.data.size)rch.push(e.data);};
-    mr.onstop=async()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';stream.getTracks().forEach(t=>t.stop());
-      const blob=new Blob(rch,{type:(mr.mimeType||'audio/webm')});if(blob.size<800){S.textContent='Too short';return;}
-      S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,'v.webm');
-      try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
-        if(!j.ok){S.textContent='Voice failed';return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}};
-    mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';}catch(e){S.textContent='Allow microphone access';}}
+  const _hasMR=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder);
+  const _fi=document.createElement('input');_fi.type='file';_fi.accept='audio/*';_fi.setAttribute('capture','microphone');_fi.style.display='none';document.body.appendChild(_fi);
+  _fi.addEventListener('change',()=>{const f=_fi.files&&_fi.files[0];if(f)upBlob(f,f.name||'v.m4a');_fi.value='';});
+  async function upBlob(blob,fn){if(!blob||blob.size<800){S.textContent='Too short — hold a bit longer';return;}
+    S.textContent='Sending voice…';const fd=new FormData();fd.append('audio',blob,fn);try{if(typeof TOKEN!=='undefined'&&TOKEN)fd.append('token',TOKEN);}catch(e){}
+    try{const r=await fetch('/api/voice/upload',{method:'POST',credentials:'same-origin',body:fd});const j=await r.json();
+      if(!j.ok){S.textContent='Voice failed: '+(j.error||'');return;}sendVoice(j.url,j.transcript||'',j.lang||'');}catch(e){S.textContent='Upload failed';}}
+  async function tog(){if(rec){try{mr.stop();}catch(e){}return;}
+    if(!_hasMR){_fi.click();return;}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});rch=[];
+      let opt={};if(MediaRecorder.isTypeSupported){if(MediaRecorder.isTypeSupported('audio/webm'))opt={mimeType:'audio/webm'};else if(MediaRecorder.isTypeSupported('audio/mp4'))opt={mimeType:'audio/mp4'};}
+      mr=new MediaRecorder(stream,opt);
+      mr.ondataavailable=e=>{if(e.data&&e.data.size)rch.push(e.data);};
+      mr.onstop=()=>{rec=false;mic.textContent='🎤';mic.style.background='#eef1f7';try{stream.getTracks().forEach(t=>t.stop());}catch(e){}
+        const mt=(mr.mimeType||'audio/webm');upBlob(new Blob(rch,{type:mt}),mt.indexOf('mp4')>=0?'v.mp4':'v.webm');};
+      mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
+    }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
   poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
 </script></body></html>"""
@@ -4252,9 +4297,6 @@ def crew_my_chat():
     viewer = _dm_session_name()
     if not viewer:
         return redirect(url_for("employee_login_page", next="/my-chat"))
-    # Managers/owner don't need their own crew room — send them to the hub
-    if session.get("role") == "owner" or _dm_is_manager(viewer):
-        return redirect("/team")
     rid = _dm_get_or_create_crew_room(viewer)
     if not rid:
         return "Messaging is not available right now.", 503

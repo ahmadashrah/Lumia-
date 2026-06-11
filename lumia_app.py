@@ -3512,6 +3512,573 @@ def api_dm_send():
     return jsonify({"ok": bool(msg)})
 
 
+# ===========================================================================
+# GROUP ROOMS — owner/manager-created conversations with any participants
+#   The owner picks a person to text one-on-one, then can ADD anyone else to
+#   the conversation. Everyone in the room gets the SMS magic-link + read
+#   receipts; each person reads in their own language (managers read English).
+# ===========================================================================
+
+def _dm_is_staff_session() -> bool:
+    """True if the logged-in person may create/manage rooms (owner or a manager)."""
+    if session.get("role") in ("owner", "production_manager", "cfo"):
+        return True
+    return _dm_is_manager(_dm_session_name())
+
+
+def _dm_read_lang(name: str) -> str:
+    """Managers read English; crew read their own language."""
+    return "en" if _dm_is_manager(name) else (_dm_emp_language(name) or "en")
+
+
+def _dm_room_members(room_id) -> list:
+    try:
+        return supabase_client.table("dm_room_members").select("*") \
+            .eq("room_id", room_id).order("id").execute().data or []
+    except Exception:
+        return []
+
+
+def _dm_room_member_names(room_id) -> list:
+    return [m.get("member_name") for m in _dm_room_members(room_id)]
+
+
+def _dm_room_can_access(viewer: str, room_id) -> bool:
+    if _dm_is_president(viewer) or session.get("role") == "owner":
+        return True
+    names = [n.strip().lower() for n in _dm_room_member_names(room_id)]
+    return (viewer or "").strip().lower() in names
+
+
+def _dm_room_title(room_id, members=None, viewer=None) -> str:
+    members = members if members is not None else _dm_room_members(room_id)
+    names = [m.get("member_name") for m in members]
+    # Drop the viewer from the displayed title
+    if viewer:
+        names = [n for n in names if (n or "").strip().lower() != viewer.strip().lower()]
+    if not names:
+        return "Conversation"
+    if len(names) <= 3:
+        return ", ".join(names)
+    return f"{names[0]}, {names[1]} +{len(names)-2}"
+
+
+def _dm_room_add_member(room_id, member_name: str, added_by: str) -> bool:
+    member_name = (member_name or "").strip()
+    if not member_name:
+        return False
+    info = _dm_role_for(member_name)
+    role = info[1] if info else "employee"
+    if info:
+        member_name = info[0]
+    try:
+        supabase_client.table("dm_room_members").upsert({
+            "room_id":     room_id,
+            "member_name": member_name,
+            "member_role": role,
+            "added_by":    added_by,
+        }, on_conflict="room_id,member_name").execute()
+        return True
+    except Exception as exc:
+        print(f"[Room] add member failed: {exc}")
+        return False
+
+
+def _dm_room_post(room_id, sender_name: str, body: str) -> dict:
+    """Post a message to a room. Pre-translates into every language present
+    among the members, then notifies all members (except the sender)."""
+    if not supabase_client:
+        return None
+    sinfo = _dm_role_for(sender_name)
+    sender_role = sinfo[1] if sinfo else "employee"
+    if sinfo:
+        sender_name = sinfo[0]
+    body = (body or "").strip()
+    if not body:
+        return None
+    src_lang = "en" if sender_role != "employee" else (_dm_emp_language(sender_name) or "en")
+
+    members = _dm_room_members(room_id)
+    langs = {"en"}
+    for m in members:
+        langs.add(_dm_read_lang(m.get("member_name")))
+    translations = {}
+    for lg in langs:
+        translations[lg] = body if lg == src_lang else _dm_translate(body, lg)
+
+    try:
+        ins = supabase_client.table("dm_room_messages").insert({
+            "room_id":      room_id,
+            "sender_name":  sender_name,
+            "sender_role":  sender_role,
+            "body":         body[:2000],
+            "lang":         src_lang,
+            "translations": translations,
+        }).execute().data
+    except Exception as exc:
+        print(f"[Room] message insert failed: {exc}")
+        return None
+    msg = ins[0] if ins else None
+    if not msg:
+        return None
+    try:
+        supabase_client.table("dm_rooms").update(
+            {"last_message_at": datetime.utcnow().isoformat()}).eq("id", room_id).execute()
+    except Exception:
+        pass
+    _dm_room_notify(room_id, msg, sender_name, members)
+    return msg
+
+
+def _dm_room_notify(room_id, msg, sender_name, members=None):
+    members = members if members is not None else _dm_room_members(room_id)
+    title = _dm_room_title(room_id, members)
+    for m in members:
+        nm = m.get("member_name")
+        if not nm or nm.strip().lower() == (sender_name or "").strip().lower():
+            continue
+        token = _dm_secrets.token_urlsafe(16)
+        try:
+            supabase_client.table("dm_room_notifications").insert({
+                "token":          token,
+                "room_id":        room_id,
+                "message_id":     msg.get("id"),
+                "recipient_name": nm,
+                "recipient_role": m.get("member_role") or "employee",
+            }).execute()
+        except Exception as exc:
+            print(f"[Room notify] token insert failed for {nm}: {exc}")
+            continue
+        phone = _dm_emp_field(nm, "phone", "")
+        if not phone:
+            print(f"[Room notify] {nm}: no phone — web only")
+            continue
+        rlang = _dm_read_lang(nm)
+        preview = (msg.get("translations") or {}).get(rlang) or msg.get("body") or ""
+        preview = preview.strip().replace("\n", " ")
+        if len(preview) > 90:
+            preview = preview[:90] + "…"
+        link = f"{DM_BASE_URL}/rm/{token}"
+        if rlang == "ar":
+            sms_body = f"رسالة جديدة من {sender_name}:\n«{preview}»\nللرد اضغط هنا: {link}"
+        elif rlang == "fr":
+            sms_body = f"Nouveau message de {sender_name} :\n«{preview}»\nRépondre : {link}"
+        else:
+            sms_body = f"New message from {sender_name}:\n\"{preview}\"\nReply here: {link}"
+        ok, detail = _send_sms(phone, sms_body, category="dm_room")
+        if not ok:
+            print(f"[Room notify] SMS to {nm} failed: {detail}")
+
+
+def _dm_room_render(viewer_name: str, rows: list) -> list:
+    read_lang = _dm_read_lang(viewer_name)
+    out = []
+    for r in rows:
+        tr = r.get("translations") or {}
+        text = tr.get(read_lang) or r.get("body") or ""
+        out.append({
+            "id":          r.get("id"),
+            "sender_name": r.get("sender_name"),
+            "sender_role": r.get("sender_role"),
+            "role_title":  DM_ROLE_TITLE.get(r.get("sender_role"), ""),
+            "text":        text,
+            "translated":  text != (r.get("body") or ""),
+            "created_at":  r.get("created_at"),
+        })
+    return out
+
+
+# ---- Owner/manager rooms hub ----------------------------------------------
+DM_ROOMS_HTML = r"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lumia — Team Messages</title>
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v3.png"><meta name="theme-color" content="#1F3864">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
+  header{background:#1F3864;color:#fff;padding:13px 16px;display:flex;justify-content:space-between;align-items:center}
+  header .t{font-weight:700;font-size:18px}header a{color:#fff;opacity:.85;text-decoration:none;font-size:13px}
+  #wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #list{overflow-y:auto;padding:8px}
+  .newbtn{display:block;width:calc(100% - 16px);margin:8px;padding:13px;background:#1F3864;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:15px;cursor:pointer}
+  .room{background:#fff;border:1px solid #d8deeb;border-radius:12px;padding:12px 14px;margin:0 8px 8px;cursor:pointer}
+  .room:active{background:#f4f6fb}
+  .room .nm{font-weight:700;font-size:15px}.room .pv{font-size:13px;color:#56607a;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .room .mt{font-size:11px;color:#9098a8;margin-top:3px}
+  #chat{display:none;flex:1;flex-direction:column;overflow:hidden}
+  #cbar{background:#28406e;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+  #cbar .bk{cursor:pointer;font-size:18px}#cbar .ct{font-weight:700;flex:1}
+  #cbar .add{background:#3a5894;border:none;color:#fff;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer}
+  #members{background:#dfe6f2;color:#28406e;font-size:11px;padding:6px 14px;display:flex;flex-wrap:wrap;gap:6px}
+  #members .mb{background:#fff;border-radius:8px;padding:2px 8px}
+  #msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+  .m{max-width:80%;padding:9px 12px;border-radius:14px;line-height:1.35;font-size:15px;white-space:pre-wrap;word-wrap:break-word}
+  .m .w{font-size:11px;font-weight:700;opacity:.7;margin-bottom:2px}.m .x{font-size:10px;opacity:.55;margin-top:4px}.m .tr{font-size:10px;opacity:.6;font-style:italic;margin-top:3px}
+  .mine{align-self:flex-end;background:#1F3864;color:#fff;border-bottom-right-radius:4px}.mine .w,.mine .x,.mine .tr{color:#cfd8e6}
+  .other{align-self:flex-start;background:#fff;border:1px solid #d8deeb;border-bottom-left-radius:4px}
+  .sys{align-self:center;background:#f3f5f9;color:#56607a;font-size:12px;padding:6px 12px;border-radius:10px}
+  footer{background:#fff;border-top:1px solid #d8deeb;padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:none;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;border:1px solid #c8d0e0;border-radius:18px;padding:10px 14px;font:inherit;min-height:42px;max-height:120px;outline:none;background:#fafbfd}
+  textarea:focus{border-color:#1F3864;background:#fff}
+  #send{background:#1F3864;color:#fff;border:none;border-radius:18px;padding:10px 18px;font-weight:700;min-height:42px;cursor:pointer}#send:disabled{opacity:.45}
+  #st{font-size:11px;color:#88909e;padding:0 14px 4px;min-height:14px}
+  /* picker modal */
+  #modal{display:none;position:fixed;inset:0;background:rgba(31,56,100,.55);z-index:50;align-items:flex-end}
+  #sheet{background:#fff;width:100%;max-height:75vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden}
+  #sheet h3{padding:14px 16px;font-size:16px;border-bottom:1px solid #eef1f7}
+  #people{overflow-y:auto;padding:6px}
+  .pp{display:flex;justify-content:space-between;align-items:center;padding:11px 12px;border-bottom:1px solid #f1f3f8;cursor:pointer}
+  .pp:active{background:#f4f6fb}.pp .pn{font-weight:600}.pp .pl{font-size:11px;color:#8b93a4}
+  .pp.sel{background:#e7f0ff}.pp .ck{font-weight:800;color:#1F3864}
+  #sheetfoot{padding:10px;display:flex;gap:8px;border-top:1px solid #eef1f7}
+  #sheetfoot button{flex:1;padding:12px;border-radius:12px;border:none;font-weight:700;font-size:15px;cursor:pointer}
+  #cancelBtn{background:#eef1f7;color:#1F3864}#confirmBtn{background:#1F3864;color:#fff}
+</style></head><body>
+<header><div class="t">Team Messages</div><a href="/owner">← Dashboard</a></header>
+<div id="wrap">
+  <div id="list"><button class="newbtn" onclick="openPicker('new')">＋ New conversation</button><div id="rooms"><div class="sys" style="margin:16px auto;">Loading…</div></div></div>
+  <div id="chat">
+    <div id="cbar"><span class="bk" onclick="closeChat()">←</span><span class="ct" id="ctitle"></span><button class="add" onclick="openPicker('add')">＋ Add people</button></div>
+    <div id="members"></div>
+    <div id="msgs"></div><div id="st"></div>
+    <footer id="foot"><textarea id="in" rows="1" maxlength="2000" placeholder="Type a message…"></textarea><button id="send">Send</button></footer>
+  </div>
+</div>
+<div id="modal"><div id="sheet">
+  <h3 id="sheetTitle">Choose people</h3>
+  <div id="people"></div>
+  <div id="sheetfoot"><button id="cancelBtn" onclick="closePicker()">Cancel</button><button id="confirmBtn" onclick="confirmPicker()">Start</button></div>
+</div></div>
+<script>
+(function(){
+  const ME={{ viewer|tojson }};
+  const roomsEl=document.getElementById('rooms'),listEl=document.getElementById('list'),chat=document.getElementById('chat');
+  const msgs=document.getElementById('msgs'),I=document.getElementById('in'),B=document.getElementById('send'),S=document.getElementById('st'),foot=document.getElementById('foot');
+  const membersEl=document.getElementById('members'),modal=document.getElementById('modal'),peopleEl=document.getElementById('people');
+  let cur=null,last=0,busy=false,pollT=null,people=[],sel=new Set(),mode='new';
+  const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function clock(iso){if(!iso)return'';const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
+  function when(iso){if(!iso)return'';const d=new Date(iso),n=new Date();return d.toDateString()===n.toDateString()?clock(iso):d.toLocaleDateString(undefined,{month:'short',day:'numeric'});}
+
+  async function loadRooms(){try{const r=await fetch('/api/rooms',{credentials:'same-origin'});const j=await r.json();
+    if(!j.ok){roomsEl.innerHTML='<div class="sys">'+esc(j.error||'Error')+'</div>';return;}
+    if(!j.rooms.length){roomsEl.innerHTML='<div class="sys" style="margin:16px auto;">No conversations yet. Tap ＋ to start one.</div>';return;}
+    roomsEl.innerHTML=j.rooms.map(rm=>'<div class="room" onclick="openRoom('+rm.id+',\''+esc(rm.title).replace(/'/g,"\\'")+'\')">'
+      +'<div class="nm">'+esc(rm.title)+'</div><div class="pv">'+esc(rm.preview||'No messages yet')+'</div>'
+      +'<div class="mt">'+esc(rm.member_summary||'')+(rm.last_at?' · '+when(rm.last_at):'')+'</div></div>').join('');
+  }catch(e){roomsEl.innerHTML='<div class="sys">Offline</div>';}}
+
+  window.openRoom=function(id,title){cur=id;last=0;msgs.innerHTML='';document.getElementById('ctitle').textContent=title;
+    listEl.style.display='none';chat.style.display='flex';foot.style.display='flex';loadMembers();loadMsgs();
+    if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},4000);};
+  window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';listEl.style.display='block';cur=null;loadRooms();};
+
+  async function loadMembers(){try{const r=await fetch('/api/rooms/'+cur+'/members',{credentials:'same-origin'});const j=await r.json();
+    if(j.ok)membersEl.innerHTML=j.members.map(m=>'<span class="mb">'+esc(m.member_name)+(m.last_opened?' ✓':'')+'</span>').join('');}catch(e){}}
+  function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
+    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
+      +esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';msgs.appendChild(w);}
+  async function loadMsgs(){if(busy||!cur)return;busy=true;try{const r=await fetch('/api/rooms/'+cur+'/messages?since='+last,{credentials:'same-origin'});
+    const j=await r.json();if(j.ok&&j.messages){if(last===0&&!j.messages.length)msgs.innerHTML='<div class="sys">No messages yet.</div>';
+      j.messages.forEach(add);if(j.messages.length){last=j.messages[j.messages.length-1].id;msgs.scrollTop=msgs.scrollHeight;}}S.textContent='';}
+    catch(e){S.textContent='Reconnecting…';}finally{busy=false;}}
+  async function send(){const b=I.value.trim();if(!b||!cur)return;B.disabled=true;S.textContent='…';
+    try{const r=await fetch('/api/rooms/'+cur+'/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:b})});
+      const j=await r.json();if(j.ok){I.value='';I.style.height='auto';loadMsgs();}else S.textContent='Could not send: '+(j.error||'error');}
+    catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
+  I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
+  I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  B.addEventListener('click',send);
+
+  // people picker
+  window.openPicker=async function(m){mode=m;sel=new Set();
+    document.getElementById('sheetTitle').textContent=(m==='new'?'Start a conversation with…':'Add people to this conversation');
+    document.getElementById('confirmBtn').textContent=(m==='new'?'Start':'Add');
+    if(!people.length){const r=await fetch('/api/dm/people',{credentials:'same-origin'});const j=await r.json();people=j.people||[];}
+    let exclude=new Set();if(m==='add'&&cur){try{const r=await fetch('/api/rooms/'+cur+'/members',{credentials:'same-origin'});const j=await r.json();(j.members||[]).forEach(x=>exclude.add(x.member_name));}catch(e){}}
+    peopleEl.innerHTML=people.filter(p=>!exclude.has(p.name)).map(p=>'<div class="pp" data-n="'+esc(p.name)+'" onclick="togglePick(this)"><div><div class="pn">'+esc(p.name)+'</div><div class="pl">'+esc(p.role_title)+(p.lang!=='en'?' · '+p.lang.toUpperCase():'')+'</div></div><span class="ck"></span></div>').join('');
+    modal.style.display='flex';};
+  window.togglePick=function(el){const n=el.getAttribute('data-n');if(sel.has(n)){sel.delete(n);el.classList.remove('sel');el.querySelector('.ck').textContent='';}else{sel.add(n);el.classList.add('sel');el.querySelector('.ck').textContent='✓';}};
+  window.closePicker=function(){modal.style.display='none';};
+  window.confirmPicker=async function(){if(!sel.size){closePicker();return;}const names=[...sel];
+    if(mode==='new'){const r=await fetch('/api/rooms/create',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({members:names})});
+      const j=await r.json();closePicker();if(j.ok){await loadRooms();openRoom(j.room_id,j.title||names.join(', '));}else alert(j.error||'Could not create');}
+    else{const r=await fetch('/api/rooms/'+cur+'/add',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({members:names})});
+      const j=await r.json();closePicker();if(j.ok){loadMembers();}else alert(j.error||'Could not add');}};
+  loadRooms();
+})();
+</script></body></html>"""
+
+
+# ---- Room magic-link page (token auth) ------------------------------------
+DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
+<html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lumia — Message</title><link rel="apple-touch-icon" href="/static/icons/icon-180-v3.png"><meta name="theme-color" content="#1F3864">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
+  header{background:#1F3864;color:#fff;padding:13px 16px}header .t{font-weight:700;font-size:17px}header .s{font-size:12px;opacity:.85;margin-top:2px}
+  #msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+  .m{max-width:80%;padding:9px 12px;border-radius:14px;line-height:1.35;font-size:15px;white-space:pre-wrap;word-wrap:break-word}
+  .m .w{font-size:11px;font-weight:700;opacity:.7;margin-bottom:2px}.m .x{font-size:10px;opacity:.55;margin-top:4px}.m .tr{font-size:10px;opacity:.6;font-style:italic;margin-top:3px}
+  .mine{align-self:flex-end;background:#1F3864;color:#fff;border-bottom-right-radius:4px}.mine .w,.mine .x,.mine .tr{color:#cfd8e6}
+  .other{align-self:flex-start;background:#fff;border:1px solid #d8deeb;border-bottom-left-radius:4px}
+  .sys{align-self:center;background:#f3f5f9;color:#56607a;font-size:12px;padding:6px 12px;border-radius:10px}
+  footer{background:#fff;border-top:1px solid #d8deeb;padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
+  textarea{flex:1;resize:none;border:1px solid #c8d0e0;border-radius:18px;padding:10px 14px;font:inherit;min-height:42px;max-height:120px;outline:none;background:#fafbfd}
+  textarea:focus{border-color:#1F3864;background:#fff}
+  #send{background:#1F3864;color:#fff;border:none;border-radius:18px;padding:10px 18px;font-weight:700;min-height:42px;cursor:pointer}#send:disabled{opacity:.45}
+  #st{font-size:11px;color:#88909e;padding:0 14px 4px;min-height:14px}
+</style></head><body>
+<header><div class="t">{{ room_title }}</div><div class="s">{{ 'محادثة جماعية' if viewer_lang=='ar' else 'Group conversation' }}</div></header>
+<div id="msgs"><div class="sys">{{ 'جارٍ التحميل…' if viewer_lang=='ar' else 'Loading…' }}</div></div><div id="st"></div>
+<footer><textarea id="in" rows="1" maxlength="2000" placeholder="{{ 'اكتب رسالتك…' if viewer_lang=='ar' else 'Type your message…' }}"></textarea><button id="send">{{ 'إرسال' if viewer_lang=='ar' else 'Send' }}</button></footer>
+<script>
+(function(){const TOKEN={{ token|tojson }},ME={{ viewer|tojson }};
+  const M=document.getElementById('msgs'),I=document.getElementById('in'),B=document.getElementById('send'),S=document.getElementById('st');let last=0,busy=false;
+  const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function clock(iso){const d=new Date(iso);let h=d.getHours();const m=String(d.getMinutes()).padStart(2,'0');const a=h>=12?'PM':'AM';h=h%12||12;return h+':'+m+' '+a;}
+  function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
+    w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')+esc(x.text)+(x.translated?'<div class="tr">↳ translated</div>':'')+'<div class="x">'+clock(x.created_at)+'</div>';M.appendChild(w);}
+  async function poll(){if(busy)return;busy=true;try{const r=await fetch('/api/room-thread?token='+encodeURIComponent(TOKEN)+'&since='+last,{credentials:'same-origin'});const j=await r.json();
+    if(j.ok&&j.messages){if(last===0)M.innerHTML='';j.messages.forEach(add);if(j.messages.length){last=j.messages[j.messages.length-1].id;M.scrollTop=M.scrollHeight;}else if(last===0)M.innerHTML='<div class="sys">No messages yet.</div>';}S.textContent='';}
+    catch(e){S.textContent='Reconnecting…';}finally{busy=false;}}
+  async function send(){const b=I.value.trim();if(!b)return;B.disabled=true;S.textContent='…';
+    try{const r=await fetch('/api/room-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:TOKEN,body:b})});const j=await r.json();if(j.ok){I.value='';I.style.height='auto';poll();}else S.textContent='Could not send';}
+    catch(e){S.textContent='Offline?';}finally{B.disabled=false;}}
+  I.addEventListener('input',()=>{I.style.height='auto';I.style.height=Math.min(I.scrollHeight,120)+'px';});
+  I.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  B.addEventListener('click',send);poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
+</script></body></html>"""
+
+
+@app.route("/team")
+@require_employee
+def dm_rooms_page():
+    if not _dm_is_staff_session():
+        return ("This page is for management. If that should be you, ask the owner to set your role."), 403
+    return render_template_string(DM_ROOMS_HTML, viewer=_dm_session_name())
+
+
+@app.route("/api/dm/people")
+@require_employee
+def api_dm_people():
+    """Everyone the owner/manager can put in a conversation."""
+    if not supabase_client:
+        return jsonify({"ok": True, "people": []})
+    if not _dm_is_staff_session():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    viewer = _dm_session_name()
+    rows = supabase_client.table("employees").select("name,language").execute().data or []
+    people = []
+    for r in rows:
+        nm = r.get("name")
+        if not nm or nm.strip().lower() == (viewer or "").strip().lower():
+            continue
+        info = _dm_role_for(nm)
+        people.append({
+            "name": nm,
+            "role_title": (info[2] if info else "Crew"),
+            "lang": (r.get("language") or "en").lower()[:2],
+        })
+    people.sort(key=lambda p: (p["role_title"] == "Crew", p["name"]))
+    return jsonify({"ok": True, "people": people})
+
+
+@app.route("/api/rooms")
+@require_employee
+def api_rooms_list():
+    if not supabase_client:
+        return jsonify({"ok": True, "rooms": []})
+    viewer = _dm_session_name()
+    is_boss = _dm_is_president(viewer) or session.get("role") == "owner"
+    # Rooms the viewer belongs to (or all, for the president/owner)
+    if is_boss:
+        rooms = supabase_client.table("dm_rooms").select("*").order("last_message_at", desc=True).limit(200).execute().data or []
+        room_ids = [r["id"] for r in rooms]
+    else:
+        mem = supabase_client.table("dm_room_members").select("room_id").eq("member_name", viewer).execute().data or []
+        room_ids = [m["room_id"] for m in mem]
+        rooms = []
+        if room_ids:
+            rooms = supabase_client.table("dm_rooms").select("*").in_("id", room_ids).order("last_message_at", desc=True).execute().data or []
+    out = []
+    for rm in rooms:
+        rid = rm["id"]
+        members = _dm_room_members(rid)
+        last = supabase_client.table("dm_room_messages").select("*").eq("room_id", rid).order("id", desc=True).limit(1).execute().data or []
+        preview = ""
+        if last:
+            tr = last[0].get("translations") or {}
+            preview = (tr.get(_dm_read_lang(viewer)) or last[0].get("body") or "")[:80]
+        names = [m.get("member_name") for m in members if (m.get("member_name") or "").strip().lower() != (viewer or "").strip().lower()]
+        out.append({
+            "id": rid,
+            "title": _dm_room_title(rid, members, viewer),
+            "preview": preview,
+            "member_summary": f"{len(members)} people" if len(members) > 2 else ", ".join(names),
+            "last_at": rm.get("last_message_at") or rm.get("created_at"),
+        })
+    return jsonify({"ok": True, "rooms": out})
+
+
+@app.route("/api/rooms/create", methods=["POST"])
+@require_employee
+def api_rooms_create():
+    if not supabase_client or not _dm_is_staff_session():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    viewer = _dm_session_name()
+    d = request.get_json(silent=True) or {}
+    members = [m for m in (d.get("members") or []) if m]
+    if not members:
+        return jsonify({"ok": False, "error": "Pick at least one person"}), 400
+    try:
+        ins = supabase_client.table("dm_rooms").insert({
+            "created_by": viewer,
+            "last_message_at": datetime.utcnow().isoformat(),
+        }).execute().data
+        room_id = ins[0]["id"]
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    _dm_room_add_member(room_id, viewer, viewer)   # creator is always a member
+    for nm in members:
+        _dm_room_add_member(room_id, nm, viewer)
+    title = _dm_room_title(room_id, viewer=viewer)
+    return jsonify({"ok": True, "room_id": room_id, "title": title})
+
+
+@app.route("/api/rooms/<int:room_id>/add", methods=["POST"])
+@require_employee
+def api_rooms_add(room_id):
+    if not supabase_client or not _dm_is_staff_session():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    viewer = _dm_session_name()
+    if not _dm_room_can_access(viewer, room_id):
+        return jsonify({"ok": False, "error": "Not in this conversation"}), 403
+    d = request.get_json(silent=True) or {}
+    added = [_dm_room_add_member(room_id, nm, viewer) for nm in (d.get("members") or []) if nm]
+    return jsonify({"ok": any(added)})
+
+
+@app.route("/api/rooms/<int:room_id>/members")
+@require_employee
+def api_rooms_members(room_id):
+    if not supabase_client:
+        return jsonify({"ok": True, "members": []})
+    viewer = _dm_session_name()
+    if not _dm_room_can_access(viewer, room_id):
+        return jsonify({"ok": False, "error": "Not in this conversation"}), 403
+    members = _dm_room_members(room_id)
+    # Attach read-receipt: did each member open their latest notification?
+    for m in members:
+        notif = supabase_client.table("dm_room_notifications").select("opened_at") \
+            .eq("room_id", room_id).eq("recipient_name", m.get("member_name")) \
+            .order("id", desc=True).limit(1).execute().data or []
+        m["last_opened"] = notif[0]["opened_at"] if notif and notif[0].get("opened_at") else None
+    return jsonify({"ok": True, "members": [
+        {"member_name": m.get("member_name"), "role": m.get("member_role"),
+         "last_opened": m.get("last_opened")} for m in members]})
+
+
+@app.route("/api/rooms/<int:room_id>/messages")
+@require_employee
+def api_rooms_messages(room_id):
+    if not supabase_client:
+        return jsonify({"ok": True, "messages": []})
+    viewer = _dm_session_name()
+    if not _dm_room_can_access(viewer, room_id):
+        return jsonify({"ok": False, "error": "Not in this conversation"}), 403
+    try:
+        since = int(request.args.get("since") or 0)
+    except (TypeError, ValueError):
+        since = 0
+    q = supabase_client.table("dm_room_messages").select("*").eq("room_id", room_id)
+    if since > 0:
+        q = q.gt("id", since)
+    rows = q.order("id", desc=False).limit(300).execute().data or []
+    return jsonify({"ok": True, "messages": _dm_room_render(viewer, rows)})
+
+
+@app.route("/api/rooms/<int:room_id>/send", methods=["POST"])
+@require_employee
+def api_rooms_send(room_id):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "unavailable"}), 503
+    viewer = _dm_session_name()
+    if not _dm_room_can_access(viewer, room_id):
+        return jsonify({"ok": False, "error": "Not in this conversation"}), 403
+    d = request.get_json(silent=True) or {}
+    body = (d.get("body") or "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "Empty"}), 400
+    msg = _dm_room_post(room_id, viewer, body)
+    return jsonify({"ok": bool(msg)})
+
+
+@app.route("/rm/<token>")
+def dm_room_magic_link(token):
+    """Tokenized room page from an SMS notification. Records the open time."""
+    if not supabase_client:
+        return "Messaging is not available right now.", 503
+    rows = supabase_client.table("dm_room_notifications").select("*").eq("token", token).limit(1).execute().data or []
+    if not rows:
+        return ("<div style='font-family:sans-serif;padding:40px;text-align:center;color:#1F3864'>"
+                "<h2>Link expired</h2><p>This message link is no longer valid.</p></div>"), 404
+    note = rows[0]
+    if not note.get("opened_at"):
+        try:
+            supabase_client.table("dm_room_notifications").update(
+                {"opened_at": datetime.utcnow().isoformat()}).eq("token", token).execute()
+            print(f"[Room] read receipt — {note.get('recipient_name')} opened token {token[:6]}…")
+        except Exception:
+            pass
+    viewer = note.get("recipient_name")
+    room_id = note.get("room_id")
+    return render_template_string(
+        DM_ROOM_THREAD_HTML, token=token, viewer=viewer,
+        viewer_lang=_dm_emp_language(viewer),
+        room_title=_dm_room_title(room_id, viewer=viewer))
+
+
+@app.route("/api/room-thread")
+def api_room_thread():
+    if not supabase_client:
+        return jsonify({"ok": True, "messages": []})
+    token = request.args.get("token") or ""
+    try:
+        since = int(request.args.get("since") or 0)
+    except (TypeError, ValueError):
+        since = 0
+    rows = supabase_client.table("dm_room_notifications").select("*").eq("token", token).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Invalid link"}), 404
+    note = rows[0]
+    q = supabase_client.table("dm_room_messages").select("*").eq("room_id", note.get("room_id"))
+    if since > 0:
+        q = q.gt("id", since)
+    rows2 = q.order("id", desc=False).limit(300).execute().data or []
+    return jsonify({"ok": True, "messages": _dm_room_render(note.get("recipient_name"), rows2)})
+
+
+@app.route("/api/room-reply", methods=["POST"])
+def api_room_reply():
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "unavailable"}), 503
+    d = request.get_json(silent=True) or {}
+    token = d.get("token") or ""
+    body = (d.get("body") or "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "Empty"}), 400
+    rows = supabase_client.table("dm_room_notifications").select("*").eq("token", token).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Invalid link"}), 404
+    note = rows[0]
+    msg = _dm_room_post(note.get("room_id"), note.get("recipient_name"), body)
+    return jsonify({"ok": bool(msg)})
+
+
 # ---------------------------------------------------------------------------
 # SET PASSWORD (via emailed link)
 # ---------------------------------------------------------------------------
@@ -5315,6 +5882,7 @@ window.USER_ROLE = "{{ user_role }}";
   <div class="tab" onclick="showTab('employees')">Employees</div>
   <div class="tab owner-only" onclick="showTab('texting')">📱 Texting</div>
   <div class="tab owner-only" onclick="showTab('textlog')">💬 Texts</div>
+  <div class="tab owner-only" onclick="window.location.href='/team'" style="background:#e7f0ff;color:#1F3864;font-weight:600;">📨 Team Chat</div>
   <div class="tab owner-only" onclick="showTab('managers')">Managers</div>
   <div class="tab" onclick="showTab('reports')">Reports</div>
   <div class="tab" onclick="showTab('schedule')">📅 Schedule</div>

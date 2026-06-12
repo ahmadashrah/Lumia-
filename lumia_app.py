@@ -3023,8 +3023,10 @@ def _dm_post_message(employee_name: str, manager_name: str, sender_name: str,
     if not msg:
         return None
 
-    _dm_notify_for_message(msg, employee_name, manager_canon, manager_role,
-                           sender_name, sender_role)
+    # Fire SMS notifications in the background so send() returns instantly
+    threading.Thread(target=_dm_notify_for_message,
+                     args=(msg, employee_name, manager_canon, manager_role, sender_name, sender_role),
+                     daemon=True).start()
     return msg
 
 
@@ -3220,7 +3222,7 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
       mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
     }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
-  poll();setInterval(()=>{if(!document.hidden)poll();},4000);
+  poll();setInterval(()=>{if(!document.hidden)poll();},1500);
 })();
 </script></body></html>"""
 
@@ -3306,7 +3308,7 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
     cur={employee:emp,manager:mgr};last=0;msgs.innerHTML='';
     document.getElementById('ctitle').textContent=title;
     list.style.display='none';chat.style.display='flex';foot.style.display='flex';
-    loadMsgs();if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},4000);
+    loadMsgs();if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},1500);
   };
   window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';list.style.display='block';cur=null;loadThreads();};
   function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
@@ -3691,7 +3693,9 @@ def _dm_room_post(room_id, sender_name: str, body: str, src_lang: str = None,
             {"last_message_at": datetime.utcnow().isoformat()}).eq("id", room_id).execute()
     except Exception:
         pass
-    _dm_room_notify(room_id, msg, sender_name, members)
+    # Background the SMS fan-out so the sender's request returns instantly
+    threading.Thread(target=_dm_room_notify,
+                     args=(room_id, msg, sender_name, members), daemon=True).start()
     return msg
 
 
@@ -3868,7 +3872,7 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
 
   window.openRoom=function(id,title){cur=id;last=0;msgs.innerHTML='';document.getElementById('ctitle').textContent=title;
     listEl.style.display='none';chat.style.display='flex';foot.style.display='flex';loadMembers();loadMsgs();
-    if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},4000);};
+    if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},1500);};
   window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';listEl.style.display='block';cur=null;loadRooms();};
 
   async function loadMembers(){try{const r=await fetch('/api/rooms/'+cur+'/members',{credentials:'same-origin'});const j=await r.json();
@@ -3989,7 +3993,7 @@ DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
       mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
     }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
-  poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
+  poll();setInterval(()=>{if(!document.hidden)poll();},1500);})();
 </script></body></html>"""
 
 
@@ -4286,7 +4290,7 @@ SINGLE_ROOM_HTML = r"""<!DOCTYPE html>
       mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
     }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
-  poll();setInterval(()=>{if(!document.hidden)poll();},4000);})();
+  poll();setInterval(()=>{if(!document.hidden)poll();},1500);})();
 </script></body></html>"""
 
 
@@ -6364,8 +6368,25 @@ window.USER_ROLE = "{{ user_role }}";
             </label>
           </div>
         </div>
-        <div class="field"><label>Start Date</label>
-          <input type="date" name="start_date"></div>
+        <div class="form-row">
+          <div class="field"><label>PO Number <span style="font-weight:400;color:#888;font-size:11px;">— customer purchase order</span></label>
+            <input type="text" name="po_number" placeholder="e.g. PO-10482"></div>
+          <div class="field"><label>Project Status</label>
+            <select name="status">
+              <option value="awarded" selected>Awarded</option>
+              <option value="active">Active</option>
+              <option value="on_hold">On Hold</option>
+              <option value="completed">Completed</option>
+              <option value="invoiced">Invoiced</option>
+              <option value="closed">Closed</option>
+            </select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Start Date</label>
+            <input type="date" name="start_date"></div>
+          <div class="field"><label>Planned Completion Date</label>
+            <input type="date" name="planned_completion_date"></div>
+        </div>
         <div class="form-row">
           <div class="field"><label>Painters Needed</label>
             <select name="painters_needed">
@@ -9014,11 +9035,17 @@ function _wsRenderSidebar() {
   const s = data.summary || {};
   const links = [
     { id: 'daily',     label: 'Daily log',     num: s.total_checkins      || 0 },
+    { id: 'notes',     label: 'Project notes', num: (_wsState.data.notes_count != null ? _wsState.data.notes_count : '') },
     { id: 'paint',     label: 'Paint records', num: s.total_paint_records || 0 },
     { id: 'photos',    label: 'Photos',        num: s.total_photos        || 0 },
     { id: 'docs',      label: 'Documents',     num: s.total_documents     || 0 },
     { id: 'invoices',  label: 'Invoices',      num: s.total_billings      || 0 },
   ];
+  const STATUSES = ['awarded','active','on_hold','completed','invoiced','closed'];
+  const cur = (_wsState.job.status||'awarded').toLowerCase();
+  const statusOpts = STATUSES.map(v =>
+    `<option value="${v}"${v===cur?' selected':''}>${v.replace('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join('');
+  const j = _wsState.job;
   document.getElementById('ws-side').innerHTML = `
     <h4>Job</h4>
     ${links.map(l => `
@@ -9028,11 +9055,30 @@ function _wsRenderSidebar() {
     `).join('')}
     <h4>Job Meta</h4>
     <div style="padding:0 24px;font-size:12px;color:rgba(244,241,236,.55);line-height:1.7;">
-      <div><b style="color:rgba(244,241,236,.85);">Client:</b> ${escHtml(_wsState.job.client_name||'—')}</div>
-      <div><b style="color:rgba(244,241,236,.85);">Status:</b> ${escHtml(_wsState.job.status||'—')}</div>
-      <div><b style="color:rgba(244,241,236,.85);">Start:</b> ${escHtml(_wsState.job.start_date||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Client:</b> ${escHtml(j.client_name||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">PO #:</b> ${escHtml(j.po_number||'—')}</div>
+      <div style="margin:6px 0;"><b style="color:rgba(244,241,236,.85);">Status:</b>
+        <select id="ws-status-sel" onchange="_wsSetStatus(this.value)" style="margin-top:3px;width:100%;background:rgba(244,241,236,.08);color:#f4f1ec;border:1px solid rgba(244,241,236,.2);border-radius:6px;padding:5px 8px;font-size:12px;">${statusOpts}</select>
+      </div>
+      <div><b style="color:rgba(244,241,236,.85);">Start:</b> ${escHtml(j.start_date||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Planned done:</b> ${escHtml(j.planned_completion_date||'—')}</div>
+      <div><b style="color:rgba(244,241,236,.85);">Actual done:</b> ${escHtml(j.actual_completion_date||'—')}</div>
     </div>
   `;
+}
+
+async function _wsSetStatus(val) {
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/status',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: val}) });
+    const d = await r.json();
+    if (d.ok) {
+      _wsState.job.status = d.status;
+      if (d.status === 'completed' && !_wsState.job.actual_completion_date)
+        _wsState.job.actual_completion_date = new Date().toISOString().slice(0,10);
+      _wsRenderSidebar();
+    } else { alert(d.error || 'Could not update status'); }
+  } catch(e) { alert('Network error updating status'); }
 }
 
 function _wsSetTab(id) { _wsState.tab = id; _wsRenderSidebar(); _wsRenderMain(); }
@@ -9046,6 +9092,7 @@ function _wsRenderMain() {
 
   let body = '';
   if (tab === 'daily')     body = _wsRenderDaily();
+  if (tab === 'notes')     body = _wsRenderNotes();
   if (tab === 'paint')     body = _wsRenderPaint();
   if (tab === 'photos')    body = _wsRenderPhotos();
   if (tab === 'docs')      body = _wsRenderDocs();
@@ -9064,6 +9111,7 @@ function _wsRenderMain() {
     </div>
     <div class="ws-tabs">
       <div class="ws-tab ${tab==='daily'?'active':''}"     onclick="_wsSetTab('daily')">Daily log</div>
+      <div class="ws-tab ${tab==='notes'?'active':''}"     onclick="_wsSetTab('notes')">Project notes</div>
       <div class="ws-tab ${tab==='paint'?'active':''}"     onclick="_wsSetTab('paint')">Paint records</div>
       <div class="ws-tab ${tab==='photos'?'active':''}"    onclick="_wsSetTab('photos')">Photos</div>
       <div class="ws-tab ${tab==='docs'?'active':''}"      onclick="_wsSetTab('docs')">Documents</div>
@@ -9071,6 +9119,82 @@ function _wsRenderMain() {
     </div>
     ${body}
   `;
+  if (tab === 'notes') _wsLoadNotes();
+}
+
+const WS_NOTE_CATS = [
+  ['change_order','Change order'],
+  ['customer_request','Customer request'],
+  ['special_instruction','Special instruction'],
+  ['finance','Finance note'],
+  ['general','General'],
+];
+
+function _wsRenderNotes() {
+  const catOpts = WS_NOTE_CATS.map(c => `<option value="${c[0]}">${c[1]}</option>`).join('');
+  return `
+    <div style="background:#fff;border:1px solid #e6e9f0;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+        <select id="ws-note-cat" style="padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">${catOpts}</select>
+        <textarea id="ws-note-text" rows="2" placeholder="Add a change order, customer request, special instruction, or finance note…" style="flex:1;min-width:240px;padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;resize:vertical;"></textarea>
+        <button class="btn btn-green" onclick="_wsAddNote()" style="white-space:nowrap;">+ Add note</button>
+      </div>
+      <div id="ws-note-msg" style="font-size:12px;color:#888;margin-top:6px;"></div>
+    </div>
+    <div id="ws-notes-list" style="font-size:13px;color:#999;">Loading notes…</div>
+  `;
+}
+
+const WS_CAT_LABEL = { change_order:'🔁 Change order', customer_request:'🙋 Customer request', special_instruction:'⚠️ Special instruction', finance:'💰 Finance', general:'📝 General' };
+const WS_CAT_COLOR = { change_order:'#b26a00', customer_request:'#1565c0', special_instruction:'#c62828', finance:'#2e7d32', general:'#555' };
+
+async function _wsLoadNotes() {
+  const host = document.getElementById('ws-notes-list');
+  if (!host) return;
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/notes');
+    const d = await r.json();
+    _wsState.data.notes_count = (d.notes||[]).length;
+    _wsRenderSidebar();
+    if (!d.notes || !d.notes.length) { host.innerHTML = '<div style="color:#999;padding:12px;">No notes yet.</div>'; return; }
+    host.innerHTML = d.notes.map(n => {
+      const cat = n.category || 'general';
+      const label = WS_CAT_LABEL[cat] || '📝 Note';
+      const color = WS_CAT_COLOR[cat] || '#555';
+      const when = (n.created_at || '').slice(0,16).replace('T',' ');
+      return `<div style="background:#fff;border:1px solid #e6e9f0;border-left:3px solid ${color};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <span style="font-size:11px;font-weight:700;color:${color};">${label}</span>
+          <span style="font-size:11px;color:#aaa;">${escHtml(n.author||'')} · ${escHtml(when)}
+            <span onclick="_wsDelNote('${n.id}')" style="cursor:pointer;color:#c62828;margin-left:8px;">✕</span></span>
+        </div>
+        <div style="font-size:13px;color:#333;margin-top:5px;white-space:pre-wrap;">${escHtml(n.note||'')}</div>
+      </div>`;
+    }).join('');
+  } catch(e) { host.innerHTML = '<div style="color:#c62828;padding:12px;">Could not load notes.</div>'; }
+}
+
+async function _wsAddNote() {
+  const cat = document.getElementById('ws-note-cat').value;
+  const txt = document.getElementById('ws-note-text').value.trim();
+  const msg = document.getElementById('ws-note-msg');
+  if (!txt) { msg.textContent = 'Type a note first.'; return; }
+  msg.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/note',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({category:cat, note:txt}) });
+    const d = await r.json();
+    if (d.ok) { document.getElementById('ws-note-text').value=''; msg.textContent=''; _wsLoadNotes(); }
+    else { msg.textContent = d.error || 'Could not save.'; }
+  } catch(e) { msg.textContent = 'Network error.'; }
+}
+
+async function _wsDelNote(nid) {
+  if (!confirm('Delete this note?')) return;
+  try {
+    await fetch('/api/job/' + encodeURIComponent(_wsState.activeJobId) + '/note/' + encodeURIComponent(nid), { method:'DELETE' });
+    _wsLoadNotes();
+  } catch(e) { alert('Could not delete.'); }
 }
 
 function _wsRenderDaily() {
@@ -11381,6 +11505,8 @@ function renderReceiptConfirm(d) {
             '<option value="' + c + '"' + (c === (p.category || 'other') ? ' selected' : '') + '>' + c + '</option>'
           ).join('') +
         '</select></div>' +
+        '<div><b>Paid By:</b><br><input id="rcpt-paidby" placeholder="e.g. Ahmad, or employee name" style="width:100%;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;"></div>' +
+        '<div style="display:flex;align-items:flex-end;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="rcpt-reimb" style="width:16px;height:16px;"> Reimbursement required</label></div>' +
       '</div>' +
       '<div style="margin-top:10px;font-size:13px;"><b>Items:</b> ' + (items || '—') + '</div>' +
     '</div>' +
@@ -11408,6 +11534,8 @@ async function saveReceipt(receiptUrl) {
     category:     document.getElementById('rcpt-cat').value,
     description:  document.getElementById('rcpt-vendor').value.trim() + ' receipt',
     receipt_url:  receiptUrl || '',
+    paid_by:      (document.getElementById('rcpt-paidby') || {}).value || '',
+    reimbursement_required: !!(document.getElementById('rcpt-reimb') || {}).checked,
   };
   msg.textContent = 'Saving…'; msg.style.color = '#1F3864';
   try {
@@ -11710,9 +11838,11 @@ function _financeExpensesPanel(jobId, expenses) {
     html += '<div style="max-height:200px;overflow-y:auto;margin-bottom:8px;">' +
       expenses.map(e => {
         const amt = '$' + Number(e.amount || 0).toLocaleString('en-CA');
+        const reimb = e.reimbursement_required ? '<span style="background:#fff3e0;color:#e65100;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:6px;">REIMBURSE</span>' : '';
+        const paidby = e.paid_by ? ' <span style="color:#888;">· paid by ' + e.paid_by + '</span>' : '';
         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px;">' +
           '<div style="flex:1;"><b>' + (e.category||'other') + '</b> · ' + (e.description||'') +
-          (e.vendor ? ' <span style="color:#888;">(' + e.vendor + ')</span>' : '') +
+          (e.vendor ? ' <span style="color:#888;">(' + e.vendor + ')</span>' : '') + paidby + reimb +
           ' <span style="color:#888;">' + (e.expense_date || '') + '</span></div>' +
           '<div style="color:#c62828;font-weight:600;">' + amt + '</div>' +
           '<button data-exp-id="' + e.id + '" class="owner-only" style="background:none;border:none;color:#c62828;font-size:14px;cursor:pointer;margin-left:6px;">✕</button>' +
@@ -11733,6 +11863,10 @@ function _financeExpensesPanel(jobId, expenses) {
     '<input type="text" id="jd-exp-desc" placeholder="Description (vendor + product)" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
     '<input type="number" step="0.01" id="jd-exp-amt" placeholder="Amount" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;">' +
     '<button class="btn btn-sm" id="jd-exp-add" style="background:#1F3864;">+ Add</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap;">' +
+      '<input type="text" id="jd-exp-paidby" placeholder="Paid by (e.g. Ahmad / employee)" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:12px;flex:1;min-width:160px;">' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:#555;"><input type="checkbox" id="jd-exp-reimb" style="width:15px;height:15px;"> Reimbursement required</label>' +
     '</div>' +
     '<span id="jd-exp-msg" style="font-size:11px;color:#666;"></span>' +
     '</div>';
@@ -11823,9 +11957,11 @@ function _wireFinanceForms(jobId) {
     const desc = $('jd-exp-desc').value.trim();
     const amt = parseFloat($('jd-exp-amt').value || 0);
     if (!desc || !amt) { $('jd-exp-msg').textContent = 'Description + amount required.'; return; }
+    const paidBy = ($('jd-exp-paidby') || {}).value || '';
+    const reimb  = !!(($('jd-exp-reimb') || {}).checked);
     const r = await fetch('/api/job/' + jobId + '/expense', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({category: cat, description: desc, amount: amt})
+      body: JSON.stringify({category: cat, description: desc, amount: amt, paid_by: paidBy, reimbursement_required: reimb})
     });
     const d = await r.json();
     if (d.ok) loadJobFinance(jobId);
@@ -12800,16 +12936,33 @@ def api_site_visits():
 @app.route("/api/job/<job_id>/status", methods=["POST"])
 @require_operator
 def api_set_job_status(job_id):
-    """Toggle a job between open / paused / completed / closed.
-    Pause is mainly for multi-phase jobs that go idle between phases."""
+    """Set a job's status. Allowed: awarded / active / on_hold / completed /
+    invoiced / closed (plus legacy open/paused). Stamps actual_completion_date
+    automatically the first time a job is marked completed."""
     if not supabase_client:
         return jsonify({"ok": False, "error": "No DB"}), 500
     d = request.get_json() or {}
-    new_status = (d.get("status") or "").strip().lower()
-    if new_status not in ("open", "paused", "completed", "closed"):
+    new_status = (d.get("status") or "").strip().lower().replace(" ", "_")
+    allowed = ("awarded", "active", "on_hold", "completed", "invoiced", "closed",
+               "open", "paused")   # legacy values still accepted
+    if new_status not in allowed:
         return jsonify({"ok": False, "error": "Invalid status"}), 400
     try:
-        supabase_client.table("jobs").update({"status": new_status}).eq("id", job_id).execute()
+        update = {"status": new_status}
+        if new_status == "completed":
+            # Stamp the actual completion date if not already set
+            try:
+                row = supabase_client.table("jobs").select("actual_completion_date") \
+                    .eq("id", job_id).limit(1).execute().data or []
+                if not (row and row[0].get("actual_completion_date")):
+                    update["actual_completion_date"] = date.today().isoformat()
+            except Exception:
+                pass
+        try:
+            supabase_client.table("jobs").update(update).eq("id", job_id).execute()
+        except Exception:
+            # Column may not exist yet — retry with status only
+            supabase_client.table("jobs").update({"status": new_status}).eq("id", job_id).execute()
         return jsonify({"ok": True, "status": new_status})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -13306,10 +13459,12 @@ def api_receipt_save():
             "expense_date": (d.get("expense_date") or date.today().isoformat()),
             "logged_by":   session.get("name") or session.get("role") or "operator",
             "notes":       (d.get("notes") or "").strip() or None,
+            "paid_by":     (d.get("paid_by") or "").strip() or None,
+            "reimbursement_required": bool(d.get("reimbursement_required")),
         }
         if not row["amount"]:
             return jsonify({"ok": False, "error": "Amount required."})
-        supabase_client.table("job_expenses").insert(row).execute()
+        _insert_expense_safe(row)
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
@@ -13644,6 +13799,104 @@ def api_job_finance(job_id):
     })
 
 
+def _insert_expense_safe(row: dict):
+    """Insert a job_expense, retrying without the newer reimbursement columns
+    if the schema migration hasn't run yet."""
+    try:
+        supabase_client.table("job_expenses").insert(row).execute()
+    except Exception as exc:
+        print(f"[Expense] insert failed ({exc}) — retrying without reimbursement columns")
+        slim = {k: v for k, v in row.items() if k not in ("paid_by", "reimbursement_required")}
+        supabase_client.table("job_expenses").insert(slim).execute()
+
+
+# ---------------------------------------------------------------------------
+# PROJECT NOTES — change orders, customer requests, special instructions, etc.
+# ---------------------------------------------------------------------------
+PROJECT_NOTE_CATEGORIES = ["change_order", "customer_request", "special_instruction", "finance", "general"]
+
+
+@app.route("/api/job/<job_id>/notes")
+@require_operator
+def api_job_notes(job_id):
+    """List project notes for a job (newest first)."""
+    if not supabase_client:
+        return jsonify({"ok": True, "notes": []})
+    try:
+        rows = supabase_client.table("project_notes").select("*") \
+            .eq("job_id", job_id).order("created_at", desc=True).limit(200).execute().data or []
+        return jsonify({"ok": True, "notes": rows})
+    except Exception as exc:
+        return jsonify({"ok": True, "notes": [], "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/note", methods=["POST"])
+@require_operator
+def api_add_job_note(job_id):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    note = (d.get("note") or "").strip()
+    if not note:
+        return jsonify({"ok": False, "error": "Note text required."})
+    category = (d.get("category") or "general").strip().lower().replace(" ", "_")
+    if category not in PROJECT_NOTE_CATEGORIES:
+        category = "general"
+    row = {
+        "job_id":     job_id,
+        "category":   category,
+        "note":       note[:4000],
+        "author":     session.get("name") or session.get("employee_name") or session.get("role") or "staff",
+    }
+    try:
+        supabase_client.table("project_notes").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/note/<note_id>", methods=["DELETE"])
+@require_operator
+def api_delete_job_note(job_id, note_id):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    try:
+        supabase_client.table("project_notes").delete() \
+            .eq("id", note_id).eq("job_id", job_id).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/reimbursements")
+@require_finance
+def api_reimbursements():
+    """All expenses flagged as needing reimbursement, newest first — for Finance."""
+    if not supabase_client:
+        return jsonify({"ok": True, "items": []})
+    try:
+        rows = supabase_client.table("job_expenses").select("*") \
+            .eq("reimbursement_required", True).order("expense_date", desc=True).limit(500).execute().data or []
+    except Exception:
+        return jsonify({"ok": True, "items": [], "note": "reimbursement column not migrated yet"})
+    # Attach the site/client for each
+    jobs = {}
+    try:
+        for j in (supabase_client.table("jobs").select("id,client_name,site_address,po_number").execute().data or []):
+            jobs[j["id"]] = j
+    except Exception:
+        pass
+    items = []
+    total = 0.0
+    for r in rows:
+        j = jobs.get(r.get("job_id"), {})
+        amt = float(r.get("amount") or 0)
+        total += amt
+        items.append({**r, "client_name": j.get("client_name"), "site_address": j.get("site_address"),
+                      "po_number": j.get("po_number")})
+    return jsonify({"ok": True, "items": items, "total": round(total, 2)})
+
+
 @app.route("/api/job/<job_id>/expense", methods=["POST"])
 @require_finance
 def api_add_job_expense(job_id):
@@ -13660,10 +13913,12 @@ def api_add_job_expense(job_id):
             "expense_date": (d.get("expense_date") or date.today().isoformat()),
             "logged_by":   session.get("name") or session.get("role") or "owner",
             "notes":       (d.get("notes") or "").strip() or None,
+            "paid_by":     (d.get("paid_by") or "").strip() or None,
+            "reimbursement_required": bool(d.get("reimbursement_required")),
         }
         if not row["description"]:
             return jsonify({"ok": False, "error": "Description required."})
-        supabase_client.table("job_expenses").insert(row).execute()
+        _insert_expense_safe(row)
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
@@ -16485,14 +16740,19 @@ def api_save_job():
     # Deduplicate while preserving order
     seen: set[str] = set()
     assigned = [n for n in assigned if not (n in seen or seen.add(n))]
+    _status = (d.get("status") or "awarded").strip().lower().replace(" ", "_")
+    if _status not in ("awarded", "active", "on_hold", "completed", "invoiced", "closed"):
+        _status = "awarded"
     job_info = {
         "client_name":        d.get("client_name"),
         "site_address":       d.get("site_address"),
         "work_description":   d.get("work_description"),
         "start_date":         d.get("start_date") or None,
         "painters_needed":    int(d.get("painters_needed", 2)),
-        "status":             "open",
+        "status":             _status,
         "assigned_employees": assigned,
+        "po_number":          (d.get("po_number") or "").strip() or None,
+        "planned_completion_date": d.get("planned_completion_date") or None,
     }
     # Optional scope metrics + estimated hours (added 2026-04 — calibration loop)
     raw_metrics = d.get("scope_metrics")
@@ -16515,8 +16775,8 @@ def api_save_job():
             if ins.data: new_job_id = ins.data[0].get("id")
         except Exception as exc:
             # Fallback: drop the new columns if the schema migration hasn't run yet
-            print(f"[Jobs] Insert failed ({exc}) — retrying without scope columns")
-            for k in ("scope_metrics", "estimated_hours"):
+            print(f"[Jobs] Insert failed ({exc}) — retrying without optional columns")
+            for k in ("scope_metrics", "estimated_hours", "po_number", "planned_completion_date"):
                 job_info.pop(k, None)
             ins = supabase_client.table("jobs").insert(job_info).execute()
             if ins.data: new_job_id = ins.data[0].get("id")

@@ -172,6 +172,11 @@ def require_api_key(f):
 
 EMPLOYEES = ["Abdelhadi", "Ammar", "Weas", "Ismael", "Ermias", "Maria"]
 
+# Job statuses that mean "still being worked" — crew check-ins, idle-job
+# digests, and assignment lookups all key off this set. Excludes the finished
+# states (completed / invoiced / closed). Includes legacy open/paused.
+WORKING_JOB_STATUSES = ["awarded", "active", "on_hold", "open", "paused"]
+
 CATEGORIES = [
     ("tape_covering",     "Tape & Covering"),
     ("drop_sheets",       "Use of Drop Sheets"),
@@ -948,6 +953,11 @@ HTML = """<!DOCTYPE html>
           <option value="">Loading jobs...</option>
         </select>
         <input type="hidden" name="job_id" id="job_id_input">
+        <div id="site_addr_box" style="display:none;margin-top:10px;background:#eef4ff;border:1.5px solid #cfe0ff;border-radius:10px;padding:12px 14px;">
+          <div id="site_addr_text" style="font-size:15px;font-weight:700;color:#1F3864;line-height:1.35;"></div>
+          <a id="site_directions" href="#" target="_blank" rel="noopener"
+             style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#1F3864;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:9px 14px;border-radius:8px;">📍 Open in Maps / Get directions</a>
+        </div>
       </div>
 
       <!-- Today's Plan banner (populated when site is picked) -->
@@ -2072,18 +2082,37 @@ HTML = """<!DOCTYPE html>
       const sel = document.getElementById('site_address_input');
       const jobIdInput = document.getElementById('job_id_input');
       sel.innerHTML = '<option value="">-- Select a job site --</option>';
+      // Your assigned sites first, clearly marked
+      jobs.sort((a,b) => (b.assigned_to_me?1:0) - (a.assigned_to_me?1:0));
       jobs.forEach(j => {
         const opt = document.createElement('option');
         opt.value = j.site_address;
         opt.dataset.jobId = j.id || '';
-        opt.textContent = j.site_address + ' (' + j.client_name + ')';
+        opt.dataset.addr = j.site_address || '';
+        const star = j.assigned_to_me ? '⭐ ' : '';
+        opt.textContent = star + j.site_address + ' (' + j.client_name + ')';
         sel.appendChild(opt);
       });
+      // Auto-select if the crew member has exactly one assigned site
+      const mine = jobs.filter(j => j.assigned_to_me);
+      function _showAddr(addr) {
+        const box = document.getElementById('site_addr_box');
+        if (!addr) { box.style.display = 'none'; return; }
+        document.getElementById('site_addr_text').textContent = '📍 ' + addr;
+        document.getElementById('site_directions').href =
+          'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr);
+        box.style.display = 'block';
+      }
       sel.addEventListener('change', function() {
         const selected = sel.options[sel.selectedIndex];
         jobIdInput.value = selected ? (selected.dataset.jobId || '') : '';
+        _showAddr(selected ? (selected.dataset.addr || sel.value) : '');
         _loadTodaysPlan(sel.value);
       });
+      if (mine.length === 1) {
+        sel.value = mine[0].site_address;
+        sel.dispatchEvent(new Event('change'));
+      }
     } catch(e) {
       console.error('Failed to load jobs:', e);
     }
@@ -8346,7 +8375,7 @@ async function loadOverview() {
   try {
     const jr = await apiFetch('/api/jobs');
     const jd = jr.ok ? await jr.json() : [];
-    document.getElementById('stat-jobs').textContent = jd.filter(j => j.status === 'open').length;
+    document.getElementById('stat-jobs').textContent = jd.filter(j => !['completed','invoiced','closed'].includes((j.status||'').toLowerCase())).length;
   } catch(e) {
     if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
   }
@@ -8707,8 +8736,8 @@ async function getAIRec() {
 }
 
 async function setJobStatus(jobId, newStatus, btn) {
-  const verb = newStatus === 'paused' ? 'pause' : 'resume';
-  if (!confirm('Are you sure you want to ' + verb + ' this job?')) return;
+  const verb = (newStatus === 'paused' || newStatus === 'on_hold') ? 'put this job on hold' : 'resume this job';
+  if (!confirm('Are you sure you want to ' + verb + '?')) return;
   const old = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
@@ -8759,14 +8788,15 @@ async function loadJobs() {
     // Pause / Resume — for multi-phase jobs that go quiet between phases
     const pauseBtn = document.createElement('button');
     pauseBtn.className = 'btn btn-sm';
-    if (j.status === 'paused') {
+    const _st = (j.status || '').toLowerCase();
+    if (_st === 'paused' || _st === 'on_hold') {
       pauseBtn.style.cssText = 'background:#e8f5e9;color:#2e7d32;';
       pauseBtn.textContent = '▶ Resume';
-      pauseBtn.onclick = function() { setJobStatus(j.id, 'open', this); };
-    } else if (j.status === 'open') {
+      pauseBtn.onclick = function() { setJobStatus(j.id, 'active', this); };
+    } else if (['open','awarded','active'].includes(_st)) {
       pauseBtn.style.cssText = 'background:#fff3e0;color:#bf360c;';
       pauseBtn.textContent = '⏸ Pause';
-      pauseBtn.onclick = function() { setJobStatus(j.id, 'paused', this); };
+      pauseBtn.onclick = function() { setJobStatus(j.id, 'on_hold', this); };
     } else {
       pauseBtn.style.display = 'none';
     }
@@ -13147,14 +13177,17 @@ def api_active_jobs():
         return jsonify([])
     employee_name = session.get("employee_name", "")
     all_jobs = (
-        supabase_client.table("jobs").select("id,client_name,site_address,assigned_employees")
-        .eq("status", "open").order("created_at", desc=True).execute().data or []
+        supabase_client.table("jobs").select("id,client_name,site_address,assigned_employees,status,po_number")
+        .in_("status", WORKING_JOB_STATUSES).order("created_at", desc=True).execute().data or []
     )
     # Filter to jobs assigned to this employee; fall back to all if nothing assigned anywhere
     assigned = [j for j in all_jobs if employee_name in (j.get("assigned_employees") or [])]
+    mine = bool(assigned)
     jobs = assigned if assigned else all_jobs
-    # Strip assigned_employees from the response (internal field)
-    return jsonify([{"id": j["id"], "client_name": j["client_name"], "site_address": j["site_address"]} for j in jobs])
+    return jsonify([{"id": j["id"], "client_name": j["client_name"],
+                     "site_address": j["site_address"], "po_number": j.get("po_number"),
+                     "assigned_to_me": (employee_name in (j.get("assigned_employees") or []))}
+                    for j in jobs])
 
 
 @app.route("/api/jobs")
@@ -14315,7 +14348,7 @@ def _portal_resolve_job(client_row: dict) -> dict | None:
         return None
     try:
         rows = supabase_client.table("jobs").select("*") \
-            .eq("client_name", name).eq("status", "open") \
+            .eq("client_name", name).in_("status", WORKING_JOB_STATUSES) \
             .order("created_at", desc=True).limit(1).execute().data or []
         if rows:
             return rows[0]
@@ -16526,7 +16559,7 @@ def _send_attention_digest():
     # 2. Idle jobs
     try:
         jobs = supabase_client.table("jobs").select("id,client_name,site_address,status,start_date") \
-            .eq("status", "open").execute().data or []
+            .in_("status", WORKING_JOB_STATUSES).execute().data or []
         checkins = supabase_client.table("checkins").select("site_address,entry_date") \
             .order("entry_date", desc=True).limit(200).execute().data or []
         latest_by_site: dict[str, str] = {}
@@ -17338,7 +17371,7 @@ def api_attention():
     # 2. Jobs marked open that haven't had a check-in in 4+ days
     try:
         jobs = supabase_client.table("jobs").select("id,client_name,site_address,status,start_date") \
-            .eq("status", "open").execute().data or []
+            .in_("status", WORKING_JOB_STATUSES).execute().data or []
         # Latest check-in date per site
         checkins = supabase_client.table("checkins").select("site_address,entry_date") \
             .order("entry_date", desc=True).limit(200).execute().data or []
@@ -18612,7 +18645,7 @@ def _send_arrival_nudges():
     # Who's assigned to open jobs?
     try:
         jobs = supabase_client.table("jobs").select("assigned_employees,status") \
-            .eq("status", "open").execute().data or []
+            .in_("status", WORKING_JOB_STATUSES).execute().data or []
     except Exception:
         jobs = []
     assigned = set()

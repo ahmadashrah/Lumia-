@@ -116,10 +116,11 @@ def require_role(*roles):
 # Owner-only stuff (delete, password resets, manager management, system config)
 # keeps using @require_role("owner") explicitly.
 def require_operator(f):
-    """Allow owner, production_manager, OR cfo — anyone who can see ops data."""
+    """Allow owner, production_manager, cfo, OR estimator — anyone who can see
+    operational data. Finance numbers stay gated separately by require_finance."""
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        if session.get("role") not in ("owner", "production_manager", "cfo"):
+        if session.get("role") not in ("owner", "production_manager", "cfo", "estimator"):
             return _auth_reject()
         return f(*args, **kwargs)
     return wrapper
@@ -6014,7 +6015,7 @@ def login_page():
                 if ph and check_password_hash(ph, pin):
                     session["role"] = m["role"]
                     session["name"] = m["name"]
-                    if m["role"] in ("production_manager", "owner", "cfo"):
+                    if m["role"] in ("production_manager", "owner", "cfo", "estimator"):
                         return redirect("/dashboard")
                     return redirect("/review")
         except Exception as exc:
@@ -6029,7 +6030,7 @@ def login_page():
             if match:
                 session["role"] = match["role"]
                 session["name"] = match["name"]
-                if match["role"] in ("production_manager", "owner", "cfo"):
+                if match["role"] in ("production_manager", "owner", "cfo", "estimator"):
                     return redirect("/dashboard")
                 return redirect("/review")
         except Exception as exc:
@@ -6079,7 +6080,7 @@ def manager_set_password_page():
     # Auto-login on success
     session["role"] = m["role"]
     session["name"] = m["name"]
-    if m["role"] in ("production_manager", "owner", "cfo"):
+    if m["role"] in ("production_manager", "owner", "cfo", "estimator"):
         return redirect("/dashboard")
     return redirect("/review")
 
@@ -6187,10 +6188,10 @@ tr:hover td { background:#fafbfd; }
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:12px;">
     <img src="/static/logo.png" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
-    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">{% if user_role == "production_manager" %}Production Manager Dashboard{% elif user_role == "cfo" %}CFO — Job Finances{% else %}Owner Dashboard{% endif %}</span>
+    <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">{% if user_role == "production_manager" %}Production Manager Dashboard{% elif user_role == "cfo" %}CFO — Job Finances{% elif user_role == "estimator" %}Estimator — Bids &amp; Quotes{% else %}Owner Dashboard{% endif %}</span>
   </div>
   <div style="display:flex;gap:20px;align-items:center">
-    <span style="font-size:13px;opacity:.8">Welcome, {{ name }}{% if user_role == "production_manager" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">PM</span>{% elif user_role == "cfo" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">CFO</span>{% endif %}</span>
+    <span style="font-size:13px;opacity:.8">Welcome, {{ name }}{% if user_role == "production_manager" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">PM</span>{% elif user_role == "cfo" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">CFO</span>{% elif user_role == "estimator" %} <span style="background:rgba(255,255,255,.18);padding:2px 8px;border-radius:10px;margin-left:6px;font-size:11px;font-weight:600;">EST</span>{% endif %}</span>
     <a href="/logout">Logout</a>
   </div>
 </div>
@@ -6204,6 +6205,10 @@ tr:hover td { background:#fafbfd; }
 {% if user_role == "cfo" %}
 .owner-only      { display: none !important; }
 {% endif %}
+{% if user_role == "estimator" %}
+.owner-only, .finance-only, .est-hide { display: none !important; }
+#tabs-ops { display: none !important; }
+{% endif %}
 </style>
 <script>
 window.USER_ROLE = "{{ user_role }}";
@@ -6211,12 +6216,17 @@ window.USER_ROLE = "{{ user_role }}";
 
 <!-- TOP-LEVEL SECTIONS -->
 <div class="section-bar">
+  {% if user_role == "estimator" %}
+  <button class="section-btn active" data-section="est"   onclick="showSection('est')">📐 Estimates</button>
+  <button class="section-btn"        data-section="sales" onclick="showSection('sales')">📝 Quotes &amp; Tenders</button>
+  {% else %}
   <button class="section-btn active" data-section="ops" onclick="showSection('ops')">{% if user_role == "cfo" %}💰 Finance{% else %}🛠 Operations / Production{% endif %}</button>
   {% if user_role != "production_manager" and user_role != "cfo" %}
   <button class="section-btn"        data-section="sales" onclick="showSection('sales')">📈 Sales / Marketing</button>
   <button class="section-btn"        data-section="est"   onclick="showSection('est')">📐 Estimates</button>
   <button class="section-btn"        data-section="ai"    onclick="showSection('ai')">🔭 AI Development</button>
   <button class="section-btn"        data-section="web"   onclick="showSection('web')">🌐 Website</button>
+  {% endif %}
   {% endif %}
 </div>
 
@@ -6243,11 +6253,11 @@ window.USER_ROLE = "{{ user_role }}";
 
 <!-- SECTION: Sales / Marketing -->
 <div class="tabs" id="tabs-sales" style="display:none;">
-  <div class="tab" onclick="showTab('clients')">Clients</div>
+  <div class="tab est-hide" onclick="showTab('clients')">Clients</div>
   <div class="tab" onclick="showTab('quotes')">📝 Quotes</div>
   <div class="tab" onclick="showTab('tenders')">📅 Tenders</div>
-  <div class="tab" onclick="showTab('mailbox')">📨 Mailbox</div>
-  <div class="tab" onclick="showTab('lio')">✨ Lio</div>
+  <div class="tab est-hide" onclick="showTab('mailbox')">📨 Mailbox</div>
+  <div class="tab est-hide" onclick="showTab('lio')">✨ Lio</div>
 </div>
 
 <!-- SECTION: Estimates -->
@@ -6751,12 +6761,14 @@ window.USER_ROLE = "{{ user_role }}";
           <option value="manager">Reviewer (check-in reviews only)</option>
           <option value="production_manager" selected>Production Manager / VP Ops (jobs, clients, receipts — NO finance)</option>
           <option value="cfo">CFO (all finance — P&amp;L, billings, expenses)</option>
+          <option value="estimator">Estimator (estimating, tenders &amp; quoting only)</option>
           <option value="owner">Owner (full access — use sparingly)</option>
         </select>
         <p style="font-size:12px;color:#888;margin:6px 0 0;line-height:1.4;">
           <b>Reviewer:</b> only sees the check-in review page.<br>
           <b>Production Manager / VP Ops:</b> creates/edits jobs, manages clients, sends reports, uploads receipts. <b>Does NOT see</b> finance numbers (costs, profit, margin) or delete records.<br>
           <b>CFO:</b> sees the full finance panel across every job — contract value, billings, expenses, labor cost, profit, margin. Can edit billings + expenses. Cannot manage other managers.<br>
+          <b>Estimator:</b> sees only the Estimates, Tenders, and Quotes tools. No jobs, crew, finance, or other tabs.<br>
           <b>Owner:</b> full access to everything (you).
         </p>
       </div>
@@ -7195,6 +7207,10 @@ function showSection(name) {
   if (window.USER_ROLE === 'cfo' && name !== 'ops') {
     return;
   }
+  // Estimator guard: only Estimates + Quotes/Tenders (sales) sections
+  if (window.USER_ROLE === 'estimator' && name !== 'est' && name !== 'sales') {
+    return;
+  }
   // Update section-button highlight
   document.querySelectorAll('.section-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.section === name));
@@ -7206,8 +7222,9 @@ function showSection(name) {
   const webEl = document.getElementById('tabs-web');
   if (aiEl)  aiEl.style.display  = (name === 'ai')  ? '' : 'none';
   if (webEl) webEl.style.display = (name === 'web') ? '' : 'none';
-  // Click the first visible tab in that section
-  const first = document.querySelector('#tabs-' + name + ' .tab');
+  // Click the first VISIBLE tab in that section (skips role-hidden tabs)
+  const tabs = document.querySelectorAll('#tabs-' + name + ' .tab');
+  const first = Array.from(tabs).find(t => t.offsetParent !== null) || tabs[0];
   if (first) first.click();
 }
 
@@ -7219,6 +7236,10 @@ function showTab(name) {
   }
   // CFO guard: only the Jobs tab inside ops is allowed
   if (window.USER_ROLE === 'cfo' && name !== 'jobs') {
+    return;
+  }
+  // Estimator guard: only estimating / tenders / quoting tabs
+  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes'].includes(name)) {
     return;
   }
   if (targetSection) {
@@ -10996,9 +11017,11 @@ async function loadAllReviews() {
     </tr>${rows}</table>`;
 }
 
-// CFO landing page = Jobs (with finances). Everyone else lands on Overview.
+// Role landing pages: CFO = Jobs, Estimator = Estimates, everyone else = Overview.
 if (window.USER_ROLE === 'cfo') {
   showTab('jobs');
+} else if (window.USER_ROLE === 'estimator') {
+  showSection('est');
 } else {
   loadOverview();
 }
@@ -12159,7 +12182,7 @@ function escHtmlEst(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&'
 
 
 @app.route("/dashboard")
-@require_role("owner", "production_manager", "cfo")
+@require_role("owner", "production_manager", "cfo", "estimator")
 def owner_dashboard():
     role = session.get("role", "owner")
     resp = make_response(render_template_string(
@@ -12635,7 +12658,7 @@ def api_add_manager():
     role  = (d.get("mgr_role")  or "manager").strip()
     if not name or not email:
         return jsonify({"message": "Name and email are required."})
-    if role not in ("manager", "production_manager", "cfo", "owner"):
+    if role not in ("manager", "production_manager", "cfo", "estimator", "owner"):
         role = "manager"
 
     # Refuse if this email already exists

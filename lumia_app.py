@@ -8863,8 +8863,8 @@ async function loadJobs() {
   const archiveCount = _jobs.length - activeCount;
   const toggle =
     '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
-      '<button class="btn btn-sm" onclick="setJobsView(\'active\')" style="' + (_jobsView==='active'?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;') + '">📋 Active (' + activeCount + ')</button>' +
-      '<button class="btn btn-sm" onclick="setJobsView(\'archive\')" style="' + (_jobsView==='archive'?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;') + '">🗄 Archive (' + archiveCount + ')</button>' +
+      '<button class="btn btn-sm" onclick="setJobsView(\\'active\\')" style="' + (_jobsView==='active'?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;') + '">📋 Active (' + activeCount + ')</button>' +
+      '<button class="btn btn-sm" onclick="setJobsView(\\'archive\\')" style="' + (_jobsView==='archive'?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;') + '">🗄 Archive (' + archiveCount + ')</button>' +
     '</div>';
   const viewJobs = _jobs.filter(j => {
     const arch = ARCHIVED_STATUSES.includes((j.status||'').toLowerCase());
@@ -8979,7 +8979,7 @@ function _modalShell(title, innerId) {
   m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;width:100%;max-width:680px;position:relative;">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
       '<h2 style="margin:0;font-size:20px;color:#1F3864;">' + title + '</h2>' +
-      '<button onclick="document.getElementById(\'gen-modal\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;">✕</button></div>' +
+      '<button onclick="document.getElementById(\\'gen-modal\\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;">✕</button></div>' +
     '<div id="' + innerId + '"></div></div>';
   document.body.appendChild(m);
   return m;
@@ -9031,14 +9031,14 @@ async function loadTouchups() {
       '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">' +
         '<div><div style="font-size:14px;font-weight:600;' + (done?'text-decoration:line-through;color:#888;':'color:#222;') + '">' + escHtml(t.description||'') + '</div>' +
         '<div style="font-size:11px;color:#888;margin-top:3px;">Assigned: ' + ((t.assigned||[]).join(', ')||'—') + (done ? (' · done by ' + escHtml(t.done_by||'')) : '') + '</div></div>' +
-        '<label style="font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" ' + (done?'checked':'') + ' onchange="toggleTouchup(\'' + t.id + '\', this.checked)"> Done</label>' +
+        '<label style="font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" ' + (done?'checked':'') + ' onchange="toggleTouchup(\\'' + t.id + '\\', this.checked)"> Done</label>' +
       '</div>' +
       '<div style="margin-top:6px;">' + media + '</div>' +
       '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">' +
-        '<button class="btn btn-sm" onclick="tuPick(\'' + t.id + '\',\'image/*\')" style="background:#eef1f7;">📷 Photo</button>' +
-        '<button class="btn btn-sm" onclick="tuPick(\'' + t.id + '\',\'video/*\')" style="background:#eef1f7;">🎥 Video</button>' +
-        '<button class="btn btn-sm" onclick="tuPick(\'' + t.id + '\',\'audio/*\')" style="background:#eef1f7;">🎤 Voice</button>' +
-        '<button class="btn btn-sm" onclick="delTouchup(\'' + t.id + '\')" style="background:#fce4ec;color:#c62828;margin-left:auto;">Delete</button>' +
+        '<button class="btn btn-sm" onclick="tuPick(\\'' + t.id + '\\',\\'image/*\\')" style="background:#eef1f7;">📷 Photo</button>' +
+        '<button class="btn btn-sm" onclick="tuPick(\\'' + t.id + '\\',\\'video/*\\')" style="background:#eef1f7;">🎥 Video</button>' +
+        '<button class="btn btn-sm" onclick="tuPick(\\'' + t.id + '\\',\\'audio/*\\')" style="background:#eef1f7;">🎤 Voice</button>' +
+        '<button class="btn btn-sm" onclick="delTouchup(\\'' + t.id + '\\')" style="background:#fce4ec;color:#c62828;margin-left:auto;">Delete</button>' +
       '</div></div>';
   }).join('');
 }
@@ -9079,8 +9079,8 @@ async function openScorePanel(jobId, site, assigned) {
       '<div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #f0f0f0;padding:10px 0;flex-wrap:wrap;">' +
         '<div style="flex:1;min-width:120px;font-weight:600;color:#1F3864;">' + escHtml(c) + ' <span id="sc-tot-' + cssId(c) + '" style="font-size:12px;color:#888;font-weight:400;"></span></div>' +
         '<input id="sc-reason-' + cssId(c) + '" placeholder="reason (optional)" style="flex:2;min-width:140px;padding:6px 9px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;">' +
-        '<button class="btn btn-sm" onclick="addScore(\'' + escAttr(c) + '\',1)" style="background:#e8f5e9;color:#2e7d32;font-weight:700;">+1</button>' +
-        '<button class="btn btn-sm" onclick="addScore(\'' + escAttr(c) + '\',-1)" style="background:#fce4ec;color:#c62828;font-weight:700;">−1</button>' +
+        '<button class="btn btn-sm" onclick="addScore(\\'' + escAttr(c) + '\\',1)" style="background:#e8f5e9;color:#2e7d32;font-weight:700;">+1</button>' +
+        '<button class="btn btn-sm" onclick="addScore(\\'' + escAttr(c) + '\\',-1)" style="background:#fce4ec;color:#c62828;font-weight:700;">−1</button>' +
       '</div>'
     ).join('') +
     '<div id="score-msg" style="font-size:12px;color:#888;margin-top:10px;"></div>';

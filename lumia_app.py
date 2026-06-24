@@ -882,6 +882,12 @@ HTML = """<!DOCTYPE html>
     <button class="lang-btn" onclick="setLang('tg')">ትግርኛ</button>
   </div>
 
+  <!-- MY SCOREBOARD + TOUCH-UPS -->
+  <div style="padding:16px 16px 0;">
+    <div id="myScoreCard" style="display:none;border-radius:12px;padding:14px 16px;margin-bottom:12px;"></div>
+    <div id="myTouchupsCard" style="display:none;background:#fff8e1;border:1.5px solid #ffd54f;border-radius:12px;padding:14px 16px;margin-bottom:12px;"></div>
+  </div>
+
   <!-- ARRIVAL CHECK-IN (top, before main form) -->
   <div id="arrivalSection" style="padding:20px 16px 0;">
     <div id="arrivalBanner" style="display:none;background:#e8f5e9;border:1.5px solid #4caf50;border-radius:12px;padding:14px 16px;margin-bottom:16px;">
@@ -2075,6 +2081,43 @@ HTML = """<!DOCTYPE html>
       } else if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Done'; }
     } catch(e) { if (btn) { btn.disabled = false; btn.textContent = '✅ Mark Done'; } }
   }
+
+  (async function loadMyScore() {
+    try {
+      const r = await fetch('/api/my-scores'); const d = await r.json();
+      if (!d || !d.ok) return;
+      const card = document.getElementById('myScoreCard');
+      const t = d.total || 0;
+      const good = t >= 0;
+      card.style.background = d.fire_flag ? '#ffebee' : (good ? '#e8f5e9' : '#fff8e1');
+      card.style.border = '1.5px solid ' + (d.fire_flag ? '#c62828' : (good ? '#4caf50' : '#ffb300'));
+      const entries = (d.entries||[]).slice(0,8).map(e =>
+        '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-top:1px solid rgba(0,0,0,.06);">' +
+          '<span>' + (e.delta>0?'🟢 +1':'🔴 −1') + ' ' + (e.site_address ? ('· ' + escEmp(e.site_address)) : '') + (e.reason?(' — ' + escEmp(e.reason)):'') + '</span>' +
+          '<span style="color:#888;">' + ((e.created_at||'').slice(0,10)) + '</span></div>').join('');
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-size:13px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#1F3864;">⭐ My Score</div>' +
+          '<div style="font-size:30px;font-weight:800;color:' + (d.fire_flag?'#c62828':(good?'#2e7d32':'#ef6c00')) + ';">' + (t>0?'+':'') + t + '</div>' +
+        '</div>' +
+        (d.fire_flag ? '<div style="font-size:12px;color:#c62828;font-weight:700;margin-top:4px;">⚠ You are at the −15 line. Talk to your manager.</div>' : '') +
+        (entries ? '<div style="margin-top:8px;">' + entries + '</div>' : '<div style="font-size:12px;color:#888;margin-top:6px;">No scores recorded yet.</div>');
+      card.style.display = 'block';
+    } catch(e) {}
+  })();
+
+  (async function loadMyTouchups() {
+    try {
+      const r = await fetch('/api/my-touchups'); const d = await r.json();
+      if (!d || !d.ok || !d.touchups || !d.touchups.length) return;
+      const card = document.getElementById('myTouchupsCard');
+      card.innerHTML = '<div style="font-size:13px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#5d4037;margin-bottom:6px;">🛠 Touch-ups assigned to you</div>' +
+        d.touchups.map(t => '<div style="font-size:14px;color:#222;padding:4px 0;">• ' + escEmp(t.description||'') + (t.site_address?(' <span style="color:#888;font-size:12px;">(' + escEmp(t.site_address) + ')</span>'):'') + '</div>').join('');
+      card.style.display = 'block';
+    } catch(e) {}
+  })();
+
+  function escEmp(s){ return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   (async function loadJobSites() {
     try {
@@ -6201,6 +6244,7 @@ tr:hover td { background:#fafbfd; }
 {% if user_role == "production_manager" %}
 .owner-only   { display: none !important; }
 .finance-only { display: none !important; }
+.pm-hide      { display: none !important; }
 {% endif %}
 {% if user_role == "cfo" %}
 .owner-only      { display: none !important; }
@@ -6297,6 +6341,14 @@ window.USER_ROLE = "{{ user_role }}";
     <div id="attention-list"><p style="color:#999;font-size:13px;">Scanning…</p></div>
   </div>
 
+  <div class="card" style="border-left:4px solid #5e35b1;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <h2 style="margin:0;">± Crew Scoreboard</h2>
+      <span style="font-size:12px;color:#888;">Running points · firing line at −15</span>
+    </div>
+    <div id="scoreboard-list"><p style="color:#999;font-size:13px;">Loading…</p></div>
+  </div>
+
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
       <h2 style="margin:0;">📍 On Site Now</h2>
@@ -6332,7 +6384,11 @@ window.USER_ROLE = "{{ user_role }}";
 <!-- REVIEWS -->
 <div class="page" id="tab-reviews">
   <div class="card">
-    <h2>Manager Reviews</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">Manager Reviews</h2>
+      <button class="btn" style="background:#2e7d32;" onclick="window.location.href='/review'">✍️ Review Check-Ins</button>
+    </div>
+    <p style="font-size:13px;color:#666;margin:6px 0 16px;">Open the review screen to grade crew check-ins and set trust levels.</p>
     <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
       <input type="date" id="review-filter-date" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px">
       <select id="review-filter-emp" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px">
@@ -6438,7 +6494,7 @@ window.USER_ROLE = "{{ user_role }}";
         </div>
 
         <!-- ─── Job Scope Calculator ─────────────────────────────────────── -->
-        <div style="border:1.5px solid #dce2ef;border-radius:12px;padding:16px;margin-bottom:16px;background:#fafbfd;">
+        <div class="pm-hide" style="border:1.5px solid #dce2ef;border-radius:12px;padding:16px;margin-bottom:16px;background:#fafbfd;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
             <label style="font-weight:700;color:#1F3864;font-size:13px;margin:0;">📐 Job Scope &amp; Estimate</label>
             <div style="display:flex;gap:6px;">
@@ -8402,6 +8458,24 @@ async function loadOverview() {
   }
   loadOnSiteNow();
   loadAttention();
+  loadScoreboard();
+}
+
+async function loadScoreboard() {
+  const el = document.getElementById('scoreboard-list');
+  if (!el) return;
+  try {
+    const r = await apiFetch('/api/scores/all');
+    const d = r.ok ? await r.json() : {board:[]};
+    if (!d.board || !d.board.length) { el.innerHTML = '<p style="color:#999;font-size:13px;">No scores recorded yet. Use the ± Score button on any job to start.</p>'; return; }
+    el.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px;">' + d.board.map(b => {
+      const color = b.fire_flag ? '#c62828' : (b.total >= 0 ? '#2e7d32' : '#ef6c00');
+      const bg = b.fire_flag ? '#ffebee' : '#fafbfd';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;background:' + bg + ';border:1px solid #eef1f7;border-radius:8px;padding:8px 12px;">' +
+        '<span style="font-weight:600;color:#1F3864;">' + (b.employee_name||'?') + (b.fire_flag?' <span style="color:#c62828;font-size:11px;font-weight:700;">⚠ FIRE LINE</span>':'') + '</span>' +
+        '<span style="font-weight:800;font-size:18px;color:' + color + ';">' + (b.total>0?'+':'') + b.total + '</span></div>';
+    }).join('') + '</div>';
+  } catch(e) { el.innerHTML = '<p style="color:#999;font-size:13px;">Could not load scoreboard.</p>'; }
 }
 
 async function loadAttention() {
@@ -8776,15 +8850,32 @@ async function setJobStatus(jobId, newStatus, btn) {
   }
 }
 
+let _jobsView = 'active';
+function setJobsView(v) { _jobsView = v; loadJobs(); }
+const ARCHIVED_STATUSES = ['completed','invoiced','closed','cancelled'];
+
 async function loadJobs() {
   const el = document.getElementById('jobs-list');
   _jobs = await fetch('/api/jobs').then(r => r.json()).catch(() => []);
-  if (!_jobs.length) { el.innerHTML = '<p style="color:#999">No jobs yet.</p>'; return; }
-  const rows = _jobs.map((j, idx) => {
+  const activeCount = _jobs.filter(j => !ARCHIVED_STATUSES.includes((j.status||'').toLowerCase())).length;
+  const archiveCount = _jobs.length - activeCount;
+  const toggle =
+    '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+      '<button class="btn btn-sm" onclick="setJobsView(\'active\')" style="' + (_jobsView==='active'?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;') + '">📋 Active (' + activeCount + ')</button>' +
+      '<button class="btn btn-sm" onclick="setJobsView(\'archive\')" style="' + (_jobsView==='archive'?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;') + '">🗄 Archive (' + archiveCount + ')</button>' +
+    '</div>';
+  const viewJobs = _jobs.filter(j => {
+    const arch = ARCHIVED_STATUSES.includes((j.status||'').toLowerCase());
+    return _jobsView === 'archive' ? arch : !arch;
+  });
+  if (!viewJobs.length) { el.innerHTML = toggle + '<p style="color:#999">' + (_jobsView==='archive'?'No archived (completed) jobs yet.':'No active jobs.') + '</p>'; return; }
+  const rows = viewJobs.map((j) => {
+    const idx = _jobs.indexOf(j);
     const emps = (j.assigned_employees || []).join(', ') || '—';
-    const badgeMap = { 'open':'badge-yellow', 'paused':'badge-orange',
-                       'completed':'badge-green', 'closed':'badge-gray' };
-    const badge = badgeMap[j.status] || 'badge-gray';
+    const badgeMap = { 'open':'badge-yellow','awarded':'badge-yellow','active':'badge-yellow',
+                       'paused':'badge-orange','on_hold':'badge-orange',
+                       'completed':'badge-green','invoiced':'badge-green','closed':'badge-gray','cancelled':'badge-gray' };
+    const badge = badgeMap[(j.status||'').toLowerCase()] || 'badge-gray';
     const tr = document.createElement('tr');
     tr.innerHTML = '<td><b>' + j.client_name + '</b></td>' +
       '<td>' + j.site_address + '</td>' +
@@ -8834,6 +8925,16 @@ async function loadJobs() {
     wsBtn.textContent = '🌐 Workspace';
     wsBtn.title = 'Open project workspace (paint records, documents, client portal preview)';
     wsBtn.onclick = function() { openJobWorkspaceById(j.id); };
+    const touchBtn = document.createElement('button');
+    touchBtn.className = 'btn btn-sm';
+    touchBtn.style.cssText = 'background:#fff3e0;color:#e65100;font-weight:600;';
+    touchBtn.textContent = '🛠 Touch-ups';
+    touchBtn.onclick = function() { openTouchups(j.id, j.client_name, j.site_address); };
+    const scoreBtn = document.createElement('button');
+    scoreBtn.className = 'btn btn-sm';
+    scoreBtn.style.cssText = 'background:#ede7f6;color:#5e35b1;font-weight:600;';
+    scoreBtn.textContent = '± Score';
+    scoreBtn.onclick = function() { openScorePanel(j.id, j.site_address, j.assigned_employees || []); };
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm owner-only';
     delBtn.style.cssText = 'background:#fce4ec;color:#c62828;';
@@ -8842,6 +8943,8 @@ async function loadJobs() {
     actions.appendChild(openBtn);
     actions.appendChild(editBtn);
     actions.appendChild(assignBtn);
+    actions.appendChild(touchBtn);
+    actions.appendChild(scoreBtn);
     actions.appendChild(pauseBtn);
     actions.appendChild(wsBtn);
     actions.appendChild(notifyBtn);
@@ -8853,7 +8956,7 @@ async function loadJobs() {
   const tbody = document.createElement('tbody');
   rows.forEach(r => tbody.appendChild(r));
   table.appendChild(tbody);
-  el.innerHTML = '';
+  el.innerHTML = toggle;
   el.appendChild(table);
 }
 
@@ -8864,6 +8967,146 @@ async function deleteJob(jobId, idx) {
   if (d.ok) { _jobs.splice(idx, 1); loadJobs(); }
   else alert('Failed to delete job.');
 }
+
+// ─── Touch-ups ──────────────────────────────────────────────────────────
+function _modalShell(title, innerId) {
+  const old = document.getElementById('gen-modal'); if (old) old.remove();
+  const m = document.createElement('div');
+  m.id = 'gen-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:24px;overflow-y:auto;';
+  m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;width:100%;max-width:680px;position:relative;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+      '<h2 style="margin:0;font-size:20px;color:#1F3864;">' + title + '</h2>' +
+      '<button onclick="document.getElementById(\'gen-modal\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;">✕</button></div>' +
+    '<div id="' + innerId + '"></div></div>';
+  document.body.appendChild(m);
+  return m;
+}
+
+let _tuJob = null;
+async function openTouchups(jobId, client, site) {
+  _tuJob = { id: jobId, client, site };
+  _modalShell('🛠 Touch-ups — ' + (site || client || ''), 'tu-body');
+  renderTouchupForm();
+  await loadTouchups();
+}
+function renderTouchupForm() {
+  const crew = (_jobs.find(j => j.id === _tuJob.id) || {}).assigned_employees || [];
+  const opts = crew.map(c => '<label style="display:inline-flex;align-items:center;gap:5px;margin:0 10px 6px 0;font-size:13px;"><input type="checkbox" class="tu-asg" value="' + escAttr(c) + '"> ' + escHtml(c) + '</label>').join('') || '<span style="color:#999;font-size:13px;">No crew assigned to this job yet.</span>';
+  document.getElementById('tu-body').innerHTML =
+    '<div style="background:#fafbfd;border:1px solid #e6e9f0;border-radius:10px;padding:14px;margin-bottom:14px;">' +
+      '<textarea id="tu-desc" rows="2" placeholder="What needs touching up? (e.g. scuff on north wall, missed corner in unit 3)" style="width:100%;padding:9px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;margin-bottom:8px;"></textarea>' +
+      '<div style="font-size:12px;font-weight:700;color:#1F3864;margin-bottom:4px;">Assign to on-site crew:</div>' +
+      '<div style="margin-bottom:8px;">' + opts + '</div>' +
+      '<button class="btn btn-green" onclick="addTouchup()">+ Add touch-up</button>' +
+      '<span id="tu-msg" style="font-size:12px;color:#888;margin-left:8px;"></span>' +
+    '</div><div id="tu-list" style="font-size:13px;color:#999;">Loading…</div>';
+}
+async function addTouchup() {
+  const desc = document.getElementById('tu-desc').value.trim();
+  const assigned = Array.from(document.querySelectorAll('.tu-asg:checked')).map(c => c.value);
+  const msg = document.getElementById('tu-msg');
+  if (!desc) { msg.textContent = 'Describe the touch-up first.'; return; }
+  msg.textContent = 'Saving…';
+  const r = await fetch('/api/job/' + _tuJob.id + '/touchup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({description: desc, assigned})});
+  const d = await r.json();
+  if (d.ok) { document.getElementById('tu-desc').value=''; document.querySelectorAll('.tu-asg').forEach(c=>c.checked=false); msg.textContent=''; loadTouchups(); }
+  else msg.textContent = d.error || 'Failed.';
+}
+async function loadTouchups() {
+  const host = document.getElementById('tu-list');
+  const r = await fetch('/api/job/' + _tuJob.id + '/touchups');
+  const d = await r.json();
+  if (!d.touchups || !d.touchups.length) { host.innerHTML = '<div style="color:#999;padding:8px;">No touch-ups yet.</div>'; return; }
+  host.innerHTML = d.touchups.map(t => {
+    const done = t.status === 'done';
+    const media = (t.media || []).map(m =>
+      m.type === 'photo' ? '<img src="' + m.url + '" style="width:64px;height:64px;object-fit:cover;border-radius:6px;margin:3px;">' :
+      m.type === 'video' ? '<video src="' + m.url + '" controls style="width:110px;height:64px;border-radius:6px;margin:3px;"></video>' :
+      '<audio src="' + m.url + '" controls style="height:34px;margin:3px;vertical-align:middle;"></audio>'
+    ).join('');
+    return '<div style="background:#fff;border:1px solid #e6e9f0;border-left:3px solid ' + (done?'#2e7d32':'#e65100') + ';border-radius:8px;padding:10px 12px;margin-bottom:8px;">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">' +
+        '<div><div style="font-size:14px;font-weight:600;' + (done?'text-decoration:line-through;color:#888;':'color:#222;') + '">' + escHtml(t.description||'') + '</div>' +
+        '<div style="font-size:11px;color:#888;margin-top:3px;">Assigned: ' + ((t.assigned||[]).join(', ')||'—') + (done ? (' · done by ' + escHtml(t.done_by||'')) : '') + '</div></div>' +
+        '<label style="font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" ' + (done?'checked':'') + ' onchange="toggleTouchup(\'' + t.id + '\', this.checked)"> Done</label>' +
+      '</div>' +
+      '<div style="margin-top:6px;">' + media + '</div>' +
+      '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">' +
+        '<button class="btn btn-sm" onclick="tuPick(\'' + t.id + '\',\'image/*\')" style="background:#eef1f7;">📷 Photo</button>' +
+        '<button class="btn btn-sm" onclick="tuPick(\'' + t.id + '\',\'video/*\')" style="background:#eef1f7;">🎥 Video</button>' +
+        '<button class="btn btn-sm" onclick="tuPick(\'' + t.id + '\',\'audio/*\')" style="background:#eef1f7;">🎤 Voice</button>' +
+        '<button class="btn btn-sm" onclick="delTouchup(\'' + t.id + '\')" style="background:#fce4ec;color:#c62828;margin-left:auto;">Delete</button>' +
+      '</div></div>';
+  }).join('');
+}
+function tuPick(tid, accept) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = accept; if (accept !== 'audio/*') inp.setAttribute('capture','environment');
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const msg = document.getElementById('tu-list');
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/touchup/' + tid + '/media', {method:'POST', body: fd});
+    const d = await r.json();
+    if (d.ok) loadTouchups(); else alert(d.error || 'Upload failed');
+  };
+  inp.click();
+}
+async function toggleTouchup(tid, done) {
+  await fetch('/api/touchup/' + tid + '/done', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done})});
+  loadTouchups();
+}
+async function delTouchup(tid) {
+  if (!confirm('Delete this touch-up?')) return;
+  await fetch('/api/touchup/' + tid, {method:'DELETE'});
+  loadTouchups();
+}
+
+// ─── Score panel (+1 / -1 ledger) ───────────────────────────────────────
+let _scoreCtx = null;
+async function openScorePanel(jobId, site, assigned) {
+  _scoreCtx = { jobId, site, assigned: assigned || [] };
+  _modalShell('± Crew Scores — ' + (site || ''), 'score-body');
+  const crew = (assigned && assigned.length) ? assigned : [];
+  const host = document.getElementById('score-body');
+  if (!crew.length) { host.innerHTML = '<p style="color:#999;">No crew assigned to this job. Assign crew first, then score them.</p>'; return; }
+  host.innerHTML =
+    '<p style="font-size:13px;color:#666;margin:0 0 12px;">Give +1 for good work, −1 for problems. Each entry is recorded. A running total of −15 is the firing line.</p>' +
+    crew.map(c =>
+      '<div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #f0f0f0;padding:10px 0;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:120px;font-weight:600;color:#1F3864;">' + escHtml(c) + ' <span id="sc-tot-' + cssId(c) + '" style="font-size:12px;color:#888;font-weight:400;"></span></div>' +
+        '<input id="sc-reason-' + cssId(c) + '" placeholder="reason (optional)" style="flex:2;min-width:140px;padding:6px 9px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;">' +
+        '<button class="btn btn-sm" onclick="addScore(\'' + escAttr(c) + '\',1)" style="background:#e8f5e9;color:#2e7d32;font-weight:700;">+1</button>' +
+        '<button class="btn btn-sm" onclick="addScore(\'' + escAttr(c) + '\',-1)" style="background:#fce4ec;color:#c62828;font-weight:700;">−1</button>' +
+      '</div>'
+    ).join('') +
+    '<div id="score-msg" style="font-size:12px;color:#888;margin-top:10px;"></div>';
+  crew.forEach(refreshScoreTotal);
+}
+function cssId(s){ return (s||'').replace(/[^A-Za-z0-9]/g,'_'); }
+async function refreshScoreTotal(name) {
+  try {
+    const r = await fetch('/api/scores/all'); const d = await r.json();
+    const row = (d.board||[]).find(b => b.employee_name === name);
+    const el = document.getElementById('sc-tot-' + cssId(name));
+    if (el) { const t = row ? row.total : 0; el.textContent = '(total: ' + (t>0?'+':'') + t + (row && row.fire_flag ? ' ⚠ FIRE LINE' : '') + ')'; el.style.color = (row && row.fire_flag) ? '#c62828' : '#888'; }
+  } catch(e) {}
+}
+async function addScore(name, delta) {
+  const reason = (document.getElementById('sc-reason-' + cssId(name)) || {}).value || '';
+  const msg = document.getElementById('score-msg');
+  const r = await fetch('/api/scores/add', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({employee_name: name, delta, reason, job_id: _scoreCtx.jobId, site_address: _scoreCtx.site})});
+  const d = await r.json();
+  if (d.ok) {
+    const re = document.getElementById('sc-reason-' + cssId(name)); if (re) re.value='';
+    msg.textContent = name + ': ' + (delta>0?'+1':'−1') + ' recorded. New total ' + (d.total>0?'+':'') + d.total + (d.fire_flag ? ' — ⚠ AT/BELOW FIRING LINE' : '');
+    msg.style.color = d.fire_flag ? '#c62828' : '#2e7d32';
+    refreshScoreTotal(name);
+  } else { msg.textContent = d.error || 'Failed.'; msg.style.color = '#c62828'; }
+}
+function escAttr(s){ return (s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
 async function openJob(idx) {
   // Original operator detail modal — full management view (edit, assign,
@@ -12538,7 +12781,7 @@ function toggleLumiaMic() {
 
 
 @app.route("/review")
-@require_role("manager", "owner")
+@require_role("manager", "owner", "production_manager")
 def review_page():
     return render_template_string(REVIEW_HTML,
                                   name=session.get("name"), role=session.get("role"))
@@ -12661,41 +12904,53 @@ def api_add_manager():
     if role not in ("manager", "production_manager", "cfo", "estimator", "owner"):
         role = "manager"
 
-    # Refuse if this email already exists
+    token   = secrets.token_urlsafe(32)
+    expires = (datetime.utcnow() + timedelta(hours=48)).isoformat() + "Z"
+
+    # If this email already exists (they were removed earlier, or never finished
+    # setting their password), re-activate that row with the chosen role and a
+    # fresh setup token instead of rejecting — so "add again" actually re-onboards
+    # the person. This makes the remove → add-again flow work end to end.
+    existing = []
     try:
         existing = supabase_client.table("managers").select("id,email") \
             .eq("email", email).limit(1).execute().data or []
-        if existing:
-            return jsonify({"message":
-                f"A manager with email {email} already exists. Use Resend Invite to send a new setup link."})
     except Exception:
         pass
 
-    # Create the manager row with a 48-hour setup token
-    token   = secrets.token_urlsafe(32)
-    expires = (datetime.utcnow() + timedelta(hours=48)).isoformat() + "Z"
     try:
-        supabase_client.table("managers").insert({
-            "name":                 name,
-            "email":                email,
-            "role":                 role,
-            "active":               True,
-            "setup_token":          token,
-            "setup_token_expires":  expires,
-            # Placeholder for the legacy NOT-NULL pin column (we no longer use it
-            # for authentication — password-based login is the new path).
-            "pin":                  "INVITE-" + secrets.token_hex(4).upper(),
-        }).execute()
+        if existing:
+            supabase_client.table("managers").update({
+                "name":                name,
+                "role":                role,
+                "active":              True,
+                "setup_token":         token,
+                "setup_token_expires": expires,
+            }).eq("id", existing[0]["id"]).execute()
+            verb = "re-added"
+        else:
+            supabase_client.table("managers").insert({
+                "name":                 name,
+                "email":                email,
+                "role":                 role,
+                "active":               True,
+                "setup_token":          token,
+                "setup_token_expires":  expires,
+                # Placeholder for the legacy NOT-NULL pin column (we no longer use
+                # it for authentication — password-based login is the new path).
+                "pin":                  "INVITE-" + secrets.token_hex(4).upper(),
+            }).execute()
+            verb = "added"
     except Exception as exc:
-        return jsonify({"message": f"Could not create manager: {exc}"})
+        return jsonify({"message": f"Could not save manager: {exc}"})
 
     # Email the invite
     sent = _send_manager_setup_email(name, email, role, token)
     if sent:
         return jsonify({"message":
-            f"✓ {name} added. Invite sent to {email} — they have 48 hours to set their password."})
+            f"✓ {name} {verb}. Invite sent to {email} — they have 48 hours to set their password."})
     return jsonify({"message":
-        f"{name} created, but the invite email did not send. Check RESEND_API_KEY and try Resend Invite."})
+        f"{name} {verb}, but the invite email did not send. Check RESEND_API_KEY."})
 
 
 @app.route("/api/resend-manager-invite/<mgr_id>", methods=["POST"])
@@ -13951,6 +14206,235 @@ def api_reimbursements():
         items.append({**r, "client_name": j.get("client_name"), "site_address": j.get("site_address"),
                       "po_number": j.get("po_number")})
     return jsonify({"ok": True, "items": items, "total": round(total, 2)})
+
+
+# ===========================================================================
+# TOUCH-UPS — punch-list items per job, with photo/video/voice + done toggle
+#   Managed by VP Ops (and owner). Crew see their assigned open touch-ups.
+# ===========================================================================
+def _require_vp_or_owner():
+    return session.get("role") in ("owner", "production_manager")
+
+
+@app.route("/api/job/<job_id>/touchups")
+@require_operator
+def api_job_touchups(job_id):
+    if not supabase_client:
+        return jsonify({"ok": True, "touchups": []})
+    try:
+        rows = supabase_client.table("job_touchups").select("*") \
+            .eq("job_id", job_id).order("created_at", desc=True).execute().data or []
+        return jsonify({"ok": True, "touchups": rows})
+    except Exception as exc:
+        return jsonify({"ok": True, "touchups": [], "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/touchup", methods=["POST"])
+@require_operator
+def api_add_touchup(job_id):
+    if not supabase_client or not _require_vp_or_owner():
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    d = request.get_json() or {}
+    desc = (d.get("description") or "").strip()
+    if not desc:
+        return jsonify({"ok": False, "error": "Description required."})
+    assigned = d.get("assigned") or []
+    if isinstance(assigned, str):
+        assigned = [assigned] if assigned else []
+    # Pull site for convenience
+    site = ""
+    try:
+        jr = supabase_client.table("jobs").select("site_address").eq("id", job_id).limit(1).execute().data or []
+        site = jr[0].get("site_address") if jr else ""
+    except Exception:
+        pass
+    row = {
+        "job_id": job_id, "site_address": site, "description": desc[:1000],
+        "assigned": assigned, "status": "open", "media": [],
+        "created_by": session.get("name") or "owner",
+    }
+    try:
+        ins = supabase_client.table("job_touchups").insert(row).execute().data
+        # Notify the assigned crew by SMS magic isn't needed — they see it on check-in.
+        return jsonify({"ok": True, "id": ins[0]["id"] if ins else None})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/touchup/<tid>/done", methods=["POST"])
+@require_operator
+def api_touchup_done(tid):
+    if not supabase_client or not _require_vp_or_owner():
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    d = request.get_json() or {}
+    done = bool(d.get("done", True))
+    upd = {"status": "done" if done else "open",
+           "done_at": datetime.utcnow().isoformat() if done else None,
+           "done_by": (session.get("name") or "owner") if done else None}
+    try:
+        supabase_client.table("job_touchups").update(upd).eq("id", tid).execute()
+        return jsonify({"ok": True, "status": upd["status"]})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/touchup/<tid>/media", methods=["POST"])
+@require_operator
+def api_touchup_media(tid):
+    """Upload a photo / video / voice note and append it to the touch-up."""
+    if not supabase_client or not _require_vp_or_owner():
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    f = request.files["file"]
+    data = f.read()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty file"}), 400
+    if len(data) > 60 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File too large (max 60MB)"}), 400
+    mime = (f.content_type or "application/octet-stream")
+    kind = "photo" if mime.startswith("image") else "video" if mime.startswith("video") else "voice" if mime.startswith("audio") else "file"
+    ext = (f.filename.rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else
+           {"photo": "jpg", "video": "mp4", "voice": "webm"}.get(kind, "bin"))
+    path = f"touchups/{date.today().isoformat()}/{uuid.uuid4().hex}.{ext}"
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(path, data, file_options={"content-type": mime})
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    # Append to media jsonb
+    try:
+        cur = supabase_client.table("job_touchups").select("media").eq("id", tid).limit(1).execute().data or []
+        media = (cur[0].get("media") if cur else None) or []
+        media.append({"type": kind, "url": url})
+        supabase_client.table("job_touchups").update({"media": media}).eq("id", tid).execute()
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "type": kind, "url": url})
+
+
+@app.route("/api/touchup/<tid>", methods=["DELETE"])
+@require_operator
+def api_delete_touchup(tid):
+    if not supabase_client or not _require_vp_or_owner():
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    try:
+        supabase_client.table("job_touchups").delete().eq("id", tid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/my-touchups")
+@require_employee
+def api_my_touchups():
+    """Open touch-ups assigned to the logged-in crew member (for check-in page)."""
+    if not supabase_client:
+        return jsonify({"ok": True, "touchups": []})
+    name = session.get("employee_name") or session.get("name") or ""
+    try:
+        rows = supabase_client.table("job_touchups").select("*") \
+            .eq("status", "open").order("created_at", desc=True).limit(100).execute().data or []
+    except Exception:
+        rows = []
+    mine = [r for r in rows if name in (r.get("assigned") or [])]
+    return jsonify({"ok": True, "touchups": mine})
+
+
+# ===========================================================================
+# EMPLOYEE SCORES — running +1 / -1 points ledger (firing threshold at -15)
+#   Owner + VP Ops add points; crew see their own running total on check-in.
+# ===========================================================================
+SCORE_FIRE_THRESHOLD = -15
+
+
+@app.route("/api/scores/add", methods=["POST"])
+@require_operator
+def api_scores_add():
+    if not supabase_client or not _require_vp_or_owner():
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    d = request.get_json() or {}
+    name = (d.get("employee_name") or "").strip()
+    try:
+        delta = int(d.get("delta") or 0)
+    except (TypeError, ValueError):
+        delta = 0
+    if not name or delta not in (1, -1):
+        return jsonify({"ok": False, "error": "Employee and a +1 or -1 are required."})
+    row = {
+        "employee_name": name, "delta": delta,
+        "reason": (d.get("reason") or "").strip() or None,
+        "job_id": (d.get("job_id") or None),
+        "site_address": (d.get("site_address") or None),
+        "added_by": session.get("name") or "owner",
+    }
+    try:
+        supabase_client.table("employee_scores").insert(row).execute()
+        total = _employee_score_total(name)
+        return jsonify({"ok": True, "total": total,
+                        "fire_flag": total <= SCORE_FIRE_THRESHOLD})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+def _employee_score_total(name: str) -> int:
+    try:
+        rows = supabase_client.table("employee_scores").select("delta") \
+            .eq("employee_name", name).execute().data or []
+        return sum(int(r.get("delta") or 0) for r in rows)
+    except Exception:
+        return 0
+
+
+@app.route("/api/scores/all")
+@require_operator
+def api_scores_all():
+    """Scoreboard: running total per employee, plus recent entries."""
+    if not supabase_client:
+        return jsonify({"ok": True, "board": []})
+    try:
+        rows = supabase_client.table("employee_scores").select("*") \
+            .order("created_at", desc=True).limit(2000).execute().data or []
+    except Exception:
+        rows = []
+    totals = {}
+    for r in rows:
+        n = r.get("employee_name") or "?"
+        totals[n] = totals.get(n, 0) + int(r.get("delta") or 0)
+    board = [{"employee_name": n, "total": t, "fire_flag": t <= SCORE_FIRE_THRESHOLD}
+             for n, t in sorted(totals.items(), key=lambda x: x[1])]
+    return jsonify({"ok": True, "board": board, "recent": rows[:50],
+                    "threshold": SCORE_FIRE_THRESHOLD})
+
+
+@app.route("/api/score/<sid>", methods=["DELETE"])
+@require_role("owner", "production_manager")
+def api_delete_score(sid):
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No DB"})
+    try:
+        supabase_client.table("employee_scores").delete().eq("id", sid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/my-scores")
+@require_employee
+def api_my_scores():
+    """The logged-in crew member's running score + their per-job entries."""
+    if not supabase_client:
+        return jsonify({"ok": True, "total": 0, "entries": []})
+    name = session.get("employee_name") or session.get("name") or ""
+    try:
+        rows = supabase_client.table("employee_scores").select("*") \
+            .eq("employee_name", name).order("created_at", desc=True).limit(200).execute().data or []
+    except Exception:
+        rows = []
+    total = sum(int(r.get("delta") or 0) for r in rows)
+    return jsonify({"ok": True, "total": total, "entries": rows,
+                    "threshold": SCORE_FIRE_THRESHOLD,
+                    "fire_flag": total <= SCORE_FIRE_THRESHOLD})
 
 
 @app.route("/api/job/<job_id>/expense", methods=["POST"])
@@ -16609,7 +17093,7 @@ def _send_attention_digest():
             .lte("created_at", (datetime.utcnow() - timedelta(days=3)).isoformat()) \
             .execute().data or []
         for q in rows[:5]:
-            items.append({"icon":"📝","severity":"low",
+            items.append({"icon":"📝","kind":"quote","severity":"low",
                 "title": f"Draft quote sitting: {q.get('project_name') or q.get('client_name')}",
                 "detail": "Drafted over 3 days ago — send it or archive."})
     except Exception: pass
@@ -17384,6 +17868,7 @@ def api_attention():
             d_left = (date.fromisoformat(t["close_date"]) - today).days
             items.append({
                 "icon": "📅",
+                "kind": "tender",
                 "severity": "high" if d_left <= 1 else "med",
                 "title": f"Tender closes in {d_left} day(s): {t.get('name')}",
                 "detail": (f"{t.get('client') or 'Unknown client'} · "
@@ -17428,7 +17913,7 @@ def api_attention():
             .lte("created_at", (datetime.utcnow() - timedelta(days=3)).isoformat()) \
             .execute().data or []
         for q in rows[:5]:
-            items.append({"icon":"📝","severity":"low",
+            items.append({"icon":"📝","kind":"quote","severity":"low",
                 "title": f"Draft quote sitting: {q.get('project_name') or q.get('client_name')}",
                 "detail": "Drafted over 3 days ago — send it or archive."})
     except Exception: pass
@@ -17455,6 +17940,10 @@ def api_attention():
 
     # (Concern-type employee notes intentionally excluded from the dashboard
     #  attention list — they live on the employee page instead.)
+
+    # VP Ops doesn't deal with tenders/quotes — strip those from their feed
+    if session.get("role") == "production_manager":
+        items = [i for i in items if i.get("kind") not in ("tender", "quote")]
 
     # Sort by severity priority then truncate
     sev_rank = {"high":0, "med":1, "low":2}

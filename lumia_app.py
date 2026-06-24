@@ -2047,6 +2047,7 @@ HTML = """<!DOCTYPE html>
         el.innerHTML = '<p style="color:#999;font-size:13px;">No active jobs assigned to you.</p>';
         return;
       }
+      const canMarkDone = {{ 'true' if can_mark_done else 'false' }};
       el.innerHTML = jobs.map(j => `
         <div style="padding:12px 0;border-bottom:1px solid #eee;display:flex;
                     align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -2054,12 +2055,12 @@ HTML = """<!DOCTYPE html>
             <div style="font-weight:700;font-size:14px;color:#1F3864;">${j.client_name}</div>
             <div style="font-size:12px;color:#666;">${j.site_address}</div>
           </div>
-          <button id="done-btn-${j.id}"
+          ${canMarkDone ? `<button id="done-btn-${j.id}"
             style="padding:8px 18px;background:#d9534f;color:#fff;border:none;
                    border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
             onclick="markMyJobDone('${j.id}', '${j.site_address.replace(/'/g,"\\'")}')">
             ✅ Mark Done
-          </button>
+          </button>` : ''}
         </div>`).join('');
     } catch(e) {}
   })();
@@ -2241,8 +2242,9 @@ HTML = """<!DOCTYPE html>
 def index():
     # Operator (owner/PM/CFO) can also use the check-in form under their own name.
     name = session.get("employee_name") or session.get("name") or ""
+    can_mark_done = session.get("role") in ("owner", "production_manager")
     return render_template_string(HTML, employees=EMPLOYEES, categories=CATEGORIES,
-                                  employee_name=name)
+                                  employee_name=name, can_mark_done=can_mark_done)
 
 
 @app.route("/kickoff")
@@ -13278,9 +13280,10 @@ def api_set_job_status(job_id):
 
 @app.route("/api/mark-job-done", methods=["POST"])
 def api_mark_job_done():
-    """Employee or owner marks a job as completed."""
-    if not session.get("employee_name") and not session.get("role"):
-        return jsonify({"ok": False}), 401
+    """Mark a job completed. Restricted to the owner and VP Ops — crew cannot
+    close out a job themselves."""
+    if session.get("role") not in ("owner", "production_manager"):
+        return jsonify({"ok": False, "error": "Only the owner or VP Ops can mark a job done."}), 403
     if not supabase_client:
         return jsonify({"ok": False})
     d = request.get_json()

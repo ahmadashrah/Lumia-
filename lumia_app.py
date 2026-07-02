@@ -6262,6 +6262,7 @@ window.USER_ROLE = "{{ user_role }}";
 
 <!-- TOP-LEVEL SECTIONS -->
 <div class="section-bar">
+  <button class="section-btn" data-section="projects" onclick="showSection('projects')">📁 Projects</button>
   {% if user_role == "estimator" %}
   <button class="section-btn active" data-section="est"   onclick="showSection('est')">📐 Estimates</button>
   <button class="section-btn"        data-section="sales" onclick="showSection('sales')">📝 Quotes &amp; Tenders</button>
@@ -6274,6 +6275,11 @@ window.USER_ROLE = "{{ user_role }}";
   <button class="section-btn"        data-section="web"   onclick="showSection('web')">🌐 Website</button>
   {% endif %}
   {% endif %}
+</div>
+
+<!-- SECTION: Projects -->
+<div class="tabs" id="tabs-projects" style="display:none;">
+  <div class="tab" onclick="showTab('projects')">📁 Pipeline</div>
 </div>
 
 <!-- SECTION: Operations / Production -->
@@ -6412,6 +6418,21 @@ window.USER_ROLE = "{{ user_role }}";
 </div>
 
 <!-- JOBS -->
+<div class="page" id="tab-projects">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">📁 Projects Pipeline</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" style="background:#5e35b1;" onclick="openEquipment()">🧰 Equipment</button>
+        <button class="btn btn-green" id="new-project-btn" onclick="openNewProject()">+ New Project</button>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#666;margin:6px 0 14px;">Estimating → Won → Finance (CFO) + Execution (VP Ops). Each project carries its files, invoices, plan, crew and equipment through the whole lifecycle.</p>
+    <div id="proj-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
+    <div id="projects-list"><p style="color:#999">Loading…</p></div>
+  </div>
+</div>
+
 <div class="page" id="tab-jobs">
   <div class="card">
     <h2>Create Job</h2>
@@ -7248,6 +7269,7 @@ let lastRecommendation = null;
 
 // Map every tab name to its parent section so showTab knows which sub-nav to show
 const TAB_TO_SECTION = {
+  projects:'projects',
   overview:'ops', checkins:'ops', reviews:'ops', jobs:'ops',
   employees:'ops', texting:'ops', textlog:'ops', managers:'ops', reports:'ops', schedule:'ops',
   clients:'sales', quotes:'sales', tenders:'sales', mailbox:'sales', lio:'sales',
@@ -7257,17 +7279,14 @@ const TAB_TO_SECTION = {
 };
 
 function showSection(name) {
-  // Production-manager guard: only the ops section is available
-  if (window.USER_ROLE === 'production_manager' && name !== 'ops') {
-    return;
-  }
-  // CFO guard: only the (renamed) ops section is available
-  if (window.USER_ROLE === 'cfo' && name !== 'ops') {
-    return;
-  }
-  // Estimator guard: only Estimates + Quotes/Tenders (sales) sections
-  if (window.USER_ROLE === 'estimator' && name !== 'est' && name !== 'sales') {
-    return;
+  // Projects is available to every dashboard role
+  if (name !== 'projects') {
+    // Production-manager guard: only the ops section is available
+    if (window.USER_ROLE === 'production_manager' && name !== 'ops') return;
+    // CFO guard: only the (renamed) ops section is available
+    if (window.USER_ROLE === 'cfo' && name !== 'ops') return;
+    // Estimator guard: only Estimates + Quotes/Tenders (sales) sections
+    if (window.USER_ROLE === 'estimator' && name !== 'est' && name !== 'sales') return;
   }
   // Update section-button highlight
   document.querySelectorAll('.section-btn').forEach(b =>
@@ -7276,6 +7295,8 @@ function showSection(name) {
   document.getElementById('tabs-ops').style.display     = (name === 'ops')   ? '' : 'none';
   document.getElementById('tabs-sales').style.display   = (name === 'sales') ? '' : 'none';
   document.getElementById('tabs-est').style.display     = (name === 'est')   ? '' : 'none';
+  const projEl = document.getElementById('tabs-projects');
+  if (projEl) projEl.style.display = (name === 'projects') ? '' : 'none';
   const aiEl  = document.getElementById('tabs-ai');
   const webEl = document.getElementById('tabs-web');
   if (aiEl)  aiEl.style.display  = (name === 'ai')  ? '' : 'none';
@@ -7289,15 +7310,15 @@ function showSection(name) {
 function showTab(name) {
   // Production-manager guard: only ops tabs allowed for that role
   const targetSection = TAB_TO_SECTION[name];
-  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops') {
+  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects') {
     return; // Silently ignore — they shouldn't see sales/estimates content
   }
-  // CFO guard: only the Jobs tab inside ops is allowed
-  if (window.USER_ROLE === 'cfo' && name !== 'jobs') {
+  // CFO guard: only the Jobs tab inside ops (+ Projects) is allowed
+  if (window.USER_ROLE === 'cfo' && name !== 'jobs' && name !== 'projects') {
     return;
   }
   // Estimator guard: only estimating / tenders / quoting tabs
-  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes'].includes(name)) {
+  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects'].includes(name)) {
     return;
   }
   if (targetSection) {
@@ -7305,6 +7326,8 @@ function showTab(name) {
     const salesEl = document.getElementById('tabs-sales');
     const estEl   = document.getElementById('tabs-est');
     const aiEl    = document.getElementById('tabs-ai');
+    const projEl2 = document.getElementById('tabs-projects');
+    if (projEl2) projEl2.style.display = (targetSection === 'projects') ? '' : 'none';
     const isVisible = document.getElementById('tabs-' + targetSection).style.display !== 'none';
     if (!isVisible) {
       document.querySelectorAll('.section-btn').forEach(b =>
@@ -7324,6 +7347,7 @@ function showTab(name) {
   }
   const pageEl = document.getElementById('tab-' + name);
   if (pageEl) pageEl.classList.add('active');
+  if (name === 'projects')   loadProjects();
   if (name === 'overview')   loadOverview();
   if (name === 'checkins')   loadCheckins();
   if (name === 'reviews')    loadAllReviews();
@@ -9109,6 +9133,298 @@ async function addScore(name, delta) {
   } else { msg.textContent = d.error || 'Failed.'; msg.style.color = '#c62828'; }
 }
 function escAttr(s){ return (s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+
+// ══════════════════════════════════════════════════════════════════════
+// PROJECTS PIPELINE
+// ══════════════════════════════════════════════════════════════════════
+let _projects = [], _projFilter = 'all', _projRole = '', _projCur = null;
+const PROJ_STAGE_META = {
+  estimating:{label:'Estimating', color:'#1565c0'}, won:{label:'Won', color:'#2e7d32'},
+  in_progress:{label:'In progress', color:'#e65100'}, completed:{label:'Completed', color:'#455a64'},
+  lost:{label:'Lost', color:'#c62828'}
+};
+const PROJ_PAYMENT_METHODS = [['cheque','Cheque'],['e-transfer','E-transfer'],['eft_wire','EFT / Wire'],['cash','Cash'],['credit_card','Credit card']];
+
+async function loadProjects() {
+  const el = document.getElementById('projects-list');
+  try {
+    const r = await fetch('/api/projects'); const d = await r.json();
+    if (!d.ok) { el.innerHTML = '<p style="color:#c62828">' + escHtml(d.error||'Error') + '</p>'; return; }
+    _projects = d.projects || []; _projRole = d.role || '';
+    const npb = document.getElementById('new-project-btn');
+    if (npb) npb.style.display = (_projRole === 'owner' || _projRole === 'estimator') ? '' : 'none';
+    renderProjFilters(); renderProjects();
+  } catch(e) { el.innerHTML = '<p style="color:#c62828">Could not load projects.</p>'; }
+}
+function renderProjFilters() {
+  const stages = [['all','All'],['estimating','Estimating'],['won','Won'],['in_progress','In progress'],['completed','Completed'],['lost','Lost']];
+  document.getElementById('proj-filters').innerHTML = stages.map(s => {
+    const n = s[0]==='all' ? _projects.length : _projects.filter(p => (p.stage||'estimating')===s[0]).length;
+    return '<button class="btn btn-sm" onclick="setProjFilter(\\''+s[0]+'\\')" style="'+(_projFilter===s[0]?'background:#1F3864;color:#fff;':'background:#eef1f7;color:#1F3864;')+'">'+s[1]+' ('+n+')</button>';
+  }).join('');
+}
+function setProjFilter(f){ _projFilter=f; renderProjFilters(); renderProjects(); }
+function renderProjects() {
+  const el = document.getElementById('projects-list');
+  const list = _projFilter==='all' ? _projects : _projects.filter(p => (p.stage||'estimating')===_projFilter);
+  if (!list.length) { el.innerHTML = '<p style="color:#999">No projects in this stage.</p>'; return; }
+  el.innerHTML = list.map(p => {
+    const m = PROJ_STAGE_META[p.stage||'estimating'] || PROJ_STAGE_META.estimating;
+    return '<div onclick="openProject(\\''+p.id+'\\')" style="cursor:pointer;background:#fff;border:1px solid #e6e9f0;border-left:4px solid '+m.color+';border-radius:10px;padding:12px 14px;margin-bottom:8px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<div style="font-weight:700;color:#1F3864;font-size:15px;">'+escHtml(p.name||'Untitled')+'</div>' +
+        '<span style="background:'+m.color+';color:#fff;font-size:11px;font-weight:700;border-radius:8px;padding:2px 8px;">'+m.label+'</span>' +
+      '</div>' +
+      '<div style="font-size:12px;color:#666;margin-top:4px;">'+escHtml(p.client_name||'—')+(p.site_address?(' · '+escHtml(p.site_address)):'')+'</div>' +
+      '<div style="font-size:11px;color:#999;margin-top:3px;">'+(p.received_date?('Received '+p.received_date):'')+(p.due_date?(' · Due '+p.due_date):'')+(p.contract_price?(' · $'+Number(p.contract_price).toLocaleString('en-CA')):'')+'</div>' +
+    '</div>';
+  }).join('');
+}
+
+function openNewProject() {
+  _modalShell('New Project', 'np-body');
+  document.getElementById('np-body').innerHTML =
+    '<div style="display:grid;gap:8px;">' +
+      _npField('np-name','Project name *','text') +
+      _npField('np-client','Client','text') +
+      _npField('np-email','Client email','email') +
+      _npField('np-contact','Client contact person','text') +
+      _npField('np-site','Site address','text') +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:130px;"><label style="font-size:12px;color:#666;">Date received</label><input id="np-received" type="date" style="width:100%;padding:8px;border:1.5px solid #dce2ef;border-radius:6px;"></div>' +
+        '<div style="flex:1;min-width:130px;"><label style="font-size:12px;color:#666;">Estimate due date</label><input id="np-due" type="date" style="width:100%;padding:8px;border:1.5px solid #dce2ef;border-radius:6px;"></div>' +
+      '</div>' +
+      '<button class="btn btn-green" onclick="saveNewProject()" style="margin-top:6px;">Create Project</button>' +
+      '<span id="np-msg" style="font-size:12px;color:#888;"></span>' +
+    '</div>';
+}
+function _npField(id,label,type){ return '<div><label style="font-size:12px;color:#666;">'+label+'</label><input id="'+id+'" type="'+type+'" style="width:100%;padding:8px;border:1.5px solid #dce2ef;border-radius:6px;"></div>'; }
+async function saveNewProject() {
+  const name = document.getElementById('np-name').value.trim();
+  const msg = document.getElementById('np-msg');
+  if (!name) { msg.textContent = 'Project name is required.'; return; }
+  msg.textContent = 'Creating…';
+  const body = { name, client_name: v('np-client'), client_email: v('np-email'), client_contact: v('np-contact'),
+                 site_address: v('np-site'), received_date: v('np-received')||null, due_date: v('np-due')||null };
+  const r = await fetch('/api/projects', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if (d.ok) { document.getElementById('gen-modal').remove(); loadProjects(); if (d.id) openProject(d.id); }
+  else msg.textContent = d.error || 'Failed.';
+}
+function v(id){ const e=document.getElementById(id); return e ? e.value.trim() : ''; }
+
+async function openProject(pid) {
+  _modalShell('Project', 'pr-body');
+  document.getElementById('pr-body').innerHTML = '<p style="color:#999">Loading…</p>';
+  const r = await fetch('/api/projects/' + pid);
+  const d = await r.json();
+  if (!d.ok) { document.getElementById('pr-body').innerHTML = '<p style="color:#c62828">' + escHtml(d.error||'Error') + '</p>'; return; }
+  _projCur = d;
+  renderProjectDetail();
+}
+function _can(role){ return _projRole === 'owner' || _projRole === role; }
+function renderProjectDetail() {
+  const p = _projCur.project, files = _projCur.files||[], invoices = _projCur.invoices||[];
+  const m = PROJ_STAGE_META[p.stage||'estimating'] || PROJ_STAGE_META.estimating;
+  const canEst = _can('estimator'), canFin = _can('cfo'), canOps = _can('production_manager');
+  const approved = ['won','in_progress','completed'].includes(p.stage||'');
+  let h = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
+      '<div style="font-size:18px;font-weight:700;color:#1F3864;">'+escHtml(p.name||'')+'</div>' +
+      '<span style="background:'+m.color+';color:#fff;font-size:12px;font-weight:700;border-radius:8px;padding:3px 10px;">'+m.label+'</span></div>';
+
+  // ── ESTIMATING panel ──
+  h += _panel('📐 Estimating',
+    '<div style="font-size:13px;color:#333;line-height:1.7;">' +
+      '<div><b>Client:</b> '+escHtml(p.client_name||'—')+(p.client_contact?(' ('+escHtml(p.client_contact)+')'):'')+'</div>' +
+      '<div><b>Email:</b> '+escHtml(p.client_email||'—')+'</div>' +
+      '<div><b>Site:</b> '+escHtml(p.site_address||'—')+'</div>' +
+      '<div><b>Received:</b> '+(p.received_date||'—')+' · <b>Due:</b> '+(p.due_date||'—')+'</div>' +
+      '<div style="margin-top:6px;"><b>Status:</b> '+
+        (canEst ?
+          '<select id="pr-eststatus" onchange="setProjStatus(this.value)" style="padding:5px 8px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;">' +
+            ['open','submitted','won','lost'].map(s=>'<option value="'+s+'"'+(s===(p.est_status||'open')?' selected':'')+'>'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>').join('') +
+          '</select>' : escHtml(p.est_status||'open')) +
+      '</div>' +
+      // files
+      '<div style="margin-top:10px;"><b>Files (drawings / pictures):</b></div>' +
+      '<div id="pr-files" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">' + _projFilesHtml(files) + '</div>' +
+      (canEst ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">' +
+        '<button class="btn btn-sm" id="pr-up-drawing" style="background:#eef1f7;">📄 Add drawing</button>' +
+        '<button class="btn btn-sm" id="pr-up-picture" style="background:#eef1f7;">📷 Add picture</button></div>' : '') +
+    '</div>');
+
+  // ── FINANCE panel (CFO) — only after approval ──
+  if (approved && (canFin || canOps)) {
+    const totInv = invoices.reduce((a,i)=>a+Number(i.amount||0),0);
+    const totRec = invoices.reduce((a,i)=>a+Number(i.amount_received||0),0);
+    h += _panel('💰 Finance (CFO)',
+      '<div style="font-size:13px;">' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">' +
+          '<b>Contract price:</b> ' + (canFin ?
+            '<input id="pr-contract" type="number" step="0.01" value="'+(p.contract_price||0)+'" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;width:140px;"> <button class="btn btn-sm" id="pr-save-contract" style="background:#1F3864;">Save</button>' :
+            ('$'+Number(p.contract_price||0).toLocaleString('en-CA'))) +
+        '</div>' +
+        '<div style="color:#666;margin-bottom:6px;">Invoiced $'+totInv.toLocaleString('en-CA')+' · Received $'+totRec.toLocaleString('en-CA')+' · Outstanding $'+(totInv-totRec).toLocaleString('en-CA')+'</div>' +
+        '<div id="pr-invoices">' + _projInvoicesHtml(invoices, canFin) + '</div>' +
+        (canFin ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+          '<input id="pr-inv-desc" placeholder="Invoice description" style="flex:1;min-width:140px;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;">' +
+          '<input id="pr-inv-amt" type="number" step="0.01" placeholder="Amount" style="width:110px;padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;">' +
+          '<button class="btn btn-sm" id="pr-add-inv" style="background:#2e7d32;">+ Invoice</button></div>' : '') +
+      '</div>');
+  }
+
+  // ── EXECUTION panel (VP Ops) — only after approval ──
+  if (approved && (canOps || canFin)) {
+    const asgEmp = p.assigned_employees || [], asgEq = p.assigned_equipment || [];
+    const woFiles = files.filter(f => f.kind === 'work_order');
+    h += _panel('🛠 Execution (VP Ops)',
+      '<div style="font-size:13px;">' +
+        '<div><b>Work order:</b> ' + (woFiles.length ? woFiles.map(f=>'<a href="'+f.url+'" target="_blank">'+escHtml(f.name||'file')+'</a>').join(', ') : '<span style="color:#888;">none</span>') +
+          (canOps ? ' <button class="btn btn-sm" id="pr-up-wo" style="background:#eef1f7;">⬆ Upload</button>' : '') + '</div>' +
+        '<div style="margin-top:8px;"><b>Plan:</b></div>' +
+        (canOps ? '<textarea id="pr-plan" rows="3" style="width:100%;padding:8px;border:1.5px solid #dce2ef;border-radius:6px;">'+escHtml(p.plan||'')+'</textarea><button class="btn btn-sm" id="pr-save-plan" style="background:#1F3864;margin-top:4px;">Save plan</button>'
+                : '<div style="white-space:pre-wrap;color:#333;">'+escHtml(p.plan||'—')+'</div>') +
+        '<div style="margin-top:10px;"><b>Assigned crew:</b> '+(asgEmp.join(', ')||'—')+(canOps?' <button class="btn btn-sm" id="pr-asg-crew" style="background:#eef1f7;">Edit</button>':'')+'</div>' +
+        '<div style="margin-top:8px;"><b>Assigned equipment:</b> '+(asgEq.map(e=>e.name||e).join(', ')||'—')+(canOps?' <button class="btn btn-sm" id="pr-asg-eq" style="background:#eef1f7;">Edit</button>':'')+'</div>' +
+      '</div>');
+  }
+
+  if (_projRole === 'owner') h += '<div style="text-align:right;margin-top:10px;"><button class="btn btn-sm" onclick="deleteProject(\\''+p.id+'\\')" style="background:#fce4ec;color:#c62828;">Delete project</button></div>';
+
+  document.getElementById('pr-body').innerHTML = h;
+  _wireProjectDetail();
+}
+function _panel(title, inner){ return '<div style="border:1px solid #e6e9f0;border-radius:10px;padding:12px 14px;margin-bottom:12px;"><div style="font-size:13px;font-weight:700;color:#1F3864;margin-bottom:8px;">'+title+'</div>'+inner+'</div>'; }
+function _projFilesHtml(files){
+  const ff = files.filter(f => f.kind !== 'work_order');
+  if (!ff.length) return '<span style="color:#888;font-size:12px;">No files yet.</span>';
+  return ff.map(f => {
+    const isImg = (f.mime||'').startsWith('image');
+    const thumb = isImg ? '<img src="'+f.url+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;">' : '<div style="width:70px;height:70px;border-radius:6px;background:#eef1f7;display:flex;align-items:center;justify-content:center;font-size:11px;color:#1F3864;text-align:center;padding:4px;">'+escHtml((f.name||'file').slice(0,18))+'</div>';
+    return '<a href="'+f.url+'" target="_blank" title="'+escHtml(f.name||'')+'">'+thumb+'</a>';
+  }).join('');
+}
+function _projInvoicesHtml(invoices, canFin){
+  if (!invoices.length) return '<div style="color:#888;">No invoices yet.</div>';
+  return invoices.map(i => {
+    const paid = i.status === 'paid', part = i.status === 'partial';
+    const col = paid ? '#2e7d32' : (part ? '#e65100' : '#c62828');
+    return '<div style="border-top:1px solid #f0f0f0;padding:6px 0;font-size:12px;">' +
+      '<div style="display:flex;justify-content:space-between;"><span><b>'+escHtml(i.description||'Invoice')+'</b> · $'+Number(i.amount||0).toLocaleString('en-CA')+' <span style="color:'+col+';font-weight:700;">'+(i.status||'unpaid').toUpperCase()+'</span></span>' +
+      '<span style="color:#888;">'+(i.invoice_date||'')+'</span></div>' +
+      (Number(i.amount_received||0)>0 ? '<div style="color:#666;">Received $'+Number(i.amount_received).toLocaleString('en-CA')+(i.payment_method?(' via '+i.payment_method):'')+(i.received_date?(' on '+i.received_date):'')+'</div>' : '') +
+      (canFin && !paid ? '<div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;align-items:center;">' +
+        '<input type="number" step="0.01" placeholder="Amount recd" class="pr-pay-amt" data-iid="'+i.id+'" style="width:100px;padding:4px 6px;border:1px solid #dce2ef;border-radius:5px;font-size:12px;">' +
+        '<select class="pr-pay-method" data-iid="'+i.id+'" style="padding:4px 6px;border:1px solid #dce2ef;border-radius:5px;font-size:12px;">'+PROJ_PAYMENT_METHODS.map(pm=>'<option value="'+pm[0]+'">'+pm[1]+'</option>').join('')+'</select>' +
+        '<button class="btn btn-sm pr-pay-btn" data-iid="'+i.id+'" style="background:#2e7d32;">Record</button></div>' : '') +
+    '</div>';
+  }).join('');
+}
+function _wireProjectDetail(){
+  const p = _projCur.project;
+  const on = (id, fn) => { const e = document.getElementById(id); if (e) e.addEventListener('click', fn); };
+  on('pr-up-drawing', () => projUpload('drawing'));
+  on('pr-up-picture', () => projUpload('picture'));
+  on('pr-up-wo', () => projUpload('work_order'));
+  on('pr-save-contract', async () => { await projPatch({contract_price: parseFloat(document.getElementById('pr-contract').value||0)}); reopenProject(); });
+  on('pr-add-inv', addProjInvoice);
+  on('pr-save-plan', async () => { await projPatch({plan: document.getElementById('pr-plan').value}); reopenProject(); });
+  on('pr-asg-crew', editProjCrew);
+  on('pr-asg-eq', editProjEquipment);
+  document.querySelectorAll('.pr-pay-btn').forEach(b => b.addEventListener('click', () => recordProjPayment(b.dataset.iid)));
+}
+async function reopenProject(){ const id=_projCur.project.id; await openProject(id); loadProjects(); }
+async function projPatch(fields){
+  const r = await fetch('/api/projects/'+_projCur.project.id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(fields)});
+  const d = await r.json(); if (!d.ok) alert(d.error||'Failed'); return d.ok;
+}
+async function setProjStatus(status){
+  const r = await fetch('/api/projects/'+_projCur.project.id+'/status', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({est_status: status})});
+  const d = await r.json(); if (d.ok) reopenProject(); else alert(d.error||'Failed');
+}
+function projUpload(kind){
+  const inp = document.createElement('input'); inp.type='file';
+  inp.accept = kind==='picture' ? 'image/*' : (kind==='drawing' ? 'image/*,application/pdf' : '*/*');
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append('file', f); fd.append('kind', kind);
+    const r = await fetch('/api/projects/'+_projCur.project.id+'/file', {method:'POST', body: fd});
+    const d = await r.json(); if (d.ok) reopenProject(); else alert(d.error||'Upload failed');
+  };
+  inp.click();
+}
+async function addProjInvoice(){
+  const desc = document.getElementById('pr-inv-desc').value.trim();
+  const amt = parseFloat(document.getElementById('pr-inv-amt').value||0);
+  if (!amt) { alert('Enter an invoice amount.'); return; }
+  const r = await fetch('/api/projects/'+_projCur.project.id+'/invoice', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({description: desc, amount: amt})});
+  const d = await r.json(); if (d.ok) reopenProject(); else alert(d.error||'Failed');
+}
+async function recordProjPayment(iid){
+  const amt = parseFloat((document.querySelector('.pr-pay-amt[data-iid="'+iid+'"]')||{}).value||0);
+  const method = (document.querySelector('.pr-pay-method[data-iid="'+iid+'"]')||{}).value;
+  if (!amt) { alert('Enter amount received.'); return; }
+  const r = await fetch('/api/invoice/'+iid+'/payment', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount_received: amt, payment_method: method})});
+  const d = await r.json(); if (d.ok) reopenProject(); else alert(d.error||'Failed');
+}
+async function editProjCrew(){
+  const empRes = await fetch('/api/employees').then(r=>r.json()).catch(()=>[]);
+  const emps = Array.isArray(empRes) ? empRes.map(e=>e.name||e) : (empRes.employees||[]).map(e=>e.name||e);
+  const cur = _projCur.project.assigned_employees || [];
+  const pick = prompt('Assigned crew (comma-separated).\\nAvailable: ' + emps.join(', '), cur.join(', '));
+  if (pick === null) return;
+  const list = pick.split(',').map(s=>s.trim()).filter(Boolean);
+  await projPatch({assigned_employees: list}); reopenProject();
+}
+async function editProjEquipment(){
+  const eqRes = await fetch('/api/equipment').then(r=>r.json()).catch(()=>({equipment:[]}));
+  const eq = eqRes.equipment || [];
+  if (!eq.length) { alert('No equipment in the catalog yet. Add some via the 🧰 Equipment button.'); return; }
+  const cur = (_projCur.project.assigned_equipment||[]).map(e=>e.id||e);
+  const names = eq.map(e => (cur.includes(e.id)?'[x] ':'[ ] ')+e.name).join('\\n');
+  const pick = prompt('Type the equipment names to assign (comma-separated).\\nCatalog:\\n'+names, (_projCur.project.assigned_equipment||[]).map(e=>e.name||e).join(', '));
+  if (pick === null) return;
+  const wanted = pick.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const chosen = eq.filter(e => wanted.includes((e.name||'').toLowerCase())).map(e=>({id:e.id, name:e.name}));
+  await projPatch({assigned_equipment: chosen}); reopenProject();
+}
+async function deleteProject(pid){
+  if (!confirm('Delete this project and all its files/invoices?')) return;
+  const r = await fetch('/api/projects/'+pid, {method:'DELETE'});
+  const d = await r.json(); if (d.ok) { document.getElementById('gen-modal').remove(); loadProjects(); } else alert(d.error||'Failed');
+}
+
+// ── Equipment catalog ──
+async function openEquipment(){
+  _modalShell('🧰 Equipment Catalog', 'eq-body');
+  await renderEquipment();
+}
+async function renderEquipment(){
+  const host = document.getElementById('eq-body');
+  const d = await fetch('/api/equipment').then(r=>r.json()).catch(()=>({equipment:[]}));
+  const eq = d.equipment || [];
+  const canEdit = (_projRole === 'owner' || _projRole === 'production_manager');
+  let h = canEdit ? '<div style="background:#fafbfd;border:1px solid #e6e9f0;border-radius:10px;padding:12px;margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+      '<input id="eq-name" placeholder="Name (e.g. Graco 695 sprayer)" style="flex:1;min-width:160px;padding:7px 9px;border:1.5px solid #dce2ef;border-radius:6px;">' +
+      '<input id="eq-cat" placeholder="Category" style="width:130px;padding:7px 9px;border:1.5px solid #dce2ef;border-radius:6px;">' +
+      '<input id="eq-id" placeholder="Serial / ID" style="width:120px;padding:7px 9px;border:1.5px solid #dce2ef;border-radius:6px;">' +
+      '<button class="btn btn-sm" id="eq-add" style="background:#2e7d32;">+ Add</button></div>' : '';
+  h += eq.length ? '<table style="width:100%;font-size:13px;"><tr><th style="text-align:left;">Name</th><th>Category</th><th>ID</th><th>Status</th>'+(canEdit?'<th></th>':'')+'</tr>' +
+    eq.map(e => '<tr style="border-top:1px solid #f0f0f0;"><td style="padding:6px 0;"><b>'+escHtml(e.name||'')+'</b></td><td style="text-align:center;">'+escHtml(e.category||'—')+'</td><td style="text-align:center;">'+escHtml(e.identifier||'—')+'</td><td style="text-align:center;">'+escHtml(e.status||'available')+'</td>'+(canEdit?'<td style="text-align:right;"><button class="btn btn-sm eq-del" data-eid="'+e.id+'" style="background:#fce4ec;color:#c62828;">✕</button></td>':'')+'</tr>').join('') +
+    '</table>' : '<p style="color:#999;">No equipment yet.</p>';
+  host.innerHTML = h;
+  const addBtn = document.getElementById('eq-add');
+  if (addBtn) addBtn.addEventListener('click', async () => {
+    const name = document.getElementById('eq-name').value.trim();
+    if (!name) return;
+    await fetch('/api/equipment', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, category: v('eq-cat'), identifier: v('eq-id')})});
+    renderEquipment();
+  });
+  document.querySelectorAll('.eq-del').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Delete this equipment?')) return;
+    await fetch('/api/equipment/'+b.dataset.eid, {method:'DELETE'}); renderEquipment();
+  }));
+}
 
 async function openJob(idx) {
   // Original operator detail modal — full management view (edit, assign,
@@ -14438,6 +14754,338 @@ def api_my_scores():
     return jsonify({"ok": True, "total": total, "entries": rows,
                     "threshold": SCORE_FIRE_THRESHOLD,
                     "fire_flag": total <= SCORE_FIRE_THRESHOLD})
+
+
+# ===========================================================================
+# PROJECTS PIPELINE — one record per project through its whole lifecycle:
+#   Estimating (estimator) → Won → Finance (CFO) + Execution (VP Ops)
+#   Estimator: client, received/due dates, drawings/pictures, won/lost status
+#   Once WON: CFO sets contract, invoices, records payments (+ method);
+#             VP Ops uploads the work order, sets a plan, assigns crew + gear.
+# ===========================================================================
+PROJECT_ROLES = ("owner", "estimator", "cfo", "production_manager")
+PAYMENT_METHODS = ["cheque", "e-transfer", "eft_wire", "cash", "credit_card"]
+
+
+def _require_project_role():
+    return session.get("role") in PROJECT_ROLES
+
+
+def _proj_actor():
+    return session.get("name") or session.get("role") or "staff"
+
+
+def _project_visible(role: str, p: dict) -> bool:
+    """Estimator + owner see everything. CFO/VP only see APPROVED projects
+    (stage won / in_progress / completed)."""
+    if role in ("owner", "estimator"):
+        return True
+    return (p.get("stage") or "estimating") in ("won", "in_progress", "completed")
+
+
+@app.route("/api/projects")
+def api_projects_list():
+    if not _require_project_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    if not supabase_client:
+        return jsonify({"ok": True, "projects": []})
+    role = session.get("role")
+    try:
+        rows = supabase_client.table("projects").select("*").order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as exc:
+        return jsonify({"ok": True, "projects": [], "error": str(exc)})
+    rows = [p for p in rows if _project_visible(role, p)]
+    return jsonify({"ok": True, "projects": rows, "role": role})
+
+
+@app.route("/api/projects", methods=["POST"])
+def api_projects_create():
+    if session.get("role") not in ("owner", "estimator"):
+        return jsonify({"ok": False, "error": "Estimator / owner only"}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Project name required."})
+    row = {
+        "name": name,
+        "client_name":    (d.get("client_name") or "").strip() or None,
+        "client_email":   (d.get("client_email") or "").strip() or None,
+        "client_contact": (d.get("client_contact") or "").strip() or None,
+        "site_address":   (d.get("site_address") or "").strip() or None,
+        "received_date":  d.get("received_date") or None,
+        "due_date":       d.get("due_date") or None,
+        "est_status":     "open",
+        "stage":          "estimating",
+        "created_by":     _proj_actor(),
+    }
+    try:
+        ins = supabase_client.table("projects").insert(row).execute().data
+        return jsonify({"ok": True, "id": ins[0]["id"] if ins else None})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/projects/<pid>")
+def api_project_get(pid):
+    if not _require_project_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    try:
+        rows = supabase_client.table("projects").select("*").eq("id", pid).limit(1).execute().data or []
+        if not rows:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        p = rows[0]
+        if not _project_visible(session.get("role"), p):
+            return jsonify({"ok": False, "error": "Not authorized for this project"}), 403
+        files = supabase_client.table("project_files").select("*").eq("project_id", pid).order("created_at", desc=True).execute().data or []
+        invoices = supabase_client.table("project_invoices").select("*").eq("project_id", pid).order("created_at", desc=True).execute().data or []
+        return jsonify({"ok": True, "project": p, "files": files, "invoices": invoices})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# Which project fields each role may edit
+_PROJ_FIELDS_BY_ROLE = {
+    "estimator": {"name", "client_name", "client_email", "client_contact", "site_address", "received_date", "due_date", "notes"},
+    "cfo":       {"contract_price"},
+    "production_manager": {"work_order_note", "plan", "assigned_employees", "assigned_equipment"},
+}
+# Owner may edit everything
+_PROJ_ALL_FIELDS = set().union(*_PROJ_FIELDS_BY_ROLE.values())
+
+
+@app.route("/api/projects/<pid>", methods=["PATCH"])
+def api_project_update(pid):
+    if not _require_project_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    role = session.get("role")
+    allowed = _PROJ_ALL_FIELDS if role == "owner" else _PROJ_FIELDS_BY_ROLE.get(role, set())
+    d = request.get_json() or {}
+    upd = {}
+    for k, v in d.items():
+        if k in allowed:
+            upd[k] = v
+    if not upd:
+        return jsonify({"ok": False, "error": "Nothing you can edit here."}), 403
+    upd["updated_at"] = datetime.utcnow().isoformat()
+    try:
+        supabase_client.table("projects").update(upd).eq("id", pid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/projects/<pid>/status", methods=["POST"])
+def api_project_status(pid):
+    """Estimator sets the estimating outcome; owner can set any stage.
+    Marking a project 'won' approves it → unlocks CFO + VP Ops."""
+    if session.get("role") not in ("owner", "estimator"):
+        return jsonify({"ok": False, "error": "Estimator / owner only"}), 403
+    d = request.get_json() or {}
+    est_status = (d.get("est_status") or "").strip().lower()
+    if est_status not in ("open", "submitted", "won", "lost"):
+        return jsonify({"ok": False, "error": "Invalid status"}), 400
+    stage = {"won": "won", "lost": "lost"}.get(est_status, "estimating")
+    try:
+        supabase_client.table("projects").update({
+            "est_status": est_status, "stage": stage,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("id", pid).execute()
+        return jsonify({"ok": True, "est_status": est_status, "stage": stage})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/projects/<pid>", methods=["DELETE"])
+@require_role("owner")
+def api_project_delete(pid):
+    try:
+        supabase_client.table("project_files").delete().eq("project_id", pid).execute()
+        supabase_client.table("project_invoices").delete().eq("project_id", pid).execute()
+        supabase_client.table("projects").delete().eq("id", pid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ---- Project files (drawings / pictures / work order) ---------------------
+@app.route("/api/projects/<pid>/file", methods=["POST"])
+def api_project_file_upload(pid):
+    if not _require_project_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    # Estimators upload drawings/pictures; VP uploads work orders; owner anything
+    kind = (request.form.get("kind") or "file").strip().lower()
+    role = session.get("role")
+    if role == "cfo":
+        return jsonify({"ok": False, "error": "CFO does not upload project files."}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No storage"}), 503
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    f = request.files["file"]
+    data = f.read()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty file"}), 400
+    if len(data) > 60 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File too large (max 60MB)"}), 400
+    mime = f.content_type or "application/octet-stream"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", (f.filename or "file"))[:60]
+    path = f"projects/{pid}/{uuid.uuid4().hex}_{safe}"
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(path, data, file_options={"content-type": mime})
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+        supabase_client.table("project_files").insert({
+            "project_id": pid, "kind": kind, "name": f.filename or safe,
+            "url": url, "mime": mime, "uploaded_by": _proj_actor(),
+        }).execute()
+        return jsonify({"ok": True, "url": url, "kind": kind, "name": f.filename})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/project-file/<fid>", methods=["DELETE"])
+def api_project_file_delete(fid):
+    if not _require_project_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    try:
+        supabase_client.table("project_files").delete().eq("id", fid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ---- Invoices + payments (CFO) --------------------------------------------
+@app.route("/api/projects/<pid>/invoice", methods=["POST"])
+def api_project_invoice_add(pid):
+    if session.get("role") not in ("owner", "cfo"):
+        return jsonify({"ok": False, "error": "CFO / owner only"}), 403
+    d = request.get_json() or {}
+    try:
+        amount = float(d.get("amount") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    if amount <= 0:
+        return jsonify({"ok": False, "error": "Invoice amount required."})
+    row = {
+        "project_id": pid,
+        "description": (d.get("description") or "Invoice").strip(),
+        "amount": amount,
+        "invoice_date": d.get("invoice_date") or date.today().isoformat(),
+        "status": "unpaid",
+        "amount_received": 0,
+        "created_by": _proj_actor(),
+    }
+    try:
+        ins = supabase_client.table("project_invoices").insert(row).execute().data
+        return jsonify({"ok": True, "id": ins[0]["id"] if ins else None})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/invoice/<iid>/payment", methods=["POST"])
+def api_invoice_payment(iid):
+    if session.get("role") not in ("owner", "cfo"):
+        return jsonify({"ok": False, "error": "CFO / owner only"}), 403
+    d = request.get_json() or {}
+    try:
+        recv = float(d.get("amount_received") or 0)
+    except (TypeError, ValueError):
+        recv = 0.0
+    method = (d.get("payment_method") or "").strip().lower()
+    if recv <= 0:
+        return jsonify({"ok": False, "error": "Amount received required."})
+    if method not in PAYMENT_METHODS:
+        return jsonify({"ok": False, "error": "Pick a payment method."})
+    try:
+        cur = supabase_client.table("project_invoices").select("amount,amount_received").eq("id", iid).limit(1).execute().data or []
+        prev = float(cur[0].get("amount_received") or 0) if cur else 0
+        total = float(cur[0].get("amount") or 0) if cur else 0
+        new_recv = prev + recv
+        status = "paid" if new_recv >= total - 0.01 else "partial"
+        supabase_client.table("project_invoices").update({
+            "amount_received": new_recv, "payment_method": method,
+            "received_date": d.get("received_date") or date.today().isoformat(),
+            "status": status,
+        }).eq("id", iid).execute()
+        return jsonify({"ok": True, "status": status, "amount_received": new_recv})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/invoice/<iid>", methods=["DELETE"])
+def api_invoice_delete(iid):
+    if session.get("role") not in ("owner", "cfo"):
+        return jsonify({"ok": False, "error": "CFO / owner only"}), 403
+    try:
+        supabase_client.table("project_invoices").delete().eq("id", iid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ---- Equipment catalog + assignment ---------------------------------------
+@app.route("/api/equipment")
+def api_equipment_list():
+    if not _require_project_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    if not supabase_client:
+        return jsonify({"ok": True, "equipment": []})
+    try:
+        rows = supabase_client.table("equipment").select("*").order("name").execute().data or []
+        return jsonify({"ok": True, "equipment": rows})
+    except Exception as exc:
+        return jsonify({"ok": True, "equipment": [], "error": str(exc)})
+
+
+@app.route("/api/equipment", methods=["POST"])
+def api_equipment_add():
+    if session.get("role") not in ("owner", "production_manager"):
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    d = request.get_json() or {}
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Equipment name required."})
+    row = {
+        "name": name,
+        "category": (d.get("category") or "").strip() or None,
+        "identifier": (d.get("identifier") or "").strip() or None,
+        "status": "available",
+        "notes": (d.get("notes") or "").strip() or None,
+    }
+    try:
+        ins = supabase_client.table("equipment").insert(row).execute().data
+        return jsonify({"ok": True, "id": ins[0]["id"] if ins else None})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/equipment/<eid>", methods=["PATCH"])
+def api_equipment_update(eid):
+    if session.get("role") not in ("owner", "production_manager"):
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    d = request.get_json() or {}
+    upd = {k: v for k, v in d.items() if k in ("name", "category", "identifier", "status", "notes")}
+    if not upd:
+        return jsonify({"ok": False, "error": "Nothing to update"})
+    try:
+        supabase_client.table("equipment").update(upd).eq("id", eid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/equipment/<eid>", methods=["DELETE"])
+def api_equipment_delete(eid):
+    if session.get("role") not in ("owner", "production_manager"):
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    try:
+        supabase_client.table("equipment").delete().eq("id", eid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 @app.route("/api/job/<job_id>/expense", methods=["POST"])

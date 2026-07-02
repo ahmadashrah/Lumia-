@@ -9261,7 +9261,7 @@ function renderProjectDetail() {
       '<div style="font-size:13px;">' +
         '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">' +
           '<b>Contract price:</b> ' + (canFin ?
-            '<input id="pr-contract" type="number" step="0.01" value="'+(p.contract_price||0)+'" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;width:140px;"> <button class="btn btn-sm" id="pr-save-contract" style="background:#1F3864;">Save</button>' :
+            '$<input id="pr-contract" type="number" step="0.01" value="'+(p.contract_price||0)+'" style="padding:6px 8px;border:1.5px solid #dce2ef;border-radius:6px;width:140px;"> <button class="btn btn-sm" id="pr-save-contract" style="background:#1F3864;">Save</button> <span id="pr-contract-msg" style="font-size:12px;color:#2e7d32;"></span>' :
             ('$'+Number(p.contract_price||0).toLocaleString('en-CA'))) +
         '</div>' +
         '<div style="color:#666;margin-bottom:6px;">Invoiced $'+totInv.toLocaleString('en-CA')+' · Received $'+totRec.toLocaleString('en-CA')+' · Outstanding $'+(totInv-totRec).toLocaleString('en-CA')+'</div>' +
@@ -9326,7 +9326,16 @@ function _wireProjectDetail(){
   on('pr-up-drawing', () => projUpload('drawing'));
   on('pr-up-picture', () => projUpload('picture'));
   on('pr-up-wo', () => projUpload('work_order'));
-  on('pr-save-contract', async () => { await projPatch({contract_price: parseFloat(document.getElementById('pr-contract').value||0)}); reopenProject(); });
+  async function _saveContract(){
+    const msg = document.getElementById('pr-contract-msg');
+    const val = parseFloat(document.getElementById('pr-contract').value||0) || 0;
+    if (msg) { msg.style.color='#888'; msg.textContent='Saving…'; }
+    const ok = await projPatch({contract_price: val});
+    if (msg) { msg.style.color = ok?'#2e7d32':'#c62828'; msg.textContent = ok?('✓ saved $'+val.toLocaleString('en-CA')):'✗ not saved'; }
+    if (ok) { _projCur.project.contract_price = val; loadProjects(); }
+  }
+  on('pr-save-contract', _saveContract);
+  { const ci = document.getElementById('pr-contract'); if (ci) ci.addEventListener('change', _saveContract); }
   on('pr-add-inv', addProjInvoice);
   on('pr-save-plan', async () => { await projPatch({plan: document.getElementById('pr-plan').value}); reopenProject(); });
   on('pr-asg-crew', editProjCrew);

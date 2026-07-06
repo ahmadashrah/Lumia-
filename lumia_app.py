@@ -20009,6 +20009,52 @@ def _looks_like_tender_email(subject: str, body: str) -> bool:
     return any(kw in blob for kw in _TENDER_KEYWORDS)
 
 
+def _normalize_tender_name(name: str) -> str:
+    """Strip addendum/itemized/RFP noise so variants of the same project collapse
+    to the same key (e.g. 'U of M CL3 … - Addendum' == 'U of Manitoba CL3 …')."""
+    n = (name or "").lower()
+    junk = ["addendum", "itemized", "revised", "revision", "re-issue", "reissue",
+            "re issue", "update", "nda only", "ndas only", "nda", "final",
+            "invitation to bid", "invitation to tender", "rfp", "rfq", "itb", "itt",
+            "eoi", "tender", "bid", "painting", "paint", "renovation", "reno",
+            "2024", "2025", "2026", "2027", "2028"]
+    for j in junk:
+        n = n.replace(j, " ")
+    # 'u of manitoba' -> 'u of m' so both forms match
+    n = n.replace("university of manitoba", "u of m").replace("u of manitoba", "u of m")
+    n = re.sub(r"[^a-z0-9 ]", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
+
+
+def _find_matching_tender(name: str):
+    """Return an existing tender row if `name` is the same project (fuzzy).
+    Prevents addenda / itemized follow-ups from creating duplicate tenders."""
+    import difflib
+    if not supabase_client:
+        return None
+    norm_new = _normalize_tender_name(name)
+    if not norm_new or len(norm_new) < 4:
+        return None
+    try:
+        rows = supabase_client.table("tenders").select("id,name,close_date,status").limit(500).execute().data or []
+    except Exception:
+        return None
+    set_new = set(norm_new.split())
+    best, best_score = None, 0.0
+    for r in rows:
+        norm_ex = _normalize_tender_name(r.get("name"))
+        if not norm_ex:
+            continue
+        ratio = difflib.SequenceMatcher(None, norm_new, norm_ex).ratio()
+        set_ex = set(norm_ex.split())
+        overlap = len(set_new & set_ex) / max(1, min(len(set_new), len(set_ex)))
+        score = max(ratio, overlap)
+        if score > best_score:
+            best_score, best = score, r
+    return best if best and best_score >= 0.7 else None
+
+
 def _ingest_tender_email(subject: str, body: str, sender_name: str, sender_email: str) -> dict:
     """Use Claude to pull {name, client, close_date, description} from a bid email
     and insert into the tenders table."""
@@ -20059,14 +20105,21 @@ Rules:
     if not name or not close_date or close_date == "null":
         return {"ok": False, "error": "Could not extract tender info."}
 
-    # Idempotency — skip if a tender with the same name+close_date already exists
+    # One tender per project — fuzzy-match against existing tenders so addenda /
+    # itemized / re-issued emails update the SAME tender instead of duplicating.
     try:
-        existing = supabase_client.table("tenders").select("id") \
-            .ilike("name", name).eq("close_date", close_date).limit(1).execute().data or []
-        if existing:
-            return {"ok": False, "error": "Duplicate (already in queue)."}
-    except Exception:
-        pass
+        match = _find_matching_tender(name)
+        if match:
+            upd = {}
+            # An addendum often extends the deadline — keep the latest close_date
+            if close_date and close_date > (match.get("close_date") or ""):
+                upd["close_date"] = close_date
+            if upd:
+                supabase_client.table("tenders").update(upd).eq("id", match["id"]).execute()
+            print(f"[Tender Ingest] '{name}' matches existing project '{match.get('name')}' — updated, not duplicated")
+            return {"ok": False, "error": "Already tracked (same project)."}
+    except Exception as exc:
+        print(f"[Tender Ingest] match check failed: {exc}")
 
     try:
         row = {

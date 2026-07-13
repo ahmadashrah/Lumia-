@@ -6280,6 +6280,7 @@ window.USER_ROLE = "{{ user_role }}";
 <!-- SECTION: Projects -->
 <div class="tabs" id="tabs-projects" style="display:none;">
   <div class="tab" onclick="showTab('projects')">📁 Pipeline</div>
+  <div class="tab" onclick="showTab('tasks')">✅ Tasks <span id="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
 </div>
 
 <!-- SECTION: Operations / Production -->
@@ -6430,6 +6431,20 @@ window.USER_ROLE = "{{ user_role }}";
     <p style="font-size:13px;color:#666;margin:6px 0 14px;">Estimating → Won → Finance (CFO) + Execution (VP Ops). Each project carries its files, invoices, plan, crew and equipment through the whole lifecycle.</p>
     <div id="proj-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
     <div id="projects-list"><p style="color:#999">Loading…</p></div>
+  </div>
+</div>
+
+<div class="page" id="tab-tasks">
+  <div class="card">
+    <div id="task-compose"></div>
+  </div>
+  <div class="card">
+    <h2 style="margin:0 0 4px;" id="task-inbox-title">📥 Assigned to me</h2>
+    <div id="task-inbox"><p style="color:#999">Loading…</p></div>
+  </div>
+  <div class="card">
+    <h2 style="margin:0 0 4px;">📤 I assigned</h2>
+    <div id="task-outbox"><p style="color:#999">Loading…</p></div>
   </div>
 </div>
 
@@ -7269,7 +7284,7 @@ let lastRecommendation = null;
 
 // Map every tab name to its parent section so showTab knows which sub-nav to show
 const TAB_TO_SECTION = {
-  projects:'projects',
+  projects:'projects', tasks:'projects',
   overview:'ops', checkins:'ops', reviews:'ops', jobs:'ops',
   employees:'ops', texting:'ops', textlog:'ops', managers:'ops', reports:'ops', schedule:'ops',
   clients:'sales', quotes:'sales', tenders:'sales', mailbox:'sales', lio:'sales',
@@ -7310,15 +7325,15 @@ function showSection(name) {
 function showTab(name) {
   // Production-manager guard: only ops tabs allowed for that role
   const targetSection = TAB_TO_SECTION[name];
-  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects') {
+  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects' && name !== 'tasks') {
     return; // Silently ignore — they shouldn't see sales/estimates content
   }
-  // CFO guard: only the Jobs tab inside ops (+ Projects) is allowed
-  if (window.USER_ROLE === 'cfo' && name !== 'jobs' && name !== 'projects') {
+  // CFO guard: only the Jobs tab inside ops (+ Projects/Tasks) is allowed
+  if (window.USER_ROLE === 'cfo' && name !== 'jobs' && name !== 'projects' && name !== 'tasks') {
     return;
   }
-  // Estimator guard: only estimating / tenders / quoting tabs
-  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects'].includes(name)) {
+  // Estimator guard: only estimating / tenders / quoting tabs (+ Projects/Tasks)
+  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects','tasks'].includes(name)) {
     return;
   }
   if (targetSection) {
@@ -7348,6 +7363,7 @@ function showTab(name) {
   const pageEl = document.getElementById('tab-' + name);
   if (pageEl) pageEl.classList.add('active');
   if (name === 'projects')   loadProjects();
+  if (name === 'tasks')      loadTasks();
   if (name === 'overview')   loadOverview();
   if (name === 'checkins')   loadCheckins();
   if (name === 'reviews')    loadAllReviews();
@@ -9433,6 +9449,101 @@ async function renderEquipment(){
     if (!confirm('Delete this equipment?')) return;
     await fetch('/api/equipment/'+b.dataset.eid, {method:'DELETE'}); renderEquipment();
   }));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// TASKS (owner ⇄ managers)
+// ══════════════════════════════════════════════════════════════════════
+let _tasksData = null;
+const URGENCY_META = {urgent:{l:'🔴 Urgent',c:'#c62828'}, high:{l:'🟠 High',c:'#e65100'}, normal:{l:'🟡 Normal',c:'#f9a825'}, low:{l:'⚪ Low',c:'#9e9e9e'}};
+
+async function loadTasks(){
+  try {
+    const r = await fetch('/api/tasks'); const d = await r.json();
+    if (!d.ok) { document.getElementById('task-inbox').innerHTML = '<p style="color:#c62828">'+escHtml(d.error||'Error')+'</p>'; return; }
+    _tasksData = d;
+    renderTaskCompose(); renderTaskInbox(); renderTaskOutbox(); loadTasksBadge();
+  } catch(e) { document.getElementById('task-inbox').innerHTML = '<p style="color:#c62828">Could not load tasks.</p>'; }
+}
+function renderTaskCompose(){
+  const d = _tasksData, host = document.getElementById('task-compose');
+  if (d.role === 'owner') {
+    const opts = (d.managers||[]).map(m=>'<option value="'+escAttr(m.name)+'" data-role="'+escAttr(m.role||'')+'">'+escHtml(m.name)+' ('+escHtml(m.role||'')+')</option>').join('');
+    host.innerHTML = '<h2 style="margin:0 0 10px;">📤 Assign a task to a manager</h2>' +
+      '<div style="display:grid;gap:8px;max-width:560px;">' +
+        '<select id="tk-assignee" style="padding:9px;border:1.5px solid #dce2ef;border-radius:8px;">'+(opts||'<option value="">No managers found</option>')+'</select>' +
+        '<input id="tk-title" placeholder="What do you need done?" style="padding:9px;border:1.5px solid #dce2ef;border-radius:8px;">' +
+        '<textarea id="tk-detail" rows="2" placeholder="Details (optional)" style="padding:9px;border:1.5px solid #dce2ef;border-radius:8px;"></textarea>' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><label style="font-size:13px;color:#666;">Deadline:</label><input id="tk-deadline" type="date" style="padding:8px;border:1.5px solid #dce2ef;border-radius:8px;"><button class="btn btn-green" onclick="createTask()">Assign</button><span id="tk-msg" style="font-size:12px;color:#888;"></span></div>' +
+      '</div>';
+  } else {
+    host.innerHTML = '<h2 style="margin:0 0 10px;">📤 Assign something to the Owner</h2>' +
+      '<div style="display:grid;gap:8px;max-width:560px;">' +
+        '<input id="tk-title" placeholder="What do you need from the owner?" style="padding:9px;border:1.5px solid #dce2ef;border-radius:8px;">' +
+        '<textarea id="tk-detail" rows="2" placeholder="Details (optional)" style="padding:9px;border:1.5px solid #dce2ef;border-radius:8px;"></textarea>' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><label style="font-size:13px;color:#666;">Urgency:</label>' +
+          '<select id="tk-urgency" style="padding:8px;border:1.5px solid #dce2ef;border-radius:8px;"><option value="low">⚪ Low</option><option value="normal" selected>🟡 Normal</option><option value="high">🟠 High</option><option value="urgent">🔴 Urgent</option></select>' +
+          '<button class="btn btn-green" onclick="createTask()">Send to owner</button><span id="tk-msg" style="font-size:12px;color:#888;"></span></div>' +
+      '</div>';
+  }
+}
+async function createTask(){
+  const d = _tasksData, title = v('tk-title'), msg = document.getElementById('tk-msg');
+  if (!title) { msg.textContent = 'Enter a task.'; return; }
+  const body = { title, detail: v('tk-detail') };
+  if (d.role === 'owner') {
+    const sel = document.getElementById('tk-assignee');
+    body.assignee = sel.value;
+    body.assignee_role = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.role : '';
+    body.deadline = v('tk-deadline') || null;
+    if (!body.assignee) { msg.textContent = 'Pick a manager.'; return; }
+  } else { body.urgency = v('tk-urgency') || 'normal'; }
+  msg.textContent = 'Sending…';
+  const r = await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (j.ok) loadTasks(); else msg.textContent = j.error || 'Failed.';
+}
+function _taskCard(t, showAssignee){
+  const done = t.status === 'done';
+  const urg = t.urgency ? URGENCY_META[t.urgency] : null;
+  const overdue = t.deadline && !done && t.deadline < new Date().toISOString().slice(0,10);
+  const meta = [];
+  if (urg) meta.push('<span style="color:'+urg.c+';font-weight:700;">'+urg.l+'</span>');
+  if (t.deadline) meta.push('<span style="color:'+(overdue?'#c62828':'#666')+';font-weight:'+(overdue?'700':'400')+';">'+(overdue?'⚠ Overdue · ':'📅 ')+'Due '+t.deadline+'</span>');
+  meta.push(showAssignee ? ('to <b>'+escHtml(t.assignee||'')+'</b>') : ('from <b>'+escHtml(t.created_by||'')+'</b>'));
+  const bar = done?'#2e7d32':(urg?urg.c:(overdue?'#c62828':'#1F3864'));
+  return '<div style="background:#fff;border:1px solid #e6e9f0;border-left:4px solid '+bar+';border-radius:10px;padding:11px 14px;margin-bottom:8px;">' +
+    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">' +
+      '<div style="min-width:0;"><div style="font-weight:700;color:#1F3864;'+(done?'text-decoration:line-through;opacity:.6;':'')+'">'+escHtml(t.title||'')+'</div>' +
+        (t.detail?'<div style="font-size:13px;color:#555;margin-top:3px;white-space:pre-wrap;">'+escHtml(t.detail)+'</div>':'') +
+        '<div style="font-size:12px;color:#888;margin-top:5px;">'+meta.join(' · ')+'</div></div>' +
+      '<div style="display:flex;flex-direction:column;gap:4px;white-space:nowrap;">' +
+        '<label style="font-size:12px;cursor:pointer;"><input type="checkbox" '+(done?'checked':'')+' onchange="toggleTask(\\''+t.id+'\\', this.checked)"> Done</label>' +
+        '<button onclick="delTask(\\''+t.id+'\\')" style="background:none;border:none;color:#c62828;font-size:12px;cursor:pointer;">Delete</button>' +
+      '</div></div></div>';
+}
+function renderTaskInbox(){
+  const host = document.getElementById('task-inbox'), items = _tasksData.inbox || [];
+  document.getElementById('task-inbox-title').textContent = _tasksData.role==='owner' ? '📥 Assigned to me (by managers)' : '📥 Assigned to me (by owner)';
+  const open = items.filter(t=>t.status!=='done'), done = items.filter(t=>t.status==='done');
+  const urgRank = {urgent:0,high:1,normal:2,low:3};
+  open.sort((a,b)=>((urgRank[a.urgency]!==undefined?urgRank[a.urgency]:2)-(urgRank[b.urgency]!==undefined?urgRank[b.urgency]:2)) || ((a.deadline||'9999')<(b.deadline||'9999')?-1:1));
+  host.innerHTML = (open.map(t=>_taskCard(t,false)).join('') || '<p style="color:#999">Nothing waiting on you. 🎉</p>') +
+    (done.length?'<details style="margin-top:8px;"><summary style="cursor:pointer;color:#888;font-size:13px;">Completed ('+done.length+')</summary>'+done.map(t=>_taskCard(t,false)).join('')+'</details>':'');
+}
+function renderTaskOutbox(){
+  const host = document.getElementById('task-outbox'), items = _tasksData.outbox || [];
+  const open = items.filter(t=>t.status!=='done'), done = items.filter(t=>t.status==='done');
+  host.innerHTML = (open.map(t=>_taskCard(t,true)).join('') || '<p style="color:#999">You haven\\'t assigned anything yet.</p>') +
+    (done.length?'<details style="margin-top:8px;"><summary style="cursor:pointer;color:#888;font-size:13px;">Completed ('+done.length+')</summary>'+done.map(t=>_taskCard(t,true)).join('')+'</details>':'');
+}
+async function toggleTask(tid, done){ await fetch('/api/task/'+tid+'/done',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done})}); loadTasks(); }
+async function delTask(tid){ if(!confirm('Delete this task?'))return; await fetch('/api/task/'+tid,{method:'DELETE'}); loadTasks(); }
+async function loadTasksBadge(){
+  try { const r = await fetch('/api/tasks/badge'); const d = await r.json();
+    const b = document.getElementById('tasks-badge');
+    if (b) { if (d.count>0){ b.textContent=d.count; b.style.display=''; } else b.style.display='none'; }
+  } catch(e){}
 }
 
 async function openJob(idx) {
@@ -11595,6 +11706,7 @@ if (window.USER_ROLE === 'cfo') {
 } else {
   loadOverview();
 }
+try { loadTasksBadge(); setInterval(loadTasksBadge, 120000); } catch(e){}
 </script>
 
 <style>
@@ -15095,6 +15207,137 @@ def api_equipment_delete(eid):
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
+
+
+# ===========================================================================
+# TASKS — two-way assignments between the owner and the managers.
+#   Managers assign TO the owner with an urgency level.
+#   The owner assigns TO a manager with a deadline.
+# ===========================================================================
+TASK_URGENCIES = ("low", "normal", "high", "urgent")
+_DASH_ROLES = ("owner", "cfo", "production_manager", "estimator")
+
+
+def _require_dash_role():
+    return session.get("role") in _DASH_ROLES
+
+
+@app.route("/api/tasks")
+def api_tasks_list():
+    if not _require_dash_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    role = session.get("role")
+    name = session.get("name") or role
+    if not supabase_client:
+        return jsonify({"ok": True, "role": role, "name": name, "inbox": [], "outbox": [], "managers": []})
+    try:
+        rows = supabase_client.table("tasks").select("*").order("created_at", desc=True).limit(500).execute().data or []
+    except Exception as exc:
+        return jsonify({"ok": True, "role": role, "name": name, "inbox": [], "outbox": [], "managers": [], "error": str(exc)})
+
+    def is_inbox(t):
+        if role == "owner":
+            return (t.get("assignee_role") == "owner")
+        return (t.get("assignee") or "").strip().lower() == (name or "").strip().lower()
+    inbox = [t for t in rows if is_inbox(t)]
+    outbox = [t for t in rows if (t.get("created_by") or "").strip().lower() == (name or "").strip().lower()]
+
+    managers = []
+    if role == "owner":
+        try:
+            mrows = supabase_client.table("managers").select("name,role").eq("active", True).execute().data or []
+            managers = [{"name": m.get("name"), "role": m.get("role")} for m in mrows
+                        if m.get("role") in ("cfo", "production_manager", "estimator") and m.get("name")]
+        except Exception:
+            pass
+    return jsonify({"ok": True, "role": role, "name": name,
+                    "inbox": inbox, "outbox": outbox, "managers": managers})
+
+
+@app.route("/api/tasks", methods=["POST"])
+def api_tasks_create():
+    if not _require_dash_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    role = session.get("role")
+    name = session.get("name") or role
+    d = request.get_json() or {}
+    title = (d.get("title") or "").strip()
+    if not title:
+        return jsonify({"ok": False, "error": "Task title is required."})
+    row = {
+        "created_by": name, "created_by_role": role,
+        "title": title[:400], "detail": (d.get("detail") or "").strip() or None,
+        "status": "open",
+    }
+    if role == "owner":
+        # Owner assigns to a manager — with a deadline
+        assignee = (d.get("assignee") or "").strip()
+        if not assignee:
+            return jsonify({"ok": False, "error": "Pick who to assign this to."})
+        row["assignee"] = assignee
+        row["assignee_role"] = (d.get("assignee_role") or "").strip() or None
+        row["deadline"] = d.get("deadline") or None
+    else:
+        # Manager assigns to the owner — with an urgency level
+        row["assignee"] = "Owner"
+        row["assignee_role"] = "owner"
+        u = (d.get("urgency") or "normal").strip().lower()
+        row["urgency"] = u if u in TASK_URGENCIES else "normal"
+    try:
+        supabase_client.table("tasks").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/task/<tid>/done", methods=["POST"])
+def api_task_done(tid):
+    if not _require_dash_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    d = request.get_json() or {}
+    done = bool(d.get("done", True))
+    upd = {"status": "done" if done else "open",
+           "completed_at": datetime.utcnow().isoformat() if done else None,
+           "completed_by": (session.get("name") or session.get("role")) if done else None}
+    try:
+        supabase_client.table("tasks").update(upd).eq("id", tid).execute()
+        return jsonify({"ok": True, "status": upd["status"]})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/task/<tid>", methods=["DELETE"])
+def api_task_delete(tid):
+    if not _require_dash_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    role = session.get("role")
+    name = session.get("name") or role
+    try:
+        rows = supabase_client.table("tasks").select("created_by").eq("id", tid).limit(1).execute().data or []
+        if rows and role != "owner" and (rows[0].get("created_by") or "").strip().lower() != (name or "").strip().lower():
+            return jsonify({"ok": False, "error": "You can only delete tasks you created."}), 403
+        supabase_client.table("tasks").delete().eq("id", tid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/tasks/badge")
+def api_tasks_badge():
+    """Count of open tasks in the viewer's inbox — for a nav badge."""
+    if not _require_dash_role() or not supabase_client:
+        return jsonify({"ok": True, "count": 0})
+    role = session.get("role")
+    name = session.get("name") or role
+    try:
+        rows = supabase_client.table("tasks").select("assignee,assignee_role,status").eq("status", "open").limit(500).execute().data or []
+    except Exception:
+        return jsonify({"ok": True, "count": 0})
+    if role == "owner":
+        n = sum(1 for t in rows if t.get("assignee_role") == "owner")
+    else:
+        n = sum(1 for t in rows if (t.get("assignee") or "").strip().lower() == (name or "").strip().lower())
+    return jsonify({"ok": True, "count": n})
 
 
 @app.route("/api/job/<job_id>/expense", methods=["POST"])

@@ -6280,13 +6280,14 @@ window.USER_ROLE = "{{ user_role }}";
 <!-- SECTION: Projects -->
 <div class="tabs" id="tabs-projects" style="display:none;">
   <div class="tab" onclick="showTab('projects')">📁 Pipeline</div>
-  <div class="tab" onclick="showTab('tasks')">✅ Tasks <span id="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
+  <div class="tab" onclick="showTab('tasks')">✅ Tasks <span class="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
 </div>
 
 <!-- SECTION: Operations / Production -->
 <div class="tabs" id="tabs-ops">
   {% if user_role != "cfo" %}
   <div class="tab active" onclick="showTab('overview')">Overview</div>
+  <div class="tab" onclick="showTab('tasks')" style="background:#ede7f6;color:#5e35b1;font-weight:600;">✅ Tasks <span class="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
   <div class="tab" onclick="showTab('checkins')">Check-Ins</div>
   <div class="tab" onclick="showTab('reviews')">Reviews</div>
   <div class="tab" onclick="showTab('jobs')">Jobs</div>
@@ -6300,6 +6301,7 @@ window.USER_ROLE = "{{ user_role }}";
   <div class="tab" onclick="window.location.href='/'" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">✓ Do a Check-In</div>
   {% else %}
   <div class="tab active" onclick="showTab('jobs')">💼 Jobs &amp; Finances</div>
+  <div class="tab" onclick="showTab('tasks')" style="background:#ede7f6;color:#5e35b1;font-weight:600;">✅ Tasks <span class="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
   <div class="tab"        onclick="window.location.href='/'" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">✓ Do a Check-In</div>
   {% endif %}
 </div>
@@ -7342,7 +7344,6 @@ function showTab(name) {
     const estEl   = document.getElementById('tabs-est');
     const aiEl    = document.getElementById('tabs-ai');
     const projEl2 = document.getElementById('tabs-projects');
-    if (projEl2) projEl2.style.display = (targetSection === 'projects') ? '' : 'none';
     const isVisible = document.getElementById('tabs-' + targetSection).style.display !== 'none';
     if (!isVisible) {
       document.querySelectorAll('.section-btn').forEach(b =>
@@ -7353,6 +7354,7 @@ function showTab(name) {
       if (estEl)   estEl.style.display   = (targetSection === 'est')   ? '' : 'none';
       if (aiEl)    aiEl.style.display    = (targetSection === 'ai')    ? '' : 'none';
       if (webEl)   webEl.style.display   = (targetSection === 'web')   ? '' : 'none';
+      if (projEl2) projEl2.style.display = (targetSection === 'projects') ? '' : 'none';
     }
   }
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.remove('active'));
@@ -9541,8 +9543,9 @@ async function toggleTask(tid, done){ await fetch('/api/task/'+tid+'/done',{meth
 async function delTask(tid){ if(!confirm('Delete this task?'))return; await fetch('/api/task/'+tid,{method:'DELETE'}); loadTasks(); }
 async function loadTasksBadge(){
   try { const r = await fetch('/api/tasks/badge'); const d = await r.json();
-    const b = document.getElementById('tasks-badge');
-    if (b) { if (d.count>0){ b.textContent=d.count; b.style.display=''; } else b.style.display='none'; }
+    document.querySelectorAll('.tasks-badge').forEach(b => {
+      if (d.count>0){ b.textContent=d.count; b.style.display=''; } else b.style.display='none';
+    });
   } catch(e){}
 }
 

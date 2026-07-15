@@ -6384,6 +6384,12 @@ window.USER_ROLE = "{{ user_role }}";
     <h2>🏗 Active Sites</h2>
     <div id="overview-active-sites"><p style="color:#999">Loading...</p></div>
   </div>
+
+  <div class="card finance-only" style="border-left:4px solid #2e7d32;">
+    <h2 style="margin:0 0 4px;">💰 Billing &amp; Payments</h2>
+    <p style="font-size:13px;color:#666;margin:0 0 10px;">Which jobs are invoiced, partially paid, paid, or not billed yet.</p>
+    <div id="overview-billing"><p style="color:#999">Loading...</p></div>
+  </div>
 </div>
 
 <!-- CHECK-INS -->
@@ -8592,6 +8598,39 @@ async function loadOverview() {
   loadOnSiteNow();
   loadOverviewTasks();
   loadScoreboard();
+  if (window.USER_ROLE === 'owner' || window.USER_ROLE === 'cfo') loadBilling();
+}
+
+const BILL_META = {
+  paid:         {l:'✅ Paid',           c:'#2e7d32', bg:'#e8f5e9'},
+  partial:      {l:'🟠 Partially paid', c:'#e65100', bg:'#fff3e0'},
+  invoiced:     {l:'📤 Invoiced (unpaid)', c:'#1565c0', bg:'#e3f2fd'},
+  not_invoiced: {l:'⚪ Not invoiced',   c:'#666',    bg:'#f4f6fb'},
+};
+async function loadBilling() {
+  const el = document.getElementById('overview-billing');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/billing-overview'); const d = await r.json();
+    if (!d.ok || !d.jobs || !d.jobs.length) { el.innerHTML = '<p style="color:#999">No billing to show yet.</p>'; return; }
+    // counts summary
+    const counts = {paid:0, partial:0, invoiced:0, not_invoiced:0};
+    d.jobs.forEach(j => counts[j.label] = (counts[j.label]||0)+1);
+    const chips = Object.keys(BILL_META).map(k => '<span style="background:'+BILL_META[k].bg+';color:'+BILL_META[k].c+';border-radius:8px;padding:3px 9px;font-size:12px;font-weight:700;margin-right:6px;">'+BILL_META[k].l+' '+(counts[k]||0)+'</span>').join('');
+    const rows = d.jobs.map(j => {
+      const m = BILL_META[j.label] || BILL_META.not_invoiced;
+      return '<tr style="border-top:1px solid #eef1f7;font-size:13px;">' +
+        '<td style="padding:9px 8px;font-weight:600;color:#1F3864;">'+escHtml(j.site_address||'—')+'</td>' +
+        '<td style="color:#555;">'+escHtml(j.client_name||'—')+'</td>' +
+        '<td style="text-align:right;">$'+Number(j.contract||0).toLocaleString('en-CA')+'</td>' +
+        '<td style="text-align:right;">$'+Number(j.invoiced||0).toLocaleString('en-CA')+'</td>' +
+        '<td style="text-align:right;color:#2e7d32;">$'+Number(j.paid||0).toLocaleString('en-CA')+'</td>' +
+        '<td style="text-align:right;font-weight:700;color:'+(j.outstanding>0?'#c62828':'#2e7d32')+';">$'+Number(j.outstanding||0).toLocaleString('en-CA')+'</td>' +
+        '<td><span style="background:'+m.bg+';color:'+m.c+';border-radius:8px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;">'+m.l+'</span></td></tr>';
+    }).join('');
+    el.innerHTML = '<div style="margin-bottom:10px;">'+chips+'</div>' +
+      '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:640px;"><thead><tr style="text-align:left;color:#888;font-size:12px;"><th style="padding:8px;">Site</th><th>Client</th><th style="text-align:right;">Contract</th><th style="text-align:right;">Invoiced</th><th style="text-align:right;">Paid</th><th style="text-align:right;">Outstanding</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  } catch(e) { el.innerHTML = '<p style="color:#999">Could not load billing.</p>'; }
 }
 
 async function saveJobPct(jobId, val, inp) {
@@ -15839,6 +15878,48 @@ def api_delete_job_expense(job_id, eid):
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/billing-overview")
+@require_finance
+def api_billing_overview():
+    """Per-job billing status: invoiced / paid / partially paid / not invoiced."""
+    if not supabase_client:
+        return jsonify({"ok": True, "jobs": []})
+    jobs = supabase_client.table("jobs").select("id,client_name,site_address,contract_price,status").execute().data or []
+    billings = supabase_client.table("job_billings").select("job_id,amount,status").execute().data or []
+    per = {}
+    for b in billings:
+        p = per.setdefault(b.get("job_id"), {"inv": 0.0, "paid": 0.0})
+        amt = float(b.get("amount") or 0)
+        p["inv"] += amt
+        if (b.get("status") or "").lower() == "paid":
+            p["paid"] += amt
+    out = []
+    for j in jobs:
+        contract = float(j.get("contract_price") or 0)
+        p = per.get(j.get("id"), {"inv": 0.0, "paid": 0.0})
+        inv, paid = round(p["inv"], 2), round(p["paid"], 2)
+        # Skip jobs with no financial info at all
+        if contract <= 0 and inv <= 0:
+            continue
+        if inv <= 0:
+            label = "not_invoiced"
+        elif paid <= 0:
+            label = "invoiced"
+        elif paid < inv - 0.01:
+            label = "partial"
+        else:
+            label = "paid"
+        out.append({
+            "id": j.get("id"), "client_name": j.get("client_name"),
+            "site_address": j.get("site_address"), "status": j.get("status"),
+            "contract": contract, "invoiced": inv, "paid": paid,
+            "outstanding": round(inv - paid, 2), "label": label,
+        })
+    order = {"partial": 0, "invoiced": 1, "not_invoiced": 2, "paid": 3}
+    out.sort(key=lambda x: (order.get(x["label"], 9), -x["outstanding"]))
+    return jsonify({"ok": True, "jobs": out})
 
 
 @app.route("/api/job/<job_id>/billing", methods=["POST"])

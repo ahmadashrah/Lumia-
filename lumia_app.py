@@ -7212,13 +7212,12 @@ window.USER_ROLE = "{{ user_role }}";
         <div class="field"><label>Drawing Reference (optional)</label><input type="text" id="q-drawing_ref" placeholder="e.g. A-100 to A-302, Rev 3"></div>
       </div>
       <div class="field">
-        <label>Attach a PDF (optional) <span style="font-weight:400;color:#888;font-size:11px;">— attach a ready-made proposal/quote PDF in addition to the details below</span></label>
+        <label>📎 Attach a file (optional) <span style="font-weight:400;color:#888;font-size:11px;">— a ready-made proposal PDF, drawings, or pictures, in addition to the details below</span></label>
         <input type="hidden" id="q-attached_pdf_url">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button type="button" class="btn btn-sm" style="background:#eef1f7;color:#1F3864;" onclick="document.getElementById('q-pdf-file').click()">📎 Choose PDF</button>
-          <input type="file" id="q-pdf-file" accept="application/pdf" style="display:none;" onchange="uploadQuotePdf(this.files[0])">
-          <span id="q-pdf-name" style="font-size:13px;color:#666;"></span>
-        </div>
+        <input type="file" id="q-pdf-file" accept=".pdf,image/*,application/pdf"
+               onchange="uploadQuotePdf(this.files[0])"
+               style="display:block;width:100%;padding:10px;border:1.5px dashed #b9c4dc;border-radius:8px;background:#fafbfd;font-size:13px;cursor:pointer;">
+        <span id="q-pdf-name" style="font-size:13px;color:#666;display:block;margin-top:6px;"></span>
       </div>
       <div class="form-row">
         <div class="field"><label>Client / Company</label><input type="text" id="q-client_name" placeholder="e.g. Lolacon Construction"></div>
@@ -8162,18 +8161,24 @@ function _gatherQuotePayload() {
 }
 
 async function uploadQuotePdf(file) {
-  if (!file) return;
   const nameEl = document.getElementById('q-pdf-name');
-  nameEl.textContent = 'Uploading ' + file.name + '…';
+  if (!file) { return; }
+  nameEl.style.color = '#666';
+  nameEl.textContent = 'Uploading ' + file.name + ' (' + Math.round(file.size/1024) + ' KB)…';
   const fd = new FormData(); fd.append('file', file);
   try {
     const r = await fetch('/api/quote/upload-pdf', {method:'POST', body: fd});
-    const d = await r.json();
-    if (d.ok) {
+    let d = {};
+    try { d = await r.json(); } catch(e) { d = {}; }
+    if (r.ok && d.ok) {
       document.getElementById('q-attached_pdf_url').value = d.url;
-      nameEl.innerHTML = '📎 <a href="' + d.url + '" target="_blank">' + (file.name) + '</a> attached ✓ <span onclick="clearQuotePdf()" style="color:#c62828;cursor:pointer;margin-left:6px;">✕</span>';
-    } else { nameEl.textContent = d.error || 'Upload failed'; }
-  } catch(e) { nameEl.textContent = 'Upload failed'; }
+      nameEl.style.color = '#2e7d32';
+      nameEl.innerHTML = '📎 <a href="' + d.url + '" target="_blank">' + (file.name) + '</a> attached ✓ <span onclick="clearQuotePdf()" style="color:#c62828;cursor:pointer;margin-left:6px;">✕ remove</span>';
+    } else {
+      nameEl.style.color = '#c62828';
+      nameEl.textContent = '✗ Upload failed (' + r.status + ') ' + (d.error || 'try a smaller file or a different file');
+    }
+  } catch(e) { nameEl.style.color = '#c62828'; nameEl.textContent = '✗ Upload failed — network error. ' + (e.message||''); }
 }
 function clearQuotePdf(){ document.getElementById('q-attached_pdf_url').value=''; document.getElementById('q-pdf-name').textContent=''; document.getElementById('q-pdf-file').value=''; }
 

@@ -15324,9 +15324,64 @@ def api_tasks_create():
         row["urgency"] = u if u in TASK_URGENCIES else "normal"
     try:
         supabase_client.table("tasks").insert(row).execute()
+        # Email the assignee that a task was assigned to them
+        threading.Thread(target=_notify_task_assignee, args=(dict(row),), daemon=True).start()
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
+
+
+def _task_assignee_email(row: dict) -> str:
+    """Resolve the assignee's email. Owner → OWNER_EMAIL; manager → managers table."""
+    if (row.get("assignee_role") or "") == "owner":
+        return OWNER_EMAIL
+    if not supabase_client:
+        return ""
+    name = (row.get("assignee") or "").strip()
+    try:
+        rows = supabase_client.table("managers").select("email").eq("name", name).limit(1).execute().data or []
+        if rows:
+            return rows[0].get("email") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _notify_task_assignee(row: dict) -> None:
+    """Email the person a task was assigned to (best-effort, runs in background)."""
+    import httpx
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if not resend_key:
+        return
+    to_email = _task_assignee_email(row)
+    if not to_email:
+        print(f"[Task Notify] No email for assignee '{row.get('assignee')}' — skipped")
+        return
+    who = row.get("created_by") or "Someone"
+    title = row.get("title") or "a task"
+    lines = [f"Hi,", "", f"{who} assigned you a task in Lumia:", "", f"  • {title}"]
+    if row.get("detail"):
+        lines.append(f"    {row['detail']}")
+    if row.get("urgency"):
+        lines.append(f"    Urgency: {row['urgency'].upper()}")
+    if row.get("deadline"):
+        lines.append(f"    Deadline: {row['deadline']}")
+    lines += ["", f"Open Lumia → ✅ Tasks to see it: {DM_BASE_URL}/dashboard", "", "— Lumia"]
+    subject = f"New task from {who}" + (f" — {row['urgency'].upper()}" if row.get("urgency") == "urgent" else "")
+    try:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {resend_key}"},
+            json={"from": "Lumia <noreply@ashrah.ai>", "to": [to_email],
+                  "subject": subject, "text": "\n".join(lines)},
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            print(f"[Task Notify] Emailed {row.get('assignee')} at {to_email}")
+        else:
+            print(f"[Task Notify] Resend {r.status_code}: {r.text[:150]}")
+    except Exception as exc:
+        print(f"[Task Notify] Error: {exc}")
 
 
 @app.route("/api/task/<tid>/done", methods=["POST"])

@@ -6263,6 +6263,7 @@ window.USER_ROLE = "{{ user_role }}";
 
 <!-- TOP-LEVEL SECTIONS -->
 <div class="section-bar">
+  <button class="section-btn" data-section="crm" onclick="showSection('crm')">🗂 CRM</button>
   <button class="section-btn" data-section="projects" onclick="showSection('projects')">📁 Projects</button>
   {% if user_role == "estimator" %}
   <button class="section-btn active" data-section="est"   onclick="showSection('est')">📐 Estimates</button>
@@ -6279,6 +6280,11 @@ window.USER_ROLE = "{{ user_role }}";
   <button class="section-btn"        data-section="web"   onclick="showSection('web')">🌐 Website</button>
   {% endif %}
   {% endif %}
+</div>
+
+<!-- SECTION: CRM -->
+<div class="tabs" id="tabs-crm" style="display:none;">
+  <div class="tab" onclick="showTab('crm')">🗂 Clients</div>
 </div>
 
 <!-- SECTION: Projects -->
@@ -6439,6 +6445,20 @@ window.USER_ROLE = "{{ user_role }}";
     <p style="font-size:13px;color:#666;margin:6px 0 14px;">Estimating → Won → Finance (CFO) + Execution (VP Ops). Each project carries its files, invoices, plan, crew and equipment through the whole lifecycle.</p>
     <div id="proj-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
     <div id="projects-list"><p style="color:#999">Loading…</p></div>
+  </div>
+</div>
+
+<div class="page" id="tab-crm">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">🗂 CRM — Clients</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="crm-search" placeholder="Search clients…" oninput="renderCRM()" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:8px;font-size:14px;">
+        <button class="btn btn-green" onclick="openNewCRMClient()">+ New Client</button>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#666;margin:6px 0 14px;">Every client with their team, projects, estimates, and outstanding balance in one place.</p>
+    <div id="crm-list"><p style="color:#999">Loading…</p></div>
   </div>
 </div>
 
@@ -7300,6 +7320,7 @@ let lastRecommendation = null;
 
 // Map every tab name to its parent section so showTab knows which sub-nav to show
 const TAB_TO_SECTION = {
+  crm:'crm',
   projects:'projects', tasks:'projects',
   overview:'ops', checkins:'ops', reviews:'ops', jobs:'ops',
   employees:'ops', texting:'ops', textlog:'ops', managers:'ops', reports:'ops', schedule:'ops',
@@ -7310,8 +7331,8 @@ const TAB_TO_SECTION = {
 };
 
 function showSection(name) {
-  // Projects is available to every dashboard role
-  if (name !== 'projects') {
+  // Projects + CRM are available to every dashboard role
+  if (name !== 'projects' && name !== 'crm') {
     // Production-manager guard: only the ops section is available
     if (window.USER_ROLE === 'production_manager' && name !== 'ops') return;
     // CFO guard: ops + sales (for Clients/Quotes) sections
@@ -7328,6 +7349,8 @@ function showSection(name) {
   document.getElementById('tabs-est').style.display     = (name === 'est')   ? '' : 'none';
   const projEl = document.getElementById('tabs-projects');
   if (projEl) projEl.style.display = (name === 'projects') ? '' : 'none';
+  const crmEl = document.getElementById('tabs-crm');
+  if (crmEl) crmEl.style.display = (name === 'crm') ? '' : 'none';
   const aiEl  = document.getElementById('tabs-ai');
   const webEl = document.getElementById('tabs-web');
   if (aiEl)  aiEl.style.display  = (name === 'ai')  ? '' : 'none';
@@ -7341,15 +7364,15 @@ function showSection(name) {
 function showTab(name) {
   // Production-manager guard: only ops tabs allowed for that role
   const targetSection = TAB_TO_SECTION[name];
-  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects' && name !== 'tasks') {
+  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects' && name !== 'tasks' && name !== 'crm') {
     return; // Silently ignore — they shouldn't see sales/estimates content
   }
-  // CFO guard: Jobs, Projects, Tasks, Clients, Quotes
-  if (window.USER_ROLE === 'cfo' && !['jobs','projects','tasks','clients','quotes'].includes(name)) {
+  // CFO guard: Jobs, Projects, Tasks, Clients, Quotes, CRM
+  if (window.USER_ROLE === 'cfo' && !['jobs','projects','tasks','clients','quotes','crm'].includes(name)) {
     return;
   }
-  // Estimator guard: only estimating / tenders / quoting tabs (+ Projects/Tasks)
-  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects','tasks'].includes(name)) {
+  // Estimator guard: only estimating / tenders / quoting tabs (+ Projects/Tasks/CRM)
+  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects','tasks','crm'].includes(name)) {
     return;
   }
   if (targetSection) {
@@ -7358,6 +7381,7 @@ function showTab(name) {
     const estEl   = document.getElementById('tabs-est');
     const aiEl    = document.getElementById('tabs-ai');
     const projEl2 = document.getElementById('tabs-projects');
+    const crmEl2  = document.getElementById('tabs-crm');
     const isVisible = document.getElementById('tabs-' + targetSection).style.display !== 'none';
     if (!isVisible) {
       document.querySelectorAll('.section-btn').forEach(b =>
@@ -7369,6 +7393,7 @@ function showTab(name) {
       if (aiEl)    aiEl.style.display    = (targetSection === 'ai')    ? '' : 'none';
       if (webEl)   webEl.style.display   = (targetSection === 'web')   ? '' : 'none';
       if (projEl2) projEl2.style.display = (targetSection === 'projects') ? '' : 'none';
+      if (crmEl2)  crmEl2.style.display  = (targetSection === 'crm')  ? '' : 'none';
     }
   }
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.remove('active'));
@@ -7378,6 +7403,7 @@ function showTab(name) {
   }
   const pageEl = document.getElementById('tab-' + name);
   if (pageEl) pageEl.classList.add('active');
+  if (name === 'crm')        loadCRM();
   if (name === 'projects')   loadProjects();
   if (name === 'tasks')      loadTasks();
   if (name === 'overview')   loadOverview();
@@ -9498,6 +9524,85 @@ async function renderEquipment(){
     if (!confirm('Delete this equipment?')) return;
     await fetch('/api/equipment/'+b.dataset.eid, {method:'DELETE'}); renderEquipment();
   }));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// CRM
+// ══════════════════════════════════════════════════════════════════════
+let _crmClients = [];
+async function loadCRM(){
+  const el = document.getElementById('crm-list');
+  try {
+    const r = await fetch('/api/crm/clients'); const d = await r.json();
+    if (!d.ok){ el.innerHTML='<p style="color:#c62828">'+escHtml(d.error||'Error')+'</p>'; return; }
+    _crmClients = d.clients||[]; renderCRM();
+  } catch(e){ el.innerHTML='<p style="color:#c62828">Could not load CRM.</p>'; }
+}
+function renderCRM(){
+  const el=document.getElementById('crm-list');
+  const qn=((document.getElementById('crm-search')||{}).value||'').trim().toLowerCase();
+  let list=_crmClients;
+  if(qn) list=list.filter(c=>((c.client_name||'')+(c.contact||'')+(c.client_email||'')).toLowerCase().includes(qn));
+  if(!list.length){ el.innerHTML='<p style="color:#999">No clients'+(qn?' match your search':' yet')+'.</p>'; return; }
+  el.innerHTML='<div style="overflow-x:auto;"><table style="width:100%;font-size:13px;border-collapse:collapse;min-width:540px;"><thead><tr style="text-align:left;color:#888;font-size:12px;"><th style="padding:8px;">Client</th><th>Contact</th><th style="text-align:center;">Projects</th><th style="text-align:center;">Estimates</th><th style="text-align:right;">Outstanding</th></tr></thead><tbody>'+
+    list.map(c=>'<tr onclick="openCRMClient(\\''+c.id+'\\')" style="cursor:pointer;border-top:1px solid #eef1f7;">'+
+      '<td style="padding:10px 8px;font-weight:700;color:#1F3864;">'+escHtml(c.client_name||'—')+'</td>'+
+      '<td style="color:#555;">'+escHtml(c.contact||c.client_email||'—')+'</td>'+
+      '<td style="text-align:center;">'+c.projects+'</td>'+
+      '<td style="text-align:center;">'+c.estimates+'</td>'+
+      '<td style="text-align:right;font-weight:700;color:'+(c.outstanding>0?'#c62828':'#2e7d32')+';">$'+Number(c.outstanding||0).toLocaleString('en-CA')+'</td></tr>').join('')+
+    '</tbody></table></div>';
+}
+async function openCRMClient(cid){
+  _modalShell('Client', 'crm-body');
+  document.getElementById('crm-body').innerHTML='<p style="color:#999">Loading…</p>';
+  const r=await fetch('/api/crm/client/'+cid); const d=await r.json();
+  if(!d.ok){ document.getElementById('crm-body').innerHTML='<p style="color:#c62828">'+escHtml(d.error||'Error')+'</p>'; return; }
+  window._crmCur=d; renderCRMClient();
+}
+function _crmTile(label,val,color){ return '<div style="flex:1;min-width:110px;background:#fafbfd;border:1px solid #eef1f7;border-radius:10px;padding:10px 12px;"><div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;">'+label+'</div><div style="font-size:18px;font-weight:800;color:'+color+';">'+val+'</div></div>'; }
+function renderCRMClient(){
+  const d=window._crmCur, c=d.client;
+  const canEdit=['owner','cfo','estimator'].includes(window.USER_ROLE);
+  let h='<div style="font-size:20px;font-weight:700;color:#1F3864;">'+escHtml(c.client_name||'')+'</div>';
+  h+='<div style="font-size:13px;color:#666;margin-bottom:12px;">'+escHtml(c.client_email||'—')+(c.portal_phone?(' · '+escHtml(c.portal_phone)):'')+'</div>';
+  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">'+
+    _crmTile('Contract value','$'+Number(d.contract_total||0).toLocaleString('en-CA'),'#1F3864')+
+    _crmTile('Outstanding','$'+Number(d.outstanding_total||0).toLocaleString('en-CA'),d.outstanding_total>0?'#c62828':'#2e7d32')+
+    _crmTile('Projects',(d.projects.length+d.jobs.length),'#555')+
+    _crmTile('Estimates',d.quotes.length,'#555')+'</div>';
+  const contactsHtml = (d.contacts.length? d.contacts.map(ct=>'<div style="display:flex;justify-content:space-between;border-top:1px solid #f0f0f0;padding:6px 0;font-size:13px;"><span><b>'+escHtml(ct.name)+'</b>'+(ct.title?(' — '+escHtml(ct.title)):'')+'<br><span style="color:#888;font-size:12px;">'+escHtml(ct.email||'')+(ct.phone?(' · '+escHtml(ct.phone)):'')+'</span></span>'+(canEdit?'<span onclick="delCRMContact(\\''+ct.id+'\\')" style="color:#c62828;cursor:pointer;">✕</span>':'')+'</div>').join('') : '<div style="color:#999;font-size:13px;">No team members yet.</div>')+
+    (canEdit?'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"><input id="crm-ct-name" placeholder="Name" style="flex:1;min-width:90px;padding:6px;border:1.5px solid #dce2ef;border-radius:6px;"><input id="crm-ct-title" placeholder="Title" style="width:90px;padding:6px;border:1.5px solid #dce2ef;border-radius:6px;"><input id="crm-ct-email" placeholder="Email" style="width:130px;padding:6px;border:1.5px solid #dce2ef;border-radius:6px;"><input id="crm-ct-phone" placeholder="Phone" style="width:100px;padding:6px;border:1.5px solid #dce2ef;border-radius:6px;"><button class="btn btn-sm" style="background:#1F3864;" onclick="addCRMContact()">+ Add</button></div>':'');
+  h+=_panel('👥 Team',contactsHtml);
+  const projRows=d.projects.map(p=>'<div style="border-top:1px solid #f0f0f0;padding:6px 0;font-size:13px;display:flex;justify-content:space-between;"><span>📁 '+escHtml(p.name||'')+' <span style="color:#888;">('+(p.stage||'')+')</span></span><span>'+(p.contract_price?('$'+Number(p.contract_price).toLocaleString('en-CA')):'')+'</span></div>').join('');
+  const jobRows=d.jobs.map(j=>'<div style="border-top:1px solid #f0f0f0;padding:6px 0;font-size:13px;display:flex;justify-content:space-between;"><span>🛠 '+escHtml(j.site_address||'')+' <span style="color:#888;">('+(j.status||'')+')</span></span><span>'+(j.contract_price?('$'+Number(j.contract_price).toLocaleString('en-CA')):'')+'</span></div>').join('');
+  h+=_panel('📁 Projects & Jobs',(projRows+jobRows)||'<div style="color:#999;font-size:13px;">None yet.</div>');
+  h+=_panel('📝 Estimates & Quotes',(d.quotes.length? d.quotes.map(q=>'<div style="border-top:1px solid #f0f0f0;padding:6px 0;font-size:13px;display:flex;justify-content:space-between;"><span>'+escHtml(q.project_name||'')+' <span style="color:#888;">('+(q.status||'')+')</span></span><span>'+(q.lump_sum_price?('$'+Number(q.lump_sum_price).toLocaleString('en-CA')):'')+'</span></div>').join(''):'<div style="color:#999;font-size:13px;">None yet.</div>'));
+  h+=_panel('💰 Outstanding',(d.outstanding_items.length? d.outstanding_items.map(i=>'<div style="border-top:1px solid #f0f0f0;padding:6px 0;font-size:13px;display:flex;justify-content:space-between;"><span>'+escHtml(i.desc||'')+' <span style="color:#888;">'+(i.date||'')+'</span></span><span style="color:#c62828;font-weight:700;">$'+Number((i.amount-i.received)||0).toLocaleString('en-CA')+'</span></div>').join('')+'<div style="text-align:right;margin-top:6px;font-weight:700;">Total: $'+Number(d.outstanding_total||0).toLocaleString('en-CA')+'</div>':'<div style="color:#2e7d32;font-size:13px;">All paid up. 🎉</div>'));
+  document.getElementById('crm-body').innerHTML=h;
+}
+async function addCRMContact(){
+  const body={name:v('crm-ct-name'),title:v('crm-ct-title'),email:v('crm-ct-email'),phone:v('crm-ct-phone')};
+  if(!body.name){ alert('Enter a name'); return; }
+  const r=await fetch('/api/crm/client/'+window._crmCur.client.id+'/contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json(); if(d.ok) openCRMClient(window._crmCur.client.id); else alert(d.error||'Failed');
+}
+async function delCRMContact(coid){ if(!confirm('Remove this contact?'))return; await fetch('/api/crm/contact/'+coid,{method:'DELETE'}); openCRMClient(window._crmCur.client.id); }
+function openNewCRMClient(){
+  _modalShell('New Client','ncrm-body');
+  document.getElementById('ncrm-body').innerHTML='<div style="display:grid;gap:8px;">'+
+    _npField('ncrm-name','Client / Company name *','text')+
+    _npField('ncrm-email','Email','email')+
+    _npField('ncrm-contact','Primary contact person','text')+
+    _npField('ncrm-phone','Phone','text')+
+    '<button class="btn btn-green" onclick="saveNewCRMClient()">Create Client</button><span id="ncrm-msg" style="font-size:12px;color:#888;"></span></div>';
+}
+async function saveNewCRMClient(){
+  const name=v('ncrm-name'); const msg=document.getElementById('ncrm-msg');
+  if(!name){ msg.textContent='Name required'; return; }
+  msg.textContent='Creating…';
+  const r=await fetch('/api/crm/client',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_name:name,client_email:v('ncrm-email'),contact:v('ncrm-contact'),phone:v('ncrm-phone')})});
+  const d=await r.json(); if(d.ok){ document.getElementById('gen-modal').remove(); loadCRM(); } else msg.textContent=(d.error||'Failed');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -15440,6 +15545,181 @@ def api_tasks_badge():
     else:
         n = sum(1 for t in rows if (t.get("assignee") or "").strip().lower() == (name or "").strip().lower())
     return jsonify({"ok": True, "count": n})
+
+
+# ===========================================================================
+# CRM — client-centric view: teams (contacts), projects, estimates,
+#       outstanding balances, all aggregated per client.
+# ===========================================================================
+def _crm_norm(s: str) -> str:
+    return (s or "").strip().lower()
+
+
+def _crm_is_junk_client(c: dict) -> bool:
+    nm = _crm_norm(c.get("client_name"))
+    em = _crm_norm(c.get("client_email"))
+    return nm.startswith("portal-test") or nm.startswith("portaltest") or "example.com" in em or not nm
+
+
+@app.route("/api/crm/clients")
+def api_crm_clients():
+    if not _require_dash_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    if not supabase_client:
+        return jsonify({"ok": True, "clients": []})
+    clients = supabase_client.table("clients").select("*").order("client_name").execute().data or []
+    clients = [c for c in clients if not _crm_is_junk_client(c)]
+
+    # Pull aggregatable data once
+    projects = supabase_client.table("projects").select("client_name,contract_price,stage").execute().data or []
+    jobs = supabase_client.table("jobs").select("id,client_name,contract_price,status").execute().data or []
+    quotes = supabase_client.table("quotes").select("client_name,lump_sum_price,status").execute().data or []
+    try:
+        pinv = supabase_client.table("project_invoices").select("project_id,amount,amount_received,status").execute().data or []
+    except Exception:
+        pinv = []
+    try:
+        billings = supabase_client.table("job_billings").select("job_id,amount,status").execute().data or []
+    except Exception:
+        billings = []
+    # project_id -> client_name  and  job_id -> client_name
+    proj_rows = supabase_client.table("projects").select("id,client_name").execute().data or []
+    proj_client = {p["id"]: _crm_norm(p.get("client_name")) for p in proj_rows}
+    job_client = {j["id"]: _crm_norm(j.get("client_name")) for j in jobs}
+
+    out = []
+    for c in clients:
+        key = _crm_norm(c.get("client_name"))
+        nproj = sum(1 for p in projects if _crm_norm(p.get("client_name")) == key) + \
+                sum(1 for j in jobs if _crm_norm(j.get("client_name")) == key)
+        nquote = sum(1 for q in quotes if _crm_norm(q.get("client_name")) == key)
+        outstanding = 0.0
+        for i in pinv:
+            if proj_client.get(i.get("project_id")) == key and i.get("status") != "paid":
+                outstanding += float(i.get("amount") or 0) - float(i.get("amount_received") or 0)
+        for b in billings:
+            if job_client.get(b.get("job_id")) == key and b.get("status") != "paid":
+                outstanding += float(b.get("amount") or 0)
+        out.append({
+            "id": c.get("id"), "client_name": c.get("client_name"),
+            "client_email": c.get("client_email") or c.get("portal_company_name"),
+            "contact": c.get("portal_contact_name"), "phone": c.get("portal_phone"),
+            "projects": nproj, "estimates": nquote, "outstanding": round(outstanding, 2),
+        })
+    out.sort(key=lambda x: (-x["outstanding"], x["client_name"].lower()))
+    return jsonify({"ok": True, "clients": out})
+
+
+@app.route("/api/crm/client/<cid>")
+def api_crm_client(cid):
+    if not _require_dash_role():
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    rows = supabase_client.table("clients").select("*").eq("id", cid).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    c = rows[0]
+    key = _crm_norm(c.get("client_name"))
+
+    def by_client(table, cols):
+        try:
+            data = supabase_client.table(table).select(cols).execute().data or []
+        except Exception:
+            return []
+        return [r for r in data if _crm_norm(r.get("client_name")) == key]
+
+    projects = by_client("projects", "id,name,client_name,stage,contract_price,due_date,created_at")
+    jobs = by_client("jobs", "id,client_name,site_address,status,contract_price,start_date")
+    quotes = by_client("quotes", "id,client_name,project_name,lump_sum_price,status,proposal_date")
+
+    # Contacts (team)
+    try:
+        contacts = supabase_client.table("client_contacts").select("*").eq("client_id", cid).order("id").execute().data or []
+    except Exception:
+        contacts = []
+
+    # Outstanding invoices
+    outstanding_items = []
+    proj_ids = [p["id"] for p in projects]
+    if proj_ids:
+        try:
+            pinv = supabase_client.table("project_invoices").select("*").in_("project_id", proj_ids).execute().data or []
+            for i in pinv:
+                if i.get("status") != "paid":
+                    outstanding_items.append({"desc": i.get("description") or "Invoice", "amount": float(i.get("amount") or 0),
+                                              "received": float(i.get("amount_received") or 0),
+                                              "date": i.get("invoice_date"), "source": "project"})
+        except Exception:
+            pass
+    job_ids = [j["id"] for j in jobs]
+    if job_ids:
+        try:
+            bills = supabase_client.table("job_billings").select("*").in_("job_id", job_ids).execute().data or []
+            for b in bills:
+                if b.get("status") != "paid":
+                    outstanding_items.append({"desc": b.get("description") or b.get("bill_type") or "Billing",
+                                              "amount": float(b.get("amount") or 0), "received": 0.0,
+                                              "date": b.get("invoice_date"), "source": "job"})
+        except Exception:
+            pass
+    outstanding_total = round(sum(i["amount"] - i["received"] for i in outstanding_items), 2)
+    contract_total = round(sum(float(p.get("contract_price") or 0) for p in projects) +
+                           sum(float(j.get("contract_price") or 0) for j in jobs), 2)
+
+    return jsonify({"ok": True, "client": c, "contacts": contacts,
+                    "projects": projects, "jobs": jobs, "quotes": quotes,
+                    "outstanding_items": outstanding_items,
+                    "outstanding_total": outstanding_total, "contract_total": contract_total})
+
+
+@app.route("/api/crm/client", methods=["POST"])
+def api_crm_create_client():
+    if session.get("role") not in ("owner", "cfo", "estimator"):
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    d = request.get_json() or {}
+    name = (d.get("client_name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Client name required."})
+    email = (d.get("client_email") or "").strip().lower() or None
+    row = {
+        "client_name": name, "client_email": email,
+        "portal_contact_name": (d.get("contact") or "").strip() or None,
+        "portal_phone": (d.get("phone") or "").strip() or None,
+        "recipients": json.dumps([{"name": d.get("contact") or "", "email": email}]) if email else json.dumps([]),
+        "signup_source": "crm",
+    }
+    try:
+        ins = supabase_client.table("clients").insert(row).execute().data
+        return jsonify({"ok": True, "id": ins[0]["id"] if ins else None})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/crm/client/<cid>/contact", methods=["POST"])
+def api_crm_add_contact(cid):
+    if session.get("role") not in ("owner", "cfo", "estimator"):
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    d = request.get_json() or {}
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Contact name required."})
+    row = {"client_id": cid, "name": name, "title": (d.get("title") or "").strip() or None,
+           "email": (d.get("email") or "").strip() or None, "phone": (d.get("phone") or "").strip() or None}
+    try:
+        supabase_client.table("client_contacts").insert(row).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/crm/contact/<coid>", methods=["DELETE"])
+def api_crm_delete_contact(coid):
+    if session.get("role") not in ("owner", "cfo", "estimator"):
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    try:
+        supabase_client.table("client_contacts").delete().eq("id", coid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
 
 
 @app.route("/api/job/<job_id>/expense", methods=["POST"])

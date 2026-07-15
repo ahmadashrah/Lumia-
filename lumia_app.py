@@ -7211,6 +7211,15 @@ window.USER_ROLE = "{{ user_role }}";
         <div class="field"><label>Project Name</label><input type="text" id="q-project_name" placeholder="e.g. ElmView Clinic Renovation – Painting"></div>
         <div class="field"><label>Drawing Reference (optional)</label><input type="text" id="q-drawing_ref" placeholder="e.g. A-100 to A-302, Rev 3"></div>
       </div>
+      <div class="field">
+        <label>Attach a PDF (optional) <span style="font-weight:400;color:#888;font-size:11px;">— attach a ready-made proposal/quote PDF in addition to the details below</span></label>
+        <input type="hidden" id="q-attached_pdf_url">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm" style="background:#eef1f7;color:#1F3864;" onclick="document.getElementById('q-pdf-file').click()">📎 Choose PDF</button>
+          <input type="file" id="q-pdf-file" accept="application/pdf" style="display:none;" onchange="uploadQuotePdf(this.files[0])">
+          <span id="q-pdf-name" style="font-size:13px;color:#666;"></span>
+        </div>
+      </div>
       <div class="form-row">
         <div class="field"><label>Client / Company</label><input type="text" id="q-client_name" placeholder="e.g. Lolacon Construction"></div>
         <div class="field"><label>Client Contact Person</label><input type="text" id="q-client_contact" placeholder="e.g. Jehad Harb, PM"></div>
@@ -7972,6 +7981,14 @@ async function loadQuotes() {
       delBtn.onclick = () => deleteQuote(q.id);
       cells[5].appendChild(editBtn);
       cells[5].appendChild(pdfBtn);
+      if (q.attached_pdf_url) {
+        const attBtn = document.createElement('button');
+        attBtn.className = 'btn btn-sm';
+        attBtn.style.cssText = 'background:#eef1f7;color:#1F3864;margin-left:6px;';
+        attBtn.textContent = '📎 Attached';
+        attBtn.onclick = () => window.open(q.attached_pdf_url, '_blank');
+        cells[5].appendChild(attBtn);
+      }
       cells[5].appendChild(delBtn);
       tbody.appendChild(tr);
     });
@@ -7987,6 +8004,8 @@ function openQuoteEditor(q) {
   document.getElementById('q-id').value = q.id || '';
   document.getElementById('q-project_name').value   = q.project_name || '';
   document.getElementById('q-drawing_ref').value    = q.drawing_ref || '';
+  document.getElementById('q-attached_pdf_url').value = q.attached_pdf_url || '';
+  document.getElementById('q-pdf-name').innerHTML = q.attached_pdf_url ? ('📎 <a href="'+q.attached_pdf_url+'" target="_blank">Attached PDF</a> <span onclick="clearQuotePdf()" style="color:#c62828;cursor:pointer;margin-left:6px;">✕</span>') : '';
   document.getElementById('q-client_name').value    = q.client_name || '';
   document.getElementById('q-client_contact').value = q.client_contact || '';
   document.getElementById('q-client_email').value   = q.client_email || '';
@@ -8138,8 +8157,25 @@ function _gatherQuotePayload() {
     scope_sections: scope,
     paint_schedule: paint,
     pricing_terms:  terms,
+    attached_pdf_url: document.getElementById('q-attached_pdf_url').value || null,
   };
 }
+
+async function uploadQuotePdf(file) {
+  if (!file) return;
+  const nameEl = document.getElementById('q-pdf-name');
+  nameEl.textContent = 'Uploading ' + file.name + '…';
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const r = await fetch('/api/quote/upload-pdf', {method:'POST', body: fd});
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('q-attached_pdf_url').value = d.url;
+      nameEl.innerHTML = '📎 <a href="' + d.url + '" target="_blank">' + (file.name) + '</a> attached ✓ <span onclick="clearQuotePdf()" style="color:#c62828;cursor:pointer;margin-left:6px;">✕</span>';
+    } else { nameEl.textContent = d.error || 'Upload failed'; }
+  } catch(e) { nameEl.textContent = 'Upload failed'; }
+}
+function clearQuotePdf(){ document.getElementById('q-attached_pdf_url').value=''; document.getElementById('q-pdf-name').textContent=''; document.getElementById('q-pdf-file').value=''; }
 
 async function saveQuote(closeAfter) {
   const payload = _gatherQuotePayload();
@@ -17392,18 +17428,53 @@ def api_save_quote():
         "scope_sections": d.get("scope_sections") or [],
         "paint_schedule": d.get("paint_schedule") or [],
         "pricing_terms":  d.get("pricing_terms") or [],
+        "attached_pdf_url": d.get("attached_pdf_url") or None,
         "updated_at":     datetime.utcnow().isoformat(),
     }
-    try:
+
+    def _do_save(r):
         qid = d.get("id")
         if qid:
-            supabase_client.table("quotes").update(row).eq("id", qid).execute()
+            supabase_client.table("quotes").update(r).eq("id", qid).execute()
         else:
-            res = supabase_client.table("quotes").insert(row).execute()
+            res = supabase_client.table("quotes").insert(r).execute()
             qid = (res.data or [{}])[0].get("id")
+        return qid
+    try:
+        try:
+            qid = _do_save(row)
+        except Exception:
+            # attached_pdf_url column may not be migrated yet
+            row.pop("attached_pdf_url", None)
+            qid = _do_save(row)
         return jsonify({"ok": True, "id": qid})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/quote/upload-pdf", methods=["POST"])
+@require_operator
+def api_quote_upload_pdf():
+    """Store a ready-made proposal PDF and return its URL to attach to a quote."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No storage"}), 503
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    f = request.files["file"]
+    data = f.read()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty file"}), 400
+    if len(data) > 30 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "PDF too large (max 30MB)"}), 400
+    mime = f.content_type or "application/pdf"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", (f.filename or "quote.pdf"))[:60]
+    path = f"quotes/{date.today().isoformat()}/{uuid.uuid4().hex}_{safe}"
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(path, data, file_options={"content-type": mime})
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+        return jsonify({"ok": True, "url": url, "name": f.filename})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/quote/<qid>", methods=["DELETE"])

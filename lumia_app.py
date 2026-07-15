@@ -8564,7 +8564,8 @@ async function loadOverview() {
     else {
       const badge = {awarded:'#f9a825',active:'#f9a825',open:'#f9a825',on_hold:'#e65100',paused:'#e65100'};
       const todayStr = new Date().toISOString().slice(0,10);
-      el.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:520px;"><thead><tr style="text-align:left;color:#888;font-size:12px;"><th style="padding:8px;">Site</th><th>Client</th><th>Crew</th><th>Status</th><th>Last check-in</th></tr></thead><tbody>' +
+      const canPct = (window.USER_ROLE==='owner' || window.USER_ROLE==='production_manager');
+      el.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:600px;"><thead><tr style="text-align:left;color:#888;font-size:12px;"><th style="padding:8px;">Site</th><th>Client</th><th>Crew</th><th>Status</th><th>% Complete</th><th>Last check-in</th></tr></thead><tbody>' +
         active.map(j => {
           const st=(j.status||'').toLowerCase();
           const s=(j.site_address||'').trim().toLowerCase();
@@ -8572,11 +8573,15 @@ async function loadOverview() {
           const gap = last ? Math.round((new Date(todayStr)-new Date(last))/86400000) : null;
           const lastTxt = last ? (gap===0?'today':(gap+'d ago')) : '—';
           const lastCol = (gap!==null && gap>=4) ? '#c62828' : '#666';
+          const pct = (j.completion_percent!=null ? j.completion_percent : 0);
+          const bar = '<div style="display:flex;align-items:center;gap:6px;min-width:120px;"><div style="flex:1;height:7px;background:#eef1f7;border-radius:4px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+(pct>=100?'#2e7d32':'#5e35b1')+';"></div></div>' +
+            (canPct ? '<input type="number" min="0" max="100" value="'+pct+'" onchange="saveJobPct(\\''+j.id+'\\', this.value, this)" style="width:52px;padding:3px 4px;border:1.5px solid #dce2ef;border-radius:5px;font-size:12px;">' : '<span style="font-size:12px;font-weight:700;color:#1F3864;min-width:32px;">'+pct+'%</span>') + '</div>';
           return '<tr style="border-top:1px solid #eef1f7;font-size:13px;">' +
             '<td style="padding:9px 8px;font-weight:600;color:#1F3864;">'+escHtml(j.site_address||'—')+'</td>' +
             '<td style="color:#555;">'+escHtml(j.client_name||'—')+'</td>' +
             '<td style="color:#555;">'+escHtml((j.assigned_employees||[]).join(', ')||'—')+'</td>' +
             '<td><span style="background:'+(badge[st]||'#888')+';color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:700;">'+(st.replace('_',' ')||'—')+'</span></td>' +
+            '<td>'+bar+'</td>' +
             '<td style="color:'+lastCol+';font-weight:'+(lastCol==='#c62828'?'700':'400')+';">'+lastTxt+'</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
@@ -8587,6 +8592,20 @@ async function loadOverview() {
   loadOnSiteNow();
   loadOverviewTasks();
   loadScoreboard();
+}
+
+async function saveJobPct(jobId, val, inp) {
+  let pct = Math.max(0, Math.min(100, parseInt(val||0)||0));
+  if (inp) { inp.disabled = true; }
+  try {
+    const r = await fetch('/api/job/' + jobId + '/completion', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({percent: pct})});
+    const d = await r.json();
+    if (d.ok) {
+      // update the bar next to the input without a full reload
+      if (inp) { inp.value = d.percent; const barFill = inp.parentElement.querySelector('div>div'); if (barFill){ barFill.style.width = d.percent+'%'; barFill.style.background = d.percent>=100?'#2e7d32':'#5e35b1'; } }
+    } else { alert(d.error || 'Could not save %'); }
+  } catch(e) { alert('Network error saving %'); }
+  if (inp) { inp.disabled = false; }
 }
 
 async function loadOverviewTasks() {
@@ -13875,6 +13894,26 @@ def api_site_visits():
         )
     except Exception:
         return jsonify([])
+
+
+@app.route("/api/job/<job_id>/completion", methods=["POST"])
+def api_set_job_completion(job_id):
+    """Owner + VP Ops set/edit a job's % of work completed (0–100)."""
+    if session.get("role") not in ("owner", "production_manager"):
+        return jsonify({"ok": False, "error": "Owner / VP Ops only"}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No DB"}), 500
+    d = request.get_json() or {}
+    try:
+        pct = int(round(float(d.get("percent"))))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Enter a number 0–100."}), 400
+    pct = max(0, min(100, pct))
+    try:
+        supabase_client.table("jobs").update({"completion_percent": pct}).eq("id", job_id).execute()
+        return jsonify({"ok": True, "percent": pct})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/job/<job_id>/status", methods=["POST"])

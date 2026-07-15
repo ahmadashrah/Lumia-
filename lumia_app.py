@@ -6356,12 +6356,12 @@ window.USER_ROLE = "{{ user_role }}";
     <div class="stat"><div class="num" id="stat-employees">{{ employees|length }}</div><div class="lbl">Employees</div></div>
     <div class="stat"><div class="num" id="stat-avg">—</div><div class="lbl">Avg Score Today</div></div>
   </div>
-  <div class="card" style="border-left:4px solid #1F3864;">
+  <div class="card" style="border-left:4px solid #5e35b1;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-      <h2 style="margin:0;">💡 What Needs Your Attention</h2>
-      <button class="btn btn-sm" onclick="loadAttention()" style="background:#1F3864;">Refresh</button>
+      <h2 style="margin:0;">✅ Tasks Assigned to Me</h2>
+      <button class="btn btn-sm" onclick="showTab('tasks')" style="background:#5e35b1;">Open Tasks</button>
     </div>
-    <div id="attention-list"><p style="color:#999;font-size:13px;">Scanning…</p></div>
+    <div id="overview-tasks"><p style="color:#999;font-size:13px;">Loading…</p></div>
   </div>
 
   <div class="card" style="border-left:4px solid #5e35b1;">
@@ -8574,8 +8574,39 @@ async function loadOverview() {
     if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
   }
   loadOnSiteNow();
-  loadAttention();
+  loadOverviewTasks();
   loadScoreboard();
+}
+
+async function loadOverviewTasks() {
+  const el = document.getElementById('overview-tasks');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/tasks'); const d = await r.json();
+    if (!d.ok) { el.innerHTML = '<p style="color:#999;font-size:13px;">Could not load tasks.</p>'; return; }
+    const open = (d.inbox || []).filter(t => t.status !== 'done');
+    if (!open.length) { el.innerHTML = '<p style="color:#2e7d32;font-size:14px;">Nothing waiting on you. 🎉</p>'; return; }
+    const urgRank = {urgent:0,high:1,normal:2,low:3};
+    open.sort((a,b)=>((urgRank[a.urgency]!==undefined?urgRank[a.urgency]:2)-(urgRank[b.urgency]!==undefined?urgRank[b.urgency]:2)) || ((a.deadline||'9999')<(b.deadline||'9999')?-1:1));
+    const UM = {urgent:{l:'🔴 Urgent',c:'#c62828'}, high:{l:'🟠 High',c:'#e65100'}, normal:{l:'🟡 Normal',c:'#f9a825'}, low:{l:'⚪ Low',c:'#9e9e9e'}};
+    el.innerHTML = open.map(t => {
+      const u = t.urgency ? UM[t.urgency] : null;
+      const overdue = t.deadline && t.deadline < new Date().toISOString().slice(0,10);
+      const meta = [];
+      if (u) meta.push('<span style="color:'+u.c+';font-weight:700;">'+u.l+'</span>');
+      if (t.deadline) meta.push('<span style="color:'+(overdue?'#c62828':'#666')+';">'+(overdue?'⚠ Overdue · ':'📅 ')+'Due '+t.deadline+'</span>');
+      meta.push('from <b>'+escHtml(t.created_by||'')+'</b>');
+      return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;border-left:3px solid '+(u?u.c:(overdue?'#c62828':'#5e35b1'))+';background:#fafbfd;border-radius:8px;padding:9px 12px;margin-bottom:7px;">' +
+        '<div><div style="font-weight:700;color:#1F3864;">'+escHtml(t.title||'')+'</div>' +
+          (t.detail?'<div style="font-size:13px;color:#555;margin-top:2px;">'+escHtml(t.detail)+'</div>':'') +
+          '<div style="font-size:12px;color:#888;margin-top:4px;">'+meta.join(' · ')+'</div></div>' +
+        '<label style="font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" onchange="overviewTaskDone(\\''+t.id+'\\')"> Done</label></div>';
+    }).join('');
+  } catch(e) { el.innerHTML = '<p style="color:#999;font-size:13px;">Could not load tasks.</p>'; }
+}
+async function overviewTaskDone(tid) {
+  await fetch('/api/task/'+tid+'/done', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done:true})});
+  loadOverviewTasks(); loadTasksBadge();
 }
 
 async function loadScoreboard() {

@@ -6381,8 +6381,8 @@ window.USER_ROLE = "{{ user_role }}";
   </div>
 
   <div class="card">
-    <h2>Recent Check-Ins</h2>
-    <div id="overview-checkins"><p style="color:#999">Loading...</p></div>
+    <h2>🏗 Active Sites</h2>
+    <div id="overview-active-sites"><p style="color:#999">Loading...</p></div>
   </div>
 </div>
 
@@ -8541,37 +8541,48 @@ async function apiFetch(url, opts) {
 }
 
 async function loadOverview() {
+  // Last check-in date per site (for the Active Sites list) + today's stats
+  let lastBySite = {};
   try {
-    const r = await apiFetch('/api/checkins?limit=10');
+    const r = await apiFetch('/api/checkins?limit=200');
     const d = r.ok ? await r.json() : [];
-    const rows = d.map(c => `<tr>
-      <td>${c.entry_date}</td><td><b>${c.worker_name}</b></td><td>${c.site_address}</td>
-      <td><span style="font-weight:700;color:${scoreColor(c.avg_score)}">${c.avg_score}/10</span></td>
-      <td>${(c.work_description||'').substring(0,60)}...</td></tr>`).join('');
-    document.getElementById('overview-checkins').innerHTML = rows
-      ? '<table><tr><th>Date</th><th>Employee</th><th>Site</th><th>Avg</th><th>Summary</th></tr>' + rows + '</table>'
-      : '<p style="color:#999">No check-ins yet.</p>';
+    d.forEach(c => { const s=(c.site_address||'').trim().toLowerCase(); if(s && !lastBySite[s]) lastBySite[s]=c.entry_date; });
     const today = d.filter(c => c.entry_date === new Date().toISOString().split('T')[0]);
     document.getElementById('stat-checkins').textContent = today.length || '0';
     const avg = today.length ? (today.reduce((a,c) => a + (c.avg_score||0), 0) / today.length).toFixed(1) : '—';
     document.getElementById('stat-avg').textContent = avg;
   } catch(e) {
-    const msg = e.message === 'session_expired' ? 'Session expired — log out and back in.'
-              : e.message === 'timeout'         ? 'Request timed out — check your connection.'
-              : 'Could not load data (' + e.message + ')';
-    document.getElementById('overview-checkins').innerHTML =
-      '<div style="color:#d9534f;padding:12px;background:#fff8f8;border-radius:8px;display:flex;align-items:center;gap:16px;">' +
-      '<span>⚠ ' + msg + '</span>' +
-      '<button class="btn btn-sm" onclick="loadOverview()" style="flex-shrink:0;">Retry</button>' +
-      '</div>';
     document.getElementById('stat-checkins').textContent = '—';
   }
   try {
     const jr = await apiFetch('/api/jobs');
     const jd = jr.ok ? await jr.json() : [];
-    document.getElementById('stat-jobs').textContent = jd.filter(j => !['completed','invoiced','closed'].includes((j.status||'').toLowerCase())).length;
+    const active = jd.filter(j => !['completed','invoiced','closed','cancelled'].includes((j.status||'').toLowerCase()));
+    document.getElementById('stat-jobs').textContent = active.length;
+    const el = document.getElementById('overview-active-sites');
+    if (!active.length) { el.innerHTML = '<p style="color:#999">No active sites.</p>'; }
+    else {
+      const badge = {awarded:'#f9a825',active:'#f9a825',open:'#f9a825',on_hold:'#e65100',paused:'#e65100'};
+      const todayStr = new Date().toISOString().slice(0,10);
+      el.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:520px;"><thead><tr style="text-align:left;color:#888;font-size:12px;"><th style="padding:8px;">Site</th><th>Client</th><th>Crew</th><th>Status</th><th>Last check-in</th></tr></thead><tbody>' +
+        active.map(j => {
+          const st=(j.status||'').toLowerCase();
+          const s=(j.site_address||'').trim().toLowerCase();
+          const last=lastBySite[s];
+          const gap = last ? Math.round((new Date(todayStr)-new Date(last))/86400000) : null;
+          const lastTxt = last ? (gap===0?'today':(gap+'d ago')) : '—';
+          const lastCol = (gap!==null && gap>=4) ? '#c62828' : '#666';
+          return '<tr style="border-top:1px solid #eef1f7;font-size:13px;">' +
+            '<td style="padding:9px 8px;font-weight:600;color:#1F3864;">'+escHtml(j.site_address||'—')+'</td>' +
+            '<td style="color:#555;">'+escHtml(j.client_name||'—')+'</td>' +
+            '<td style="color:#555;">'+escHtml((j.assigned_employees||[]).join(', ')||'—')+'</td>' +
+            '<td><span style="background:'+(badge[st]||'#888')+';color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:700;">'+(st.replace('_',' ')||'—')+'</span></td>' +
+            '<td style="color:'+lastCol+';font-weight:'+(lastCol==='#c62828'?'700':'400')+';">'+lastTxt+'</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
   } catch(e) {
     if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
+    const el=document.getElementById('overview-active-sites'); if(el) el.innerHTML='<p style="color:#d9534f">Could not load sites. <button class="btn btn-sm" onclick="loadOverview()">Retry</button></p>';
   }
   loadOnSiteNow();
   loadOverviewTasks();

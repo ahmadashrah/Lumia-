@@ -6250,6 +6250,7 @@ tr:hover td { background:#fafbfd; }
 {% endif %}
 {% if user_role == "cfo" %}
 .owner-only      { display: none !important; }
+.cfo-hide        { display: none !important; }
 {% endif %}
 {% if user_role == "estimator" %}
 .owner-only, .finance-only, .est-hide { display: none !important; }
@@ -6268,6 +6269,9 @@ window.USER_ROLE = "{{ user_role }}";
   <button class="section-btn"        data-section="sales" onclick="showSection('sales')">📝 Quotes &amp; Tenders</button>
   {% else %}
   <button class="section-btn active" data-section="ops" onclick="showSection('ops')">{% if user_role == "cfo" %}💰 Finance{% else %}🛠 Operations / Production{% endif %}</button>
+  {% if user_role == "cfo" %}
+  <button class="section-btn" data-section="sales" onclick="showSection('sales')">📈 Clients &amp; Quotes</button>
+  {% endif %}
   {% if user_role != "production_manager" and user_role != "cfo" %}
   <button class="section-btn"        data-section="sales" onclick="showSection('sales')">📈 Sales / Marketing</button>
   <button class="section-btn"        data-section="est"   onclick="showSection('est')">📐 Estimates</button>
@@ -6301,6 +6305,8 @@ window.USER_ROLE = "{{ user_role }}";
   <div class="tab" onclick="window.location.href='/'" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">✓ Do a Check-In</div>
   {% else %}
   <div class="tab active" onclick="showTab('jobs')">💼 Jobs &amp; Finances</div>
+  <div class="tab" onclick="showTab('clients')">👥 Clients</div>
+  <div class="tab" onclick="showTab('quotes')">📝 Quotes</div>
   <div class="tab" onclick="showTab('tasks')" style="background:#ede7f6;color:#5e35b1;font-weight:600;">✅ Tasks <span class="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
   <div class="tab"        onclick="window.location.href='/'" style="background:#e8f5e9;color:#2e7d32;font-weight:600;">✓ Do a Check-In</div>
   {% endif %}
@@ -6310,9 +6316,9 @@ window.USER_ROLE = "{{ user_role }}";
 <div class="tabs" id="tabs-sales" style="display:none;">
   <div class="tab est-hide" onclick="showTab('clients')">Clients</div>
   <div class="tab" onclick="showTab('quotes')">📝 Quotes</div>
-  <div class="tab" onclick="showTab('tenders')">📅 Tenders</div>
-  <div class="tab est-hide" onclick="showTab('mailbox')">📨 Mailbox</div>
-  <div class="tab est-hide" onclick="showTab('lio')">✨ Lio</div>
+  <div class="tab cfo-hide" onclick="showTab('tenders')">📅 Tenders</div>
+  <div class="tab est-hide cfo-hide" onclick="showTab('mailbox')">📨 Mailbox</div>
+  <div class="tab est-hide cfo-hide" onclick="showTab('lio')">✨ Lio</div>
 </div>
 
 <!-- SECTION: Estimates -->
@@ -7308,8 +7314,8 @@ function showSection(name) {
   if (name !== 'projects') {
     // Production-manager guard: only the ops section is available
     if (window.USER_ROLE === 'production_manager' && name !== 'ops') return;
-    // CFO guard: only the (renamed) ops section is available
-    if (window.USER_ROLE === 'cfo' && name !== 'ops') return;
+    // CFO guard: ops + sales (for Clients/Quotes) sections
+    if (window.USER_ROLE === 'cfo' && name !== 'ops' && name !== 'sales') return;
     // Estimator guard: only Estimates + Quotes/Tenders (sales) sections
     if (window.USER_ROLE === 'estimator' && name !== 'est' && name !== 'sales') return;
   }
@@ -7338,8 +7344,8 @@ function showTab(name) {
   if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects' && name !== 'tasks') {
     return; // Silently ignore — they shouldn't see sales/estimates content
   }
-  // CFO guard: only the Jobs tab inside ops (+ Projects/Tasks) is allowed
-  if (window.USER_ROLE === 'cfo' && name !== 'jobs' && name !== 'projects' && name !== 'tasks') {
+  // CFO guard: Jobs, Projects, Tasks, Clients, Quotes
+  if (window.USER_ROLE === 'cfo' && !['jobs','projects','tasks','clients','quotes'].includes(name)) {
     return;
   }
   // Estimator guard: only estimating / tenders / quoting tabs (+ Projects/Tasks)
@@ -14965,8 +14971,8 @@ def api_projects_list():
 
 @app.route("/api/projects", methods=["POST"])
 def api_projects_create():
-    if session.get("role") not in ("owner", "estimator"):
-        return jsonify({"ok": False, "error": "Estimator / owner only"}), 403
+    if session.get("role") not in ("owner", "estimator", "cfo"):
+        return jsonify({"ok": False, "error": "Estimator / CFO / owner only"}), 403
     if not supabase_client:
         return jsonify({"ok": False, "error": "No database"})
     d = request.get_json() or {}
@@ -15015,7 +15021,7 @@ def api_project_get(pid):
 # Which project fields each role may edit
 _PROJ_FIELDS_BY_ROLE = {
     "estimator": {"name", "client_name", "client_email", "client_contact", "site_address", "received_date", "due_date", "notes"},
-    "cfo":       {"contract_price"},
+    "cfo":       {"contract_price", "name", "client_name", "client_email", "client_contact", "site_address", "received_date", "due_date", "notes"},
     "production_manager": {"work_order_note", "plan", "assigned_employees", "assigned_equipment"},
 }
 # Owner may edit everything
@@ -15045,10 +15051,10 @@ def api_project_update(pid):
 
 @app.route("/api/projects/<pid>/status", methods=["POST"])
 def api_project_status(pid):
-    """Estimator sets the estimating outcome; owner can set any stage.
+    """Estimator/CFO set the estimating outcome; owner can set any stage.
     Marking a project 'won' approves it → unlocks CFO + VP Ops."""
-    if session.get("role") not in ("owner", "estimator"):
-        return jsonify({"ok": False, "error": "Estimator / owner only"}), 403
+    if session.get("role") not in ("owner", "estimator", "cfo"):
+        return jsonify({"ok": False, "error": "Estimator / CFO / owner only"}), 403
     d = request.get_json() or {}
     est_status = (d.get("est_status") or "").strip().lower()
     if est_status not in ("open", "submitted", "won", "lost"):
@@ -15083,9 +15089,6 @@ def api_project_file_upload(pid):
         return jsonify({"ok": False, "error": "Not authorized"}), 403
     # Estimators upload drawings/pictures; VP uploads work orders; owner anything
     kind = (request.form.get("kind") or "file").strip().lower()
-    role = session.get("role")
-    if role == "cfo":
-        return jsonify({"ok": False, "error": "CFO does not upload project files."}), 403
     if not supabase_client:
         return jsonify({"ok": False, "error": "No storage"}), 503
     if "file" not in request.files:

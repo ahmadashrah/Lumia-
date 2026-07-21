@@ -2242,7 +2242,7 @@ HTML = """<!DOCTYPE html>
 def index():
     # Operator (owner/PM/CFO) can also use the check-in form under their own name.
     name = session.get("employee_name") or session.get("name") or ""
-    can_mark_done = session.get("role") in ("owner", "production_manager")
+    can_mark_done = session.get("role") in ("owner", "production_manager", "cfo")
     return render_template_string(HTML, employees=EMPLOYEES, categories=CATEGORIES,
                                   employee_name=name, can_mark_done=can_mark_done)
 
@@ -14008,51 +14008,98 @@ def api_set_job_status(job_id):
                "open", "paused")   # legacy values still accepted
     if new_status not in allowed:
         return jsonify({"ok": False, "error": "Invalid status"}), 400
+    # Closing a job out is limited to the owner, VP Ops and CFO
+    if new_status == "completed" and session.get("role") not in ("owner", "production_manager", "cfo"):
+        return jsonify({"ok": False, "error": "Only the owner, VP Ops or CFO can mark a job complete."}), 403
     try:
         update = {"status": new_status}
+        newly_completed = False
+        done_date = None
         if new_status == "completed":
             # Stamp the actual completion date if not already set
             try:
-                row = supabase_client.table("jobs").select("actual_completion_date") \
+                row = supabase_client.table("jobs").select("actual_completion_date,status") \
                     .eq("id", job_id).limit(1).execute().data or []
-                if not (row and row[0].get("actual_completion_date")):
-                    update["actual_completion_date"] = date.today().isoformat()
+                already = bool(row and row[0].get("actual_completion_date"))
+                newly_completed = not (row and (row[0].get("status") == "completed"))
+                done_date = (row[0].get("actual_completion_date") if already else date.today().isoformat())
+                if not already:
+                    update["actual_completion_date"] = done_date
             except Exception:
-                pass
+                done_date = date.today().isoformat()
+                newly_completed = True
         try:
             supabase_client.table("jobs").update(update).eq("id", job_id).execute()
         except Exception:
             # Column may not exist yet — retry with status only
             supabase_client.table("jobs").update({"status": new_status}).eq("id", job_id).execute()
-        return jsonify({"ok": True, "status": new_status})
+        if new_status == "completed" and newly_completed:
+            done_by = session.get("name") or session.get("employee_name") or "Someone"
+            threading.Thread(target=_notify_owner_job_done,
+                             args=(job_id, done_by, done_date), daemon=True).start()
+        return jsonify({"ok": True, "status": new_status, "completed_on": done_date})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/mark-job-done", methods=["POST"])
 def api_mark_job_done():
-    """Mark a job completed. Restricted to the owner and VP Ops — crew cannot
-    close out a job themselves."""
-    if session.get("role") not in ("owner", "production_manager"):
-        return jsonify({"ok": False, "error": "Only the owner or VP Ops can mark a job done."}), 403
+    """Mark a job completed. Owner, VP Ops and CFO may close a job out — crew
+    cannot. Stamps the completion date and emails all three."""
+    if session.get("role") not in ("owner", "production_manager", "cfo"):
+        return jsonify({"ok": False, "error": "Only the owner, VP Ops or CFO can mark a job done."}), 403
     if not supabase_client:
         return jsonify({"ok": False})
     d = request.get_json()
     job_id = d.get("job_id")
     if not job_id:
         return jsonify({"ok": False, "message": "No job ID"})
-    supabase_client.table("jobs").update({"status": "completed"}).eq("id", job_id).execute()
-    # Notify owner
+    done_date = date.today().isoformat()
+    try:
+        supabase_client.table("jobs").update(
+            {"status": "completed", "actual_completion_date": done_date}).eq("id", job_id).execute()
+    except Exception:
+        # actual_completion_date column may not exist yet — fall back to status only
+        try:
+            supabase_client.table("jobs").update({"status": "completed"}).eq("id", job_id).execute()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Could not mark job done: {exc}"}), 400
     done_by = session.get("employee_name") or session.get("name") or "Someone"
-    threading.Thread(target=_notify_owner_job_done, args=(job_id, done_by), daemon=True).start()
-    return jsonify({"ok": True})
+    threading.Thread(target=_notify_owner_job_done, args=(job_id, done_by, done_date), daemon=True).start()
+    return jsonify({"ok": True, "completed_on": done_date})
 
 
-def _notify_owner_job_done(job_id: str, done_by: str) -> None:
-    """Send a full completion report email to the owner when a job is marked done."""
+def _job_completion_recipients() -> list:
+    """Owner + VP Ops + CFO emails — everyone who should hear about a job closing."""
+    emails = []
+    if OWNER_EMAIL:
+        emails.append(OWNER_EMAIL)
+    if supabase_client:
+        try:
+            rows = supabase_client.table("managers").select("email,role") \
+                .eq("active", True).execute().data or []
+            for m in rows:
+                if m.get("role") in ("production_manager", "cfo") and m.get("email"):
+                    emails.append(m["email"])
+        except Exception as exc:
+            print(f"[JobDone] recipient lookup failed: {exc}")
+    # de-dupe, preserve order
+    seen, out = set(), []
+    for e in emails:
+        k = (e or "").strip().lower()
+        if k and k not in seen:
+            seen.add(k); out.append(e)
+    return out
+
+
+def _notify_owner_job_done(job_id: str, done_by: str, done_date: str = None) -> None:
+    """Email the completion report to the owner, VP Ops and CFO when a job closes."""
     import httpx as _httpx
     resend_key = os.getenv("RESEND_API_KEY", "")
-    if not resend_key or not OWNER_EMAIL or not supabase_client:
+    if not resend_key or not supabase_client:
+        return
+    recipients = _job_completion_recipients()
+    if not recipients:
         return
     try:
         job_row = (supabase_client.table("jobs").select("*")
@@ -14185,16 +14232,21 @@ def _notify_owner_job_done(job_id: str, done_by: str) -> None:
             + f"\n{len(checkins)} check-ins. Review the full report in Lumia."
         )
 
-        subject = f"✅ Job Complete — {site_addr} — {client_nm}"
+        _done_on = done_date or job_row.get("actual_completion_date") or date.today().isoformat()
+        subject = f"✅ Job Complete ({_done_on}) — {site_addr} — {client_nm}"
+        _stamp = (f"<p style='font-size:14px;'><b>Completed on:</b> {_done_on}"
+                  f" &nbsp;·&nbsp; <b>Marked by:</b> {done_by}</p>")
+        html_body = _stamp + html_body
+        plain_body = f"Completed on: {_done_on}\nMarked by: {done_by}\n\n" + plain_body
         _httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={"from": "Ashrah Painting <noreply@ashrah.ai>",
-                  "to": [OWNER_EMAIL], "subject": subject,
+                  "to": recipients, "subject": subject,
                   "html": html_body, "text": plain_body},
             timeout=20,
         )
-        print(f"[JobDone] Completion report sent to {OWNER_EMAIL} for {site_addr}")
+        print(f"[JobDone] Completion report ({_done_on}) sent to {', '.join(recipients)} for {site_addr}")
     except Exception as exc:
         import traceback
         print(f"[JobDone] Completion report error: {exc}")

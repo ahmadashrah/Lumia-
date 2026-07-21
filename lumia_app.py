@@ -12818,7 +12818,28 @@ function _financeContractPanel(jobId, job) {
     '<input type="number" step="0.01" id="jd-fin-contract" value="' + (job.contract_price || 0) + '" style="padding:8px 12px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;flex:1;max-width:240px;">' +
     '<button class="btn btn-sm" id="jd-fin-contract-save" style="background:#1F3864;">Save Contract Price</button>' +
     '<span id="jd-fin-contract-msg" style="font-size:12px;color:#888;"></span>' +
-    '</div></div>';
+    '</div></div>' + _financeProfitPanel(jobId, job);
+}
+
+function _financeProfitPanel(jobId, job) {
+  const contract = Number(job.contract_price || 0);
+  const est = (job.estimated_profit != null ? job.estimated_profit : '');
+  const act = (job.actual_profit != null ? job.actual_profit : '');
+  const pct = (v) => (contract > 0 && v !== '' && v != null) ? ((Number(v)/contract)*100).toFixed(1) + '%' : '—';
+  return '<div style="grid-column:1/-1;background:#fff;border:1px solid #e8ecf4;border-radius:8px;padding:12px;">' +
+    '<div style="font-size:12px;font-weight:700;color:#1F3864;letter-spacing:.5px;margin-bottom:8px;">PROFIT &amp; MARGIN</div>' +
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">' +
+      '<div><label style="font-size:11px;color:#666;display:block;">Estimated profit</label>' +
+        '<input type="number" step="0.01" id="jd-fin-estprofit" value="' + est + '" placeholder="0.00" style="padding:8px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;width:150px;">' +
+        '<div style="font-size:11px;color:#888;margin-top:3px;">Margin: <b id="jd-fin-estmargin">' + pct(est) + '</b></div></div>' +
+      '<div><label style="font-size:11px;color:#666;display:block;">Actual profit</label>' +
+        '<input type="number" step="0.01" id="jd-fin-actprofit" value="' + act + '" placeholder="0.00" style="padding:8px 10px;border:1.5px solid #dce2ef;border-radius:6px;font-size:13px;width:150px;">' +
+        '<div style="font-size:11px;color:#888;margin-top:3px;">Margin: <b id="jd-fin-actmargin">' + pct(act) + '</b></div></div>' +
+      '<button class="btn btn-sm" id="jd-fin-profit-save" style="background:#2e7d32;">Save Profit</button>' +
+      '<span id="jd-fin-profit-msg" style="font-size:12px;color:#888;"></span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#999;margin-top:6px;">Margins are calculated against the contract value ($' + contract.toLocaleString('en-CA') + ').</div>' +
+    '</div>';
 }
 
 function _financeExpensesPanel(jobId, expenses) {
@@ -12940,6 +12961,24 @@ function _wireFinanceForms(jobId) {
     const d = await r.json();
     if (d.ok) { msg.textContent = '✓ Saved'; msg.style.color = '#2e7d32'; setTimeout(()=>loadJobFinance(jobId), 500); }
     else { msg.textContent = d.error || 'Failed.'; msg.style.color = '#c62828'; }
+  };
+  // Save estimated / actual profit (margins auto-calculated)
+  if ($('jd-fin-profit-save')) $('jd-fin-profit-save').onclick = async () => {
+    const msg = $('jd-fin-profit-msg'); msg.textContent = 'Saving…'; msg.style.color = '#888';
+    const body = {
+      estimated_profit: ($('jd-fin-estprofit').value === '' ? null : parseFloat($('jd-fin-estprofit').value)),
+      actual_profit:    ($('jd-fin-actprofit').value === '' ? null : parseFloat($('jd-fin-actprofit').value)),
+    };
+    try {
+      const r = await fetch('/api/job/' + jobId + '/profit', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+      const d = await r.json();
+      if (d.ok) {
+        msg.textContent = '✓ Saved'; msg.style.color = '#2e7d32';
+        if ($('jd-fin-estmargin')) $('jd-fin-estmargin').textContent = (d.estimated_margin != null ? d.estimated_margin + '%' : '—');
+        if ($('jd-fin-actmargin')) $('jd-fin-actmargin').textContent = (d.actual_margin != null ? d.actual_margin + '%' : '—');
+      } else { msg.textContent = d.error || 'Failed.'; msg.style.color = '#c62828'; }
+    } catch(e) { msg.textContent = 'Network error'; msg.style.color = '#c62828'; }
   };
   // Add expense
   if ($('jd-exp-add')) $('jd-exp-add').onclick = async () => {
@@ -14805,6 +14844,8 @@ def api_job_finance(job_id):
             "client_name":   job.get("client_name"),
             "site_address":  job.get("site_address"),
             "contract_price": contract_price,
+            "estimated_profit": job.get("estimated_profit"),
+            "actual_profit":    job.get("actual_profit"),
         },
         "summary": {
             "contract_price":  contract_price,
@@ -15878,6 +15919,46 @@ def api_delete_job_expense(job_id, eid):
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})
+
+
+@app.route("/api/job/<job_id>/profit", methods=["POST"])
+@require_finance
+def api_set_job_profit(job_id):
+    """CFO/owner record estimated + actual profit on a job. Margins are derived
+    from the contract price and returned so the UI can show them."""
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No database"})
+    d = request.get_json() or {}
+
+    def _num(key):
+        v = d.get(key)
+        if v in (None, ""):
+            return None
+        try:
+            return round(float(v), 2)
+        except (TypeError, ValueError):
+            return None
+
+    upd = {}
+    for k in ("estimated_profit", "actual_profit"):
+        if k in d:
+            upd[k] = _num(k)
+    if not upd:
+        return jsonify({"ok": False, "error": "Nothing to save."}), 400
+    try:
+        supabase_client.table("jobs").update(upd).eq("id", job_id).execute()
+        row = supabase_client.table("jobs").select("contract_price,estimated_profit,actual_profit") \
+            .eq("id", job_id).limit(1).execute().data or []
+        j = row[0] if row else {}
+        contract = float(j.get("contract_price") or 0)
+        est = j.get("estimated_profit")
+        act = j.get("actual_profit")
+        em = round((float(est) / contract) * 100, 1) if (est is not None and contract > 0) else None
+        am = round((float(act) / contract) * 100, 1) if (act is not None and contract > 0) else None
+        return jsonify({"ok": True, "estimated_profit": est, "actual_profit": act,
+                        "estimated_margin": em, "actual_margin": am, "contract": contract})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/api/billing-overview")

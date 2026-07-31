@@ -6290,6 +6290,7 @@ window.USER_ROLE = "{{ user_role }}";
 <!-- SECTION: Projects -->
 <div class="tabs" id="tabs-projects" style="display:none;">
   <div class="tab" onclick="showTab('projects')">📁 Pipeline</div>
+  <div class="tab" onclick="showTab('contracts')">📄 Contracts</div>
   <div class="tab" onclick="showTab('tasks')">✅ Tasks <span class="tasks-badge" style="display:none;background:#c62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px;"></span></div>
 </div>
 
@@ -6465,6 +6466,24 @@ window.USER_ROLE = "{{ user_role }}";
     </div>
     <p style="font-size:13px;color:#666;margin:6px 0 14px;">Every client with their team, projects, estimates, and outstanding balance in one place.</p>
     <div id="crm-list"><p style="color:#999">Loading…</p></div>
+  </div>
+</div>
+
+<div class="page" id="tab-contracts">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">📄 Contracts</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="ct-project" style="padding:8px 10px;border:1.5px solid #dce2ef;border-radius:8px;font-size:13px;">
+          <option value="">Link to a project (optional)…</option>
+        </select>
+        <input type="file" id="ct-file" accept=".pdf,.docx" onchange="uploadContract(this.files[0])"
+               style="padding:8px;border:1.5px dashed #b9c4dc;border-radius:8px;background:#fafbfd;font-size:13px;cursor:pointer;max-width:260px;">
+      </div>
+    </div>
+    <p style="font-size:13px;color:#666;margin:6px 0 4px;">Upload a contract (PDF or Word). Lumia reads it, proposes a value for every blank from your project and client data, you review, then it writes the filled document.</p>
+    <div id="ct-msg" style="font-size:13px;margin-bottom:10px;"></div>
+    <div id="contracts-list"><p style="color:#999">Loading…</p></div>
   </div>
 </div>
 
@@ -7327,7 +7346,7 @@ let lastRecommendation = null;
 // Map every tab name to its parent section so showTab knows which sub-nav to show
 const TAB_TO_SECTION = {
   crm:'crm',
-  projects:'projects', tasks:'projects',
+  projects:'projects', tasks:'projects', contracts:'projects',
   overview:'ops', checkins:'ops', reviews:'ops', jobs:'ops',
   employees:'ops', texting:'ops', textlog:'ops', managers:'ops', reports:'ops', schedule:'ops',
   clients:'sales', quotes:'sales', tenders:'sales', mailbox:'sales', lio:'sales',
@@ -7370,15 +7389,15 @@ function showSection(name) {
 function showTab(name) {
   // Production-manager guard: only ops tabs allowed for that role
   const targetSection = TAB_TO_SECTION[name];
-  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && name !== 'projects' && name !== 'tasks' && name !== 'crm') {
+  if (window.USER_ROLE === 'production_manager' && targetSection && targetSection !== 'ops' && !['projects','tasks','crm','contracts'].includes(name)) {
     return; // Silently ignore — they shouldn't see sales/estimates content
   }
-  // CFO guard: Jobs, Projects, Tasks, Clients, Quotes, CRM
-  if (window.USER_ROLE === 'cfo' && !['jobs','projects','tasks','clients','quotes','crm'].includes(name)) {
+  // CFO guard: Jobs, Projects, Tasks, Clients, Quotes, CRM, Contracts
+  if (window.USER_ROLE === 'cfo' && !['jobs','projects','tasks','clients','quotes','crm','contracts'].includes(name)) {
     return;
   }
-  // Estimator guard: only estimating / tenders / quoting tabs (+ Projects/Tasks/CRM)
-  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects','tasks','crm'].includes(name)) {
+  // Estimator guard: only estimating / tenders / quoting tabs (+ Projects/Tasks/CRM/Contracts)
+  if (window.USER_ROLE === 'estimator' && !['estimates','tenders','quotes','projects','tasks','crm','contracts'].includes(name)) {
     return;
   }
   if (targetSection) {
@@ -7411,6 +7430,7 @@ function showTab(name) {
   if (pageEl) pageEl.classList.add('active');
   if (name === 'crm')        loadCRM();
   if (name === 'projects')   loadProjects();
+  if (name === 'contracts')  loadContracts();
   if (name === 'tasks')      loadTasks();
   if (name === 'overview')   loadOverview();
   if (name === 'checkins')   loadCheckins();
@@ -9703,6 +9723,142 @@ async function saveNewCRMClient(){
   msg.textContent='Creating…';
   const r=await fetch('/api/crm/client',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_name:name,client_email:v('ncrm-email'),contact:v('ncrm-contact'),phone:v('ncrm-phone')})});
   const d=await r.json(); if(d.ok){ document.getElementById('gen-modal').remove(); loadCRM(); } else msg.textContent=(d.error||'Failed');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// CONTRACTS — upload, Lumia fills, you review, download
+// ══════════════════════════════════════════════════════════════════════
+let _contracts = [], _ctCur = null;
+const CT_STATUS = {
+  uploaded: {l:'Uploaded',  c:'#1565c0', bg:'#e3f2fd'},
+  analyzed: {l:'Reviewed',  c:'#e65100', bg:'#fff3e0'},
+  filled:   {l:'✅ Filled', c:'#2e7d32', bg:'#e8f5e9'},
+};
+
+async function loadContracts(){
+  const el = document.getElementById('contracts-list');
+  try {
+    const r = await fetch('/api/contracts'); const d = await r.json();
+    if (!d.ok) { el.innerHTML = '<p style="color:#c62828">'+escHtml(d.error||'Error')+'</p>'; return; }
+    _contracts = d.contracts || [];
+    if (d.openai_ready === false) {
+      document.getElementById('ct-msg').innerHTML = '<span style="color:#c62828;">⚠ OpenAI key not configured on the server — uploads work, but Lumia can\\'t read contracts yet.</span>';
+    }
+    // fill the project dropdown once
+    const sel = document.getElementById('ct-project');
+    if (sel && sel.options.length <= 1) {
+      try {
+        const pr = await fetch('/api/projects'); const pd = await pr.json();
+        (pd.projects||[]).forEach(p => {
+          const o = document.createElement('option'); o.value = p.id;
+          o.textContent = p.name + (p.client_name ? (' — ' + p.client_name) : '');
+          sel.appendChild(o);
+        });
+      } catch(e) {}
+    }
+    if (!_contracts.length) { el.innerHTML = '<p style="color:#999">No contracts yet. Upload one above.</p>'; return; }
+    el.innerHTML = _contracts.map(c => {
+      const s = CT_STATUS[c.status] || CT_STATUS.uploaded;
+      return '<div style="background:#fff;border:1px solid #e6e9f0;border-left:4px solid '+s.c+';border-radius:10px;padding:12px 14px;margin-bottom:8px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+          '<div style="min-width:0;"><div style="font-weight:700;color:#1F3864;">'+escHtml(c.name||'Contract')+'</div>' +
+            '<div style="font-size:12px;color:#888;margin-top:2px;">'+escHtml((c.created_at||'').slice(0,10))+' · '+escHtml(c.uploaded_by||'')+
+            (c.summary?(' · '+escHtml(String(c.summary).slice(0,70))):'')+'</div></div>' +
+          '<span style="background:'+s.bg+';color:'+s.c+';border-radius:8px;padding:2px 9px;font-size:11px;font-weight:700;white-space:nowrap;">'+s.l+'</span>' +
+        '</div>' +
+        '<div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap;">' +
+          '<button class="btn btn-sm" style="background:#5e35b1;" onclick="analyzeContract(\\''+c.id+'\\')">✨ '+(c.status==='uploaded'?'Fill with Lumia':'Review &amp; refill')+'</button>' +
+          '<a class="btn btn-sm" style="background:#eef1f7;color:#1F3864;text-decoration:none;" href="'+escAttr(c.url||'#')+'" target="_blank">Original</a>' +
+          (c.filled_url?'<a class="btn btn-sm" style="background:#2e7d32;color:#fff;text-decoration:none;" href="'+escAttr(c.filled_url)+'" target="_blank">⬇ Filled copy</a>':'') +
+          '<button class="btn btn-sm owner-only" style="background:#fce4ec;color:#c62828;margin-left:auto;" onclick="delContract(\\''+c.id+'\\')">Delete</button>' +
+        '</div></div>';
+    }).join('');
+  } catch(e){ el.innerHTML = '<p style="color:#c62828">Could not load contracts.</p>'; }
+}
+
+async function uploadContract(file){
+  if (!file) return;
+  const msg = document.getElementById('ct-msg');
+  msg.style.color = '#666'; msg.textContent = 'Uploading ' + file.name + '…';
+  const fd = new FormData(); fd.append('file', file);
+  const pid = (document.getElementById('ct-project')||{}).value || '';
+  if (pid) fd.append('project_id', pid);
+  try {
+    const r = await fetch('/api/contracts/upload', {method:'POST', body: fd});
+    const d = await r.json();
+    if (d.ok) {
+      msg.style.color = '#2e7d32'; msg.textContent = '✓ Uploaded — opening Lumia…';
+      document.getElementById('ct-file').value = '';
+      await loadContracts();
+      analyzeContract(d.id);
+    } else { msg.style.color = '#c62828'; msg.textContent = '✗ ' + (d.error || 'Upload failed'); }
+  } catch(e){ msg.style.color = '#c62828'; msg.textContent = '✗ Upload failed'; }
+}
+
+async function analyzeContract(cid){
+  _modalShell('📄 Contract', 'ct-body');
+  document.getElementById('ct-body').innerHTML =
+    '<div style="text-align:center;padding:26px;color:#666;"><div class="spinner" style="border-color:#ddd;border-top-color:#5e35b1;width:26px;height:26px;"></div>' +
+    '<div style="margin-top:10px;">Lumia is reading the contract and matching it to your data…</div>' +
+    '<div style="font-size:12px;color:#999;margin-top:4px;">This usually takes 10–20 seconds.</div></div>';
+  const pid = (document.getElementById('ct-project')||{}).value || '';
+  try {
+    const r = await fetch('/api/contracts/'+cid+'/analyze', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(pid ? {project_id: pid} : {})});
+    const d = await r.json();
+    if (!d.ok) { document.getElementById('ct-body').innerHTML = '<p style="color:#c62828">'+escHtml(d.error||'Could not read the contract.')+'</p>'; return; }
+    _ctCur = {id: cid, fields: d.fields || [], summary: d.summary};
+    renderContractReview();
+  } catch(e){ document.getElementById('ct-body').innerHTML = '<p style="color:#c62828">Could not read the contract.</p>'; }
+}
+
+const CT_CONF = {high:{c:'#2e7d32',l:'high'}, medium:{c:'#e65100',l:'medium'}, low:{c:'#c62828',l:'check this'}};
+function renderContractReview(){
+  const f = _ctCur.fields;
+  const missing = f.filter(x => !String(x.value||'').trim()).length;
+  let h = (_ctCur.summary ? '<p style="font-size:13px;color:#555;margin:0 0 10px;">'+escHtml(_ctCur.summary)+'</p>' : '') +
+    '<p style="font-size:13px;color:#666;margin:0 0 12px;">Lumia proposed '+f.length+' value'+(f.length===1?'':'s')+
+    (missing?(' · <b style="color:#c62828;">'+missing+' still blank</b>'):' · all filled')+'. Edit anything that\\'s wrong, then generate.</p>';
+  h += f.map((x,i) => {
+    const cf = CT_CONF[x.confidence] || CT_CONF.medium;
+    return '<div style="display:flex;gap:10px;align-items:center;border-top:1px solid #f0f0f0;padding:8px 0;flex-wrap:wrap;">' +
+      '<div style="flex:1;min-width:150px;"><div style="font-size:13px;font-weight:600;color:#1F3864;">'+escHtml(x.label||x.key||'')+'</div>' +
+        '<div style="font-size:11px;color:#999;">'+escHtml(x.source||'')+' · <span style="color:'+cf.c+';">'+cf.l+'</span></div></div>' +
+      '<input class="ct-val" data-i="'+i+'" value="'+escAttr(x.value||'')+'" placeholder="(blank)" ' +
+        'style="flex:1.2;min-width:170px;padding:7px 9px;border:1.5px solid '+(String(x.value||'').trim()?'#dce2ef':'#f0b4b4')+';border-radius:6px;font-size:13px;">' +
+      '</div>';
+  }).join('');
+  h += '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+       '<button class="btn btn-green" onclick="generateContract()">📝 Generate filled contract</button>' +
+       '<span id="ct-gen-msg" style="font-size:12px;color:#888;"></span></div>';
+  document.getElementById('ct-body').innerHTML = h;
+}
+
+async function generateContract(){
+  const msg = document.getElementById('ct-gen-msg');
+  document.querySelectorAll('.ct-val').forEach(inp => {
+    const i = parseInt(inp.dataset.i); if (!isNaN(i) && _ctCur.fields[i]) _ctCur.fields[i].value = inp.value;
+  });
+  msg.style.color = '#888'; msg.textContent = 'Filling the document…';
+  try {
+    const r = await fetch('/api/contracts/'+_ctCur.id+'/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fields: _ctCur.fields})});
+    const d = await r.json();
+    if (d.ok) {
+      msg.innerHTML = '<a href="'+escAttr(d.url)+'" target="_blank" style="color:#2e7d32;font-weight:700;">✓ Done — open the filled contract</a>';
+      window.open(d.url, '_blank');
+      loadContracts();
+    } else { msg.style.color = '#c62828'; msg.textContent = '✗ ' + (d.error||'Failed'); }
+  } catch(e){ msg.style.color = '#c62828'; msg.textContent = '✗ Network error'; }
+}
+
+async function delContract(cid){
+  if (!confirm('Delete this contract?')) return;
+  const r = await fetch('/api/contracts/'+cid, {method:'DELETE'});
+  const d = await r.json();
+  if (d.ok) loadContracts(); else alert(d.error||'Failed');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -15930,6 +16086,409 @@ def api_crm_delete_contact(coid):
         return jsonify({"ok": False, "error": "Not authorized"}), 403
     try:
         supabase_client.table("client_contacts").delete().eq("id", coid).execute()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+
+
+# ===========================================================================
+# CONTRACTS — upload a contract (PDF/DOCX), Lumia reads it with OpenAI,
+#   proposes values from Lumia's own data, you review/edit, then Lumia
+#   writes the filled document out.
+# ===========================================================================
+CONTRACT_ROLES = ("owner", "cfo", "estimator", "production_manager")
+
+ASHRAH_COMPANY = {
+    "legal_name":  os.getenv("COMPANY_LEGAL_NAME", "Ashrah Painting Ltd."),
+    "trade_name":  "Ashrah Painting",
+    "address":     os.getenv("COMPANY_ADDRESS", ""),
+    "city":        os.getenv("COMPANY_CITY", "Winnipeg, MB"),
+    "phone":       os.getenv("COMPANY_PHONE", ""),
+    "email":       os.getenv("COMPANY_EMAIL", "ahmad@ashrahpainting.ca"),
+    "website":     "ashrahpainting.ca",
+    "signatory":   os.getenv("COMPANY_SIGNATORY", "Ahmad Ashrah"),
+    "signatory_title": os.getenv("COMPANY_SIGNATORY_TITLE", "President"),
+    "gst_number":  os.getenv("COMPANY_GST", ""),
+}
+
+
+def _openai_key() -> str:
+    """Find the OpenAI key, tolerating the env var being named with odd casing
+    (e.g. 'OpenAi_Api_key' instead of the standard OPENAI_API_KEY)."""
+    k = os.getenv("OPENAI_API_KEY")
+    if k:
+        return k.strip()
+    for name, val in os.environ.items():
+        if name.lower().replace("_", "").replace("-", "") in ("openaiapikey", "openaikey", "openaisecretkey"):
+            if val:
+                return val.strip()
+    return ""
+
+
+def _openai_json(system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> dict:
+    """Ask OpenAI for a JSON object. Raises RuntimeError with a clear message."""
+    key = _openai_key()
+    if not key:
+        raise RuntimeError("OpenAI API key is not configured on the server.")
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError("The openai package is not installed on the server.")
+    client = OpenAI(api_key=key)
+    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    resp = client.chat.completions.create(
+        model=model,
+        response_format={"type": "json_object"},
+        temperature=0.1,
+        max_tokens=max_tokens,
+        messages=[{"role": "system", "content": system_prompt},
+                  {"role": "user", "content": user_prompt}],
+    )
+    return json.loads(resp.choices[0].message.content or "{}")
+
+
+def _contract_read(data: bytes, filename: str, mime: str) -> dict:
+    """Extract text + any real PDF form fields. Returns {kind, text, form_fields}."""
+    lower = (filename or "").lower()
+    if lower.endswith(".docx") or "wordprocessingml" in (mime or ""):
+        import io as _io
+        import docx as _docx
+        d = _docx.Document(_io.BytesIO(data))
+        parts = [p.text for p in d.paragraphs]
+        for t in d.tables:
+            for row in t.rows:
+                parts.append(" | ".join(c.text for c in row.cells))
+        return {"kind": "docx", "text": "\n".join(parts), "form_fields": []}
+    # default: PDF
+    import fitz as _fitz
+    doc = _fitz.open(stream=data, filetype="pdf")
+    text_parts, fields = [], []
+    for page in doc:
+        text_parts.append(page.get_text())
+        try:
+            for w in (page.widgets() or []):
+                if w.field_name:
+                    fields.append(w.field_name)
+        except Exception:
+            pass
+    doc.close()
+    return {"kind": "pdf", "text": "\n".join(text_parts), "form_fields": fields}
+
+
+def _contract_lumia_context(project_id=None, job_id=None, client_id=None) -> dict:
+    """Everything Lumia knows that could belong in a contract."""
+    ctx = {"company": ASHRAH_COMPANY, "today": date.today().isoformat()}
+    if not supabase_client:
+        return ctx
+    try:
+        if project_id:
+            rows = supabase_client.table("projects").select("*").eq("id", project_id).limit(1).execute().data or []
+            if rows:
+                p = rows[0]
+                ctx["project"] = {k: p.get(k) for k in
+                                  ("name", "client_name", "client_email", "client_contact", "site_address",
+                                   "contract_price", "received_date", "due_date", "stage", "plan")}
+        if job_id:
+            rows = supabase_client.table("jobs").select("*").eq("id", job_id).limit(1).execute().data or []
+            if rows:
+                j = rows[0]
+                ctx["job"] = {k: j.get(k) for k in
+                              ("client_name", "site_address", "work_description", "start_date",
+                               "contract_price", "po_number", "planned_completion_date",
+                               "actual_completion_date", "assigned_employees")}
+        name = ((ctx.get("project") or {}).get("client_name")
+                or (ctx.get("job") or {}).get("client_name"))
+        crow = []
+        if client_id:
+            crow = supabase_client.table("clients").select("*").eq("id", client_id).limit(1).execute().data or []
+        elif name:
+            allc = supabase_client.table("clients").select("*").execute().data or []
+            crow = [c for c in allc if (c.get("client_name") or "").strip().lower() == name.strip().lower()]
+        if crow:
+            c = crow[0]
+            ctx["client"] = {"name": c.get("client_name"), "email": c.get("client_email"),
+                             "contact": c.get("portal_contact_name"), "phone": c.get("portal_phone"),
+                             "company": c.get("portal_company_name")}
+            try:
+                cc = supabase_client.table("client_contacts").select("name,title,email,phone") \
+                    .eq("client_id", c.get("id")).execute().data or []
+                if cc:
+                    ctx["client_team"] = cc
+            except Exception:
+                pass
+    except Exception as exc:
+        print(f"[Contracts] context build error: {exc}")
+    return ctx
+
+
+@app.route("/api/contracts")
+def api_contracts_list():
+    if session.get("role") not in CONTRACT_ROLES:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    if not supabase_client:
+        return jsonify({"ok": True, "contracts": []})
+    try:
+        rows = supabase_client.table("contracts").select("*").order("created_at", desc=True).limit(300).execute().data or []
+        return jsonify({"ok": True, "contracts": rows, "openai_ready": bool(_openai_key())})
+    except Exception as exc:
+        return jsonify({"ok": True, "contracts": [], "error": str(exc), "openai_ready": bool(_openai_key())})
+
+
+@app.route("/api/contracts/upload", methods=["POST"])
+def api_contracts_upload():
+    if session.get("role") not in CONTRACT_ROLES:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    if not supabase_client:
+        return jsonify({"ok": False, "error": "No storage"}), 503
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    f = request.files["file"]
+    data = f.read()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty file"}), 400
+    if len(data) > 25 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File too large (max 25MB)"}), 400
+    fname = f.filename or "contract.pdf"
+    lower = fname.lower()
+    if not (lower.endswith(".pdf") or lower.endswith(".docx")):
+        return jsonify({"ok": False, "error": "Upload a PDF or Word (.docx) contract."}), 400
+    mime = f.content_type or ("application/pdf" if lower.endswith(".pdf") else
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", fname)[:70]
+    path = f"contracts/{date.today().isoformat()}/{uuid.uuid4().hex}_{safe}"
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(path, data, file_options={"content-type": mime})
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Upload failed: {exc}"}), 500
+    row = {
+        "name": fname, "storage_path": path, "url": url, "mime": mime,
+        "project_id": (request.form.get("project_id") or None),
+        "job_id": (request.form.get("job_id") or None),
+        "status": "uploaded", "uploaded_by": session.get("name") or session.get("role") or "staff",
+    }
+    try:
+        ins = supabase_client.table("contracts").insert(row).execute().data
+        return jsonify({"ok": True, "id": ins[0]["id"] if ins else None, "url": url})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/contracts/<cid>/analyze", methods=["POST"])
+def api_contracts_analyze(cid):
+    """Read the contract with OpenAI and propose a value for every blank."""
+    if session.get("role") not in CONTRACT_ROLES:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    rows = supabase_client.table("contracts").select("*").eq("id", cid).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Contract not found"}), 404
+    c = rows[0]
+    d = request.get_json(silent=True) or {}
+    project_id = d.get("project_id") or c.get("project_id")
+    job_id = d.get("job_id") or c.get("job_id")
+    try:
+        data = supabase_client.storage.from_("checkin-photos").download(c["storage_path"])
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not read the file: {exc}"}), 500
+    try:
+        parsed = _contract_read(data, c.get("name") or "", c.get("mime") or "")
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not parse the document: {exc}"}), 400
+
+    text = (parsed.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "No readable text found — this may be a scanned image PDF."}), 400
+    ctx = _contract_lumia_context(project_id, job_id)
+
+    system = (
+        "You are a contracts assistant for Ashrah Painting, a commercial painting contractor in Winnipeg, Canada. "
+        "You are given the text of a contract and a JSON object of everything the company knows (its own details, "
+        "the client, the project/job). Identify every blank, placeholder, or field in the contract that must be "
+        "filled in, and propose the correct value using ONLY the supplied data.\n\n"
+        "Return JSON exactly: {\"fields\":[{\"key\":\"snake_case_id\",\"label\":\"Human label as it appears\","
+        "\"anchor\":\"the exact short text in the document immediately before the blank (verbatim, <=60 chars)\","
+        "\"value\":\"proposed value or empty string\",\"source\":\"where the value came from, e.g. project.contract_price\","
+        "\"confidence\":\"high|medium|low\"}],\"summary\":\"one sentence on what this contract is\"}\n\n"
+        "Rules: never invent facts that are not in the data — leave value empty and set confidence low instead. "
+        "Format money as $X,XXX.XX and dates as YYYY-MM-DD. If the document lists named PDF form fields, use those "
+        "exact names as the key. Skip signature images and initials."
+    )
+    user = (
+        f"COMPANY/PROJECT DATA (the only facts you may use):\n{json.dumps(ctx, indent=2, default=str)[:6000]}\n\n"
+        + (f"NAMED PDF FORM FIELDS: {parsed['form_fields']}\n\n" if parsed.get("form_fields") else "")
+        + f"CONTRACT TEXT:\n{text[:24000]}"
+    )
+    try:
+        out = _openai_json(system, user)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    fields = out.get("fields") or []
+    try:
+        supabase_client.table("contracts").update({
+            "status": "analyzed", "fields": fields, "summary": out.get("summary"),
+            "project_id": project_id, "job_id": job_id,
+        }).eq("id", cid).execute()
+    except Exception as exc:
+        print(f"[Contracts] could not save analysis: {exc}")
+    return jsonify({"ok": True, "fields": fields, "summary": out.get("summary"),
+                    "kind": parsed.get("kind"), "form_fields": parsed.get("form_fields")})
+
+
+def _fill_pdf(data: bytes, values: dict, anchors: dict) -> bytes:
+    """Fill a PDF: real form fields where present, otherwise draw the value just
+    after the anchor text that precedes each blank."""
+    import fitz as _fitz
+    doc = _fitz.open(stream=data, filetype="pdf")
+    filled_keys = set()
+    # 1) real AcroForm widgets
+    for page in doc:
+        try:
+            widgets = page.widgets() or []
+        except Exception:
+            widgets = []
+        for w in widgets:
+            fn = w.field_name
+            if fn and fn in values and str(values[fn]).strip():
+                try:
+                    w.field_value = str(values[fn])
+                    w.update()
+                    filled_keys.add(fn)
+                except Exception:
+                    pass
+    # 2) overlay for anything left
+    for key, val in values.items():
+        val = ("" if val is None else str(val)).strip()
+        if not val or key in filled_keys:
+            continue
+        anchor = (anchors.get(key) or "").strip()
+        if not anchor:
+            continue
+        placed = False
+        for page in doc:
+            try:
+                hits = page.search_for(anchor[:60])
+            except Exception:
+                hits = []
+            if hits:
+                r = hits[0]
+                try:
+                    page.insert_text((r.x1 + 4, r.y1 - 2), val, fontsize=9,
+                                     fontname="helv", color=(0, 0, 0.55))
+                    placed = True
+                except Exception:
+                    pass
+                break
+        if not placed:
+            print(f"[Contracts] could not place '{key}' (anchor not found)")
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+def _fill_docx(data: bytes, values: dict, anchors: dict) -> bytes:
+    """Fill a .docx by replacing {{key}} / {key} placeholders, then by writing the
+    value directly after any anchor text that is followed by a blank line."""
+    import io as _io
+    import docx as _docx
+    d = _docx.Document(_io.BytesIO(data))
+
+    def _sub(text: str) -> str:
+        for k, v in values.items():
+            v = "" if v is None else str(v)
+            for token in ("{{%s}}" % k, "{{ %s }}" % k, "{%s}" % k, "<%s>" % k):
+                if token in text:
+                    text = text.replace(token, v)
+        for k, v in values.items():
+            v = "" if v is None else str(v)
+            a = (anchors.get(k) or "").strip()
+            if a and v and a in text:
+                # write the value after the label, replacing an underscore run if present
+                after = text.split(a, 1)[1]
+                blanks = re.match(r"\s*_{2,}", after)
+                if blanks:
+                    text = text.replace(a + blanks.group(0), a + " " + v, 1)
+                elif re.match(r"\s*$", after):
+                    text = text.replace(a, a + " " + v, 1)
+        return text
+
+    for p in d.paragraphs:
+        new = _sub(p.text)
+        if new != p.text:
+            for r in list(p.runs)[1:]:
+                r.text = ""
+            if p.runs:
+                p.runs[0].text = new
+            else:
+                p.add_run(new)
+    for t in d.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    new = _sub(p.text)
+                    if new != p.text:
+                        for r in list(p.runs)[1:]:
+                            r.text = ""
+                        if p.runs:
+                            p.runs[0].text = new
+                        else:
+                            p.add_run(new)
+    buf = _io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+@app.route("/api/contracts/<cid>/generate", methods=["POST"])
+def api_contracts_generate(cid):
+    """Write the reviewed values into the document and store the filled copy."""
+    if session.get("role") not in CONTRACT_ROLES:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    rows = supabase_client.table("contracts").select("*").eq("id", cid).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"ok": False, "error": "Contract not found"}), 404
+    c = rows[0]
+    d = request.get_json() or {}
+    fields = d.get("fields") or c.get("fields") or []
+    values = {f.get("key"): f.get("value") for f in fields if f.get("key")}
+    anchors = {f.get("key"): f.get("anchor") for f in fields if f.get("key")}
+    if not any((v or "").strip() for v in values.values()):
+        return jsonify({"ok": False, "error": "Nothing to fill in."}), 400
+    try:
+        data = supabase_client.storage.from_("checkin-photos").download(c["storage_path"])
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not read the file: {exc}"}), 500
+    name = (c.get("name") or "contract").rsplit(".", 1)
+    base, ext = (name[0], name[1].lower() if len(name) > 1 else "pdf")
+    try:
+        if ext == "docx":
+            out_bytes = _fill_docx(data, values, anchors)
+            out_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            out_bytes = _fill_pdf(data, values, anchors)
+            out_mime = "application/pdf"
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Could not fill the document: {exc}"}), 500
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", base)[:60]
+    path = f"contracts/filled/{date.today().isoformat()}/{uuid.uuid4().hex}_{safe}_FILLED.{ext}"
+    try:
+        supabase_client.storage.from_("checkin-photos").upload(path, out_bytes, file_options={"content-type": out_mime})
+        url = supabase_client.storage.from_("checkin-photos").get_public_url(path)
+        supabase_client.table("contracts").update({
+            "status": "filled", "fields": fields, "filled_url": url,
+            "filled_at": datetime.utcnow().isoformat(),
+        }).eq("id", cid).execute()
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not save the filled file: {exc}"}), 500
+    return jsonify({"ok": True, "url": url})
+
+
+@app.route("/api/contracts/<cid>", methods=["DELETE"])
+def api_contracts_delete(cid):
+    if session.get("role") not in ("owner", "cfo"):
+        return jsonify({"ok": False, "error": "Owner / CFO only"}), 403
+    try:
+        supabase_client.table("contracts").delete().eq("id", cid).execute()
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)})

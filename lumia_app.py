@@ -851,8 +851,14 @@ HTML = """<!DOCTYPE html>
       background:#f4f6fb; border-bottom:1px solid #e0e4ed;
       padding:8px 20px; display:flex; align-items:center;
       justify-content:space-between; font-size:12px; color:#666;
+      flex-wrap:wrap; gap:6px;
     }
     .emp-bar a { color:#1F3864; font-weight:700; text-decoration:none; font-size:12px; }
+    @media (max-width:640px) {
+      .emp-bar { padding:8px 12px; gap:8px 10px; }
+      .emp-bar > span:first-child { width:100%; }
+      .emp-bar a { padding:6px 0; }   /* taller tap target */
+    }
   </style>
 </head>
 <body>
@@ -6162,16 +6168,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                white-space:nowrap; transition:all .15s; flex-shrink:0; }
 .section-btn:hover { background:rgba(255,255,255,.05); color:#fff; }
 .section-btn.active { background:#fff; color:#162d50; border-color:#fff; }
-@media (max-width: 640px) {
-  .section-bar { padding:6px 8px; gap:4px; }
-  .section-btn { padding:7px 12px; font-size:12px; letter-spacing:.3px; }
-  .tab { padding:10px 12px; font-size:12px; }
-  .page { padding:14px 12px; }
-  .card { padding:14px 16px; border-radius:10px; }
-  .card table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .topbar { padding:10px 12px; }
-  .topbar h1, .topbar img { transform:scale(.9); transform-origin:left; }
-}
+/* (mobile rules live at the end of this stylesheet so they win the cascade) */
 .tabs { display:flex; background:#162d50; padding:0 8px; gap:0; flex-wrap:nowrap;
         overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
 .tabs::-webkit-scrollbar { display:none; }
@@ -6220,6 +6217,60 @@ tr:hover td { background:#fafbfd; }
            border-radius:50%; animation:spin .7s linear infinite;
            vertical-align:middle; margin-right:6px; }
 @keyframes spin { to { transform:rotate(360deg); } }
+
+/* ─── MOBILE / TABLET ─────────────────────────────────────────────────
+   Placed last so these win over the base rules above.               */
+@media (max-width: 900px) {
+  .page { max-width:100%; }
+  .form-row { grid-template-columns:1fr; gap:12px; }
+}
+@media (max-width: 640px) {
+  /* Navigation: one scrollable row each, instead of wrapping to 3 rows
+     and eating a third of the screen before any content shows. */
+  .section-bar { padding:6px 8px; gap:5px; flex-wrap:nowrap; overflow-x:auto; }
+  .section-btn { padding:8px 12px; font-size:12px; letter-spacing:.2px; flex-shrink:0; }
+  .tab { padding:12px 13px; font-size:12.5px; }
+  .topbar { padding:9px 12px; }
+  .topbar h1 { font-size:16px; letter-spacing:1px; }
+  .topbar img { height:28px !important; }
+  .topbar span { font-size:12px !important; }
+
+  .page { padding:12px 10px; }
+  .card { padding:14px; border-radius:10px; margin-bottom:14px; }
+  .card h2 { font-size:15px; margin-bottom:12px; }
+
+  /* Stats: two per row instead of four tall full-width blocks */
+  .stats { grid-template-columns:1fr 1fr !important; gap:10px; margin-bottom:14px; }
+  .stat { padding:14px 10px; border-radius:10px; }
+  .stat .num { font-size:26px; }
+  .stat .lbl { font-size:11px; }
+
+  /* Tables scroll sideways rather than breaking the layout */
+  .card table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  th, td { padding:8px 10px; white-space:nowrap; }
+
+  /* 16px stops iOS zooming in every time a field is tapped */
+  input, select, textarea { font-size:16px !important; }
+  .field input, .field select, .field textarea { padding:11px 12px; }
+  input:not([type=checkbox]):not([type=radio]):not([type=file]),
+  select, textarea { max-width:100%; }
+
+  /* Comfortable tap targets */
+  .btn { padding:12px 18px; font-size:14px; min-height:44px; }
+  .btn-sm { padding:9px 12px; font-size:12px; min-height:38px; }
+
+  /* Modals fill the screen instead of floating in a padded box */
+  #gen-modal, #job-detail-modal, #quote-editor-modal { padding:0 !important; }
+  #gen-modal > div, #job-detail-modal > div {
+    max-width:100% !important; border-radius:0 !important;
+    min-height:100vh; padding:16px !important; }
+  #quote-editor-modal > div {
+    max-width:100% !important; border-radius:0 !important; min-height:100vh; }
+
+  /* Floating assistant button shouldn't cover content/buttons */
+  .lumia-fab { bottom:16px !important; right:14px !important;
+               width:48px !important; height:48px !important; }
+}
 </style></head><body>
 
 <!-- Session-expired banner — hidden until apiFetch detects a non-JSON response -->

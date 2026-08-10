@@ -2770,7 +2770,8 @@ CREW_CHAT_HTML = r"""<!DOCTYPE html>
 
   // Initial load + light polling every 4 s while tab is visible
   poll();
-  setInterval(() => { if (!document.hidden) poll(); }, 4000);
+  function _ap(f){var t=Date.now(),id=null,dead=false;['click','keydown','touchstart','input'].forEach(function(e){document.addEventListener(e,function(){t=Date.now();},{passive:true});});(function L(){if(dead)return;var idle=Date.now()-t;id=setTimeout(function(){if(dead)return;if(!document.hidden)f();L();},document.hidden?20000:(idle<60000?2000:(idle<300000?6000:15000)));})();return {stop:function(){dead=true;if(id)clearTimeout(id);}};}
+  _ap(poll);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 })();
 </script>
@@ -3303,7 +3304,8 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
       mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
     }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
-  poll();setInterval(()=>{if(!document.hidden)poll();},1500);
+  function _ap(f){var t=Date.now(),id=null,dead=false;['click','keydown','touchstart','input'].forEach(function(e){document.addEventListener(e,function(){t=Date.now();},{passive:true});});(function L(){if(dead)return;var idle=Date.now()-t;id=setTimeout(function(){if(dead)return;if(!document.hidden)f();L();},document.hidden?20000:(idle<60000?2000:(idle<300000?6000:15000)));})();return {stop:function(){dead=true;if(id)clearTimeout(id);}};}
+  poll();_ap(poll);
 })();
 </script></body></html>"""
 
@@ -3389,9 +3391,10 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
     cur={employee:emp,manager:mgr};last=0;msgs.innerHTML='';
     document.getElementById('ctitle').textContent=title;
     list.style.display='none';chat.style.display='flex';foot.style.display='flex';
-    loadMsgs();if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},1500);
+    loadMsgs();if(pollT&&pollT.stop)pollT.stop();function _ap(f){var t=Date.now(),id=null,dead=false;['click','keydown','touchstart','input'].forEach(function(e){document.addEventListener(e,function(){t=Date.now();},{passive:true});});(function L(){if(dead)return;var idle=Date.now()-t;id=setTimeout(function(){if(dead)return;if(!document.hidden)f();L();},document.hidden?20000:(idle<60000?2000:(idle<300000?6000:15000)));})();return {stop:function(){dead=true;if(id)clearTimeout(id);}};}
+  pollT=_ap(loadMsgs);
   };
-  window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';list.style.display='block';cur=null;loadThreads();};
+  window.closeChat=function(){if(pollT&&pollT.stop)pollT.stop();chat.style.display='none';foot.style.display='none';list.style.display='block';cur=null;loadThreads();};
   function add(x){const w=document.createElement('div');w.className='m '+(x.sender_name===ME?'mine':'other');
     w.innerHTML=(x.sender_name===ME?'':'<div class="w">'+esc(x.sender_name)+(x.role_title?' · '+esc(x.role_title):'')+'</div>')
       +(x.text?esc(x.text):'')+(x.audio_url?'<audio controls preload="none" src="'+esc(x.audio_url)+'" style="display:block;margin-top:6px;max-width:230px;height:36px"></audio>':'')
@@ -3560,16 +3563,32 @@ def api_dm_threads():
         for mgr_canon, mrole, mtitle in DM_MANAGERS:
             pairs.append((viewer, mgr_canon, mtitle))
 
-    # Latest message + read-receipt per pair
+    # Two bulk reads instead of 2 queries per pair (was ~54 round-trips for
+    # the president view). Group by (employee, manager) in memory.
+    last_by_pair, notif_by_pair = {}, {}
+    try:
+        msgs = supabase_client.table("dm_messages") \
+            .select("employee_name,manager_name,sender_name,body,body_en,body_emp,created_at,id") \
+            .order("id", desc=True).limit(2000).execute().data or []
+        for m in msgs:   # newest first — first one seen per pair is the latest
+            k = (m.get("employee_name"), m.get("manager_name"))
+            if k not in last_by_pair:
+                last_by_pair[k] = m
+    except Exception as exc:
+        print(f"[DM threads] message fetch failed: {exc}")
+    try:
+        notes = supabase_client.table("dm_notifications") \
+            .select("employee_name,manager_name,recipient_name,opened_at,id") \
+            .order("id", desc=True).limit(3000).execute().data or []
+        for n in notes:
+            k = (n.get("employee_name"), n.get("manager_name"))
+            notif_by_pair.setdefault(k, []).append(n)
+    except Exception as exc:
+        print(f"[DM threads] notification fetch failed: {exc}")
+
     threads = []
     for emp, mgr, mtitle in pairs:
-        last_rows = supabase_client.table("dm_messages").select("*") \
-            .eq("employee_name", emp).eq("manager_name", mgr) \
-            .order("id", desc=True).limit(1).execute().data or []
-        if not last_rows and not (vrole in ("president", "vp_ops", "cfo")):
-            # crew: still show empty manager threads so they can start one
-            pass
-        last = last_rows[0] if last_rows else None
+        last = last_by_pair.get((emp, mgr))
         preview = ""
         last_at = None
         if last:
@@ -3579,10 +3598,7 @@ def api_dm_threads():
         last_opened = None
         awaiting = False
         if last:
-            notif = supabase_client.table("dm_notifications").select("opened_at,recipient_name") \
-                .eq("employee_name", emp).eq("manager_name", mgr) \
-                .order("id", desc=True).limit(3).execute().data or []
-            for n in notif:
+            for n in (notif_by_pair.get((emp, mgr)) or [])[:3]:
                 if n.get("recipient_name") != last.get("sender_name"):
                     if n.get("opened_at"):
                         last_opened = n.get("opened_at")
@@ -3953,8 +3969,9 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
 
   window.openRoom=function(id,title){cur=id;last=0;msgs.innerHTML='';document.getElementById('ctitle').textContent=title;
     listEl.style.display='none';chat.style.display='flex';foot.style.display='flex';loadMembers();loadMsgs();
-    if(pollT)clearInterval(pollT);pollT=setInterval(()=>{if(!document.hidden)loadMsgs();},1500);};
-  window.closeChat=function(){if(pollT)clearInterval(pollT);chat.style.display='none';foot.style.display='none';listEl.style.display='block';cur=null;loadRooms();};
+    if(pollT&&pollT.stop)pollT.stop();function _ap(f){var t=Date.now(),id=null,dead=false;['click','keydown','touchstart','input'].forEach(function(e){document.addEventListener(e,function(){t=Date.now();},{passive:true});});(function L(){if(dead)return;var idle=Date.now()-t;id=setTimeout(function(){if(dead)return;if(!document.hidden)f();L();},document.hidden?20000:(idle<60000?2000:(idle<300000?6000:15000)));})();return {stop:function(){dead=true;if(id)clearTimeout(id);}};}
+  pollT=_ap(loadMsgs);};
+  window.closeChat=function(){if(pollT&&pollT.stop)pollT.stop();chat.style.display='none';foot.style.display='none';listEl.style.display='block';cur=null;loadRooms();};
 
   async function loadMembers(){try{const r=await fetch('/api/rooms/'+cur+'/members',{credentials:'same-origin'});const j=await r.json();
     if(j.ok)membersEl.innerHTML=j.members.map(m=>'<span class="mb">'+esc(m.member_name)+(m.last_opened?' ✓':'')+'</span>').join('');}catch(e){}}
@@ -4074,7 +4091,8 @@ DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
       mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
     }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
-  poll();setInterval(()=>{if(!document.hidden)poll();},1500);})();
+  function _ap(f){var t=Date.now(),id=null,dead=false;['click','keydown','touchstart','input'].forEach(function(e){document.addEventListener(e,function(){t=Date.now();},{passive:true});});(function L(){if(dead)return;var idle=Date.now()-t;id=setTimeout(function(){if(dead)return;if(!document.hidden)f();L();},document.hidden?20000:(idle<60000?2000:(idle<300000?6000:15000)));})();return {stop:function(){dead=true;if(id)clearTimeout(id);}};}
+  poll();_ap(poll);})();
 </script></body></html>"""
 
 
@@ -4371,7 +4389,8 @@ SINGLE_ROOM_HTML = r"""<!DOCTYPE html>
       mr.start();rec=true;mic.textContent='⏹';mic.style.background='#ffd5d5';S.textContent='Recording… tap ⏹ to send';
     }catch(e){_fi.click();}}
   mic.addEventListener('click',tog);
-  poll();setInterval(()=>{if(!document.hidden)poll();},1500);})();
+  function _ap(f){var t=Date.now(),id=null,dead=false;['click','keydown','touchstart','input'].forEach(function(e){document.addEventListener(e,function(){t=Date.now();},{passive:true});});(function L(){if(dead)return;var idle=Date.now()-t;id=setTimeout(function(){if(dead)return;if(!document.hidden)f();L();},document.hidden?20000:(idle<60000?2000:(idle<300000?6000:15000)));})();return {stop:function(){dead=true;if(id)clearTimeout(id);}};}
+  poll();_ap(poll);})();
 </script></body></html>"""
 
 
@@ -8618,11 +8637,19 @@ async function apiFetch(url, opts) {
 }
 
 async function loadOverview() {
+  // Kick both requests off together — they used to run one after the other.
+  const checkinsP = apiFetch('/api/checkins?limit=200&slim=1').then(r => r.ok ? r.json() : []).catch(()=>[]);
+  const jobsP     = apiFetch('/api/jobs').then(r => r.ok ? r.json() : []).catch(()=>[]);
+  // Everything else can load independently of those two.
+  loadOnSiteNow();
+  loadOverviewTasks();
+  loadScoreboard();
+  if (window.USER_ROLE === 'owner' || window.USER_ROLE === 'cfo') loadBilling();
+
   // Last check-in date per site (for the Active Sites list) + today's stats
   let lastBySite = {};
   try {
-    const r = await apiFetch('/api/checkins?limit=200');
-    const d = r.ok ? await r.json() : [];
+    const d = await checkinsP;
     d.forEach(c => { const s=(c.site_address||'').trim().toLowerCase(); if(s && !lastBySite[s]) lastBySite[s]=c.entry_date; });
     const today = d.filter(c => c.entry_date === new Date().toISOString().split('T')[0]);
     document.getElementById('stat-checkins').textContent = today.length || '0';
@@ -8632,8 +8659,7 @@ async function loadOverview() {
     document.getElementById('stat-checkins').textContent = '—';
   }
   try {
-    const jr = await apiFetch('/api/jobs');
-    const jd = jr.ok ? await jr.json() : [];
+    const jd = await jobsP;
     const active = jd.filter(j => !['completed','invoiced','closed','cancelled'].includes((j.status||'').toLowerCase()));
     document.getElementById('stat-jobs').textContent = active.length;
     const el = document.getElementById('overview-active-sites');
@@ -8666,10 +8692,6 @@ async function loadOverview() {
     if (e.message !== 'session_expired') document.getElementById('stat-jobs').textContent = '—';
     const el=document.getElementById('overview-active-sites'); if(el) el.innerHTML='<p style="color:#d9534f">Could not load sites. <button class="btn btn-sm" onclick="loadOverview()">Retry</button></p>';
   }
-  loadOnSiteNow();
-  loadOverviewTasks();
-  loadScoreboard();
-  if (window.USER_ROLE === 'owner' || window.USER_ROLE === 'cfo') loadBilling();
 }
 
 const BILL_META = {
@@ -13745,7 +13767,11 @@ def api_single_checkin(checkin_id):
 def api_checkins():
     if not supabase_client:
         return jsonify([])
-    q = supabase_client.table("checkins").select("*").order("created_at", desc=True)
+    # slim=1 returns only the columns the dashboard actually reads. The full
+    # rows carry work_description + photo_urls and run ~300KB at limit=200.
+    cols = ("id,entry_date,worker_name,site_address,avg_score"
+            if request.args.get("slim") else "*")
+    q = supabase_client.table("checkins").select(cols).order("created_at", desc=True)
     dt  = request.args.get("date")
     emp = request.args.get("employee")
     lim = int(request.args.get("limit", 50))
@@ -15991,7 +16017,7 @@ def api_crm_clients():
     clients = [c for c in clients if not _crm_is_junk_client(c)]
 
     # Pull aggregatable data once
-    projects = supabase_client.table("projects").select("client_name,contract_price,stage").execute().data or []
+    projects = supabase_client.table("projects").select("id,client_name,contract_price,stage").execute().data or []
     jobs = supabase_client.table("jobs").select("id,client_name,contract_price,status").execute().data or []
     quotes = supabase_client.table("quotes").select("client_name,lump_sum_price,status").execute().data or []
     try:
@@ -16003,8 +16029,7 @@ def api_crm_clients():
     except Exception:
         billings = []
     # project_id -> client_name  and  job_id -> client_name
-    proj_rows = supabase_client.table("projects").select("id,client_name").execute().data or []
-    proj_client = {p["id"]: _crm_norm(p.get("client_name")) for p in proj_rows}
+    proj_client = {p["id"]: _crm_norm(p.get("client_name")) for p in projects}
     job_client = {j["id"]: _crm_norm(j.get("client_name")) for j in jobs}
 
     out = []

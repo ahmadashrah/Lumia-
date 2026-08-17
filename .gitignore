@@ -9,6 +9,9 @@ __pycache__/
 lumia_employee_log.xlsx
 .env
 .env.*
+!.env.example
+.venv/
+venv/
 .DS_Store
 .claude/
 logs/

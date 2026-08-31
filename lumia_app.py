@@ -47,6 +47,11 @@ _sb_url = os.getenv("SUPABASE_URL", "")
 _sb_key = os.getenv("SUPABASE_KEY", "")
 supabase_client = create_client(_sb_url, _sb_key) if _sb_url and _sb_key else None
 
+# Procore integration — OAuth routes, project links and daily-log sync.
+from procore_integration import init_procore, sync_checkin_async, sync_day  # noqa: E402
+
+init_procore(app, supabase_client)
+
 
 def require_role(*roles):
     def decorator(f):
@@ -1089,9 +1094,10 @@ def submit():
         EmployeeLogSheet(EXCEL_LOG_PATH).append_entries([entry])
 
         # Save to Supabase
+        checkin_id = ""
         if supabase_client:
             try:
-                supabase_client.table("checkins").insert({
+                saved = supabase_client.table("checkins").insert({
                     "entry_date":        entry.entry_date,
                     "worker_name":       entry.worker_name,
                     "site_address":      entry.site_address,
@@ -1109,12 +1115,33 @@ def submit():
                     "notes":             entry.notes,
                     "photo_urls":        photo_urls,
                 }).execute()
+                checkin_id = ((saved.data or [{}])[0]).get("id", "")
                 print(f"[App] Saved to Supabase ✓")
             except Exception as exc:
                 print(f"[App] Supabase error: {exc}")
 
         threading.Thread(target=_notify_owner,      args=(entry,), daemon=True).start()
         threading.Thread(target=_send_client_report, args=(entry,), daemon=True).start()
+
+        # Mirror the check-in into the Procore Daily Log for the linked project.
+        sync_checkin_async({
+            "id":               checkin_id,
+            "entry_date":       entry.entry_date,
+            "worker_name":      entry.worker_name,
+            "site_address":     entry.site_address,
+            "work_description": entry.work_description,
+            "tomorrows_plan":   entry.tomorrows_plan,
+            "notes":            entry.notes,
+            "custom_scores":    entry.custom_scores,
+            "avg_score":        entry.self_score,
+            "tape_covering":    entry.tape_covering,
+            "drop_sheets":      entry.drop_sheets,
+            "patching_process": entry.patching_process,
+            "paint_execution":  entry.paint_execution,
+            "site_control":     entry.site_control,
+            "washing_tool_care": entry.washing_tool_care,
+            "photo_urls":       photo_urls,
+        })
 
         return jsonify({"ok": True})
 
@@ -1478,6 +1505,7 @@ tr:hover td { background:#fafbfd; }
   <div class="tab" onclick="showTab('employees')">Employees</div>
   <div class="tab" onclick="showTab('managers')">Managers</div>
   <div class="tab" onclick="showTab('clients')">Clients</div>
+  <div class="tab" onclick="showTab('procore')">Procore</div>
 </div>
 
 <!-- OVERVIEW -->
@@ -1652,6 +1680,56 @@ tr:hover td { background:#fafbfd; }
   </div>
 </div>
 
+<!-- PROCORE -->
+<div class="page" id="tab-procore">
+  <div class="card">
+    <h2>Procore Connection</h2>
+    <div id="procore-status"><p style="color:#999">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Link a Site to a Procore Project</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">
+      Check-ins are matched to a Procore project by a keyword from the site address
+      &mdash; the same way client reports are matched. Every matching check-in is
+      posted to that project's Daily Log (manpower + notes).
+    </p>
+    <div class="form-row">
+      <div class="field"><label>Site Address Keyword</label>
+        <input type="text" id="pc-keyword" placeholder="e.g. '23 falcon'"></div>
+      <div class="field"><label>Procore Project</label>
+        <select id="pc-project"><option value="">Load projects first</option></select></div>
+    </div>
+    <button class="btn" onclick="loadProcoreProjects()">Load Procore Projects</button>
+    <button class="btn btn-green" onclick="saveProcoreLink()">Save Link</button>
+    <div id="pc-link-msg" style="margin-top:12px;font-size:13px;color:#2e7d32;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Linked Sites</h2>
+    <div id="procore-links"><p style="color:#999">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Sync</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">
+      Check-ins are pushed to Procore automatically as they are submitted, with a
+      catch-up sweep at 6:15 PM. Use these to run it now.
+    </p>
+    <div class="field" style="max-width:220px;margin-bottom:14px">
+      <label>Date</label><input type="date" id="pc-sync-date">
+    </div>
+    <button class="btn btn-green" onclick="procoreSyncDay()">Push Check-Ins to Procore</button>
+    <button class="btn" onclick="procoreImportProjects()">Import Procore Projects as Jobs</button>
+    <div id="pc-sync-msg" style="margin-top:12px;font-size:13px;color:#2e7d32;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent Sync Activity</h2>
+    <div id="procore-log"><p style="color:#999">Loading...</p></div>
+  </div>
+</div>
+
 <script>
 let lastRecommendation = null;
 
@@ -1667,6 +1745,7 @@ function showTab(name) {
   if (name === 'employees')  loadEmployees();
   if (name === 'managers')   loadManagers();
   if (name === 'clients')    loadClients();
+  if (name === 'procore')    loadProcore();
 }
 
 function scoreColor(v) {
@@ -1704,7 +1783,8 @@ async function loadCheckins() {
     <td>${c.entry_date}</td><td><b>${c.worker_name}</b></td><td>${c.site_address}</td>
     <td style="color:${scoreColor(c.avg_score)};font-weight:700">${c.avg_score}/10</td>
     <td>${(c.work_description||'').substring(0,80)}</td>
-    <td><button class="btn btn-sm" onclick="reviewCheckin('${c.id}','${c.worker_name}')">Review</button></td>
+    <td><button class="btn btn-sm" onclick="reviewCheckin('${c.id}','${c.worker_name}')">Review</button>
+        <button class="btn btn-sm btn-green" onclick="pushToProcore('${c.id}', this)">&#8594; Procore</button></td>
   </tr>`).join('');
   document.getElementById('all-checkins').innerHTML =
     '<table><tr><th>Date</th><th>Employee</th><th>Site</th><th>Score</th><th>Summary</th><th></th></tr>' + rows + '</table>';
@@ -1898,6 +1978,187 @@ async function loadAllReviews() {
       <th>Self Score</th><th>Accuracy</th><th>Trust</th>
       <th>Reviewed By</th><th>Notes</th>
     </tr>${rows}</table>`;
+}
+
+// --- PROCORE ---------------------------------------------------------------
+let procoreProjects = [];
+
+async function pushToProcore(checkinId, btn) {
+  const label = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner"></span>Sending';
+  btn.disabled = true;
+  const r = await fetch('/api/procore/push-checkin', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({checkin_id: checkinId})});
+  const d = await r.json();
+  btn.innerHTML = label;
+  btn.disabled = false;
+  alert(d.message || d.error || 'Procore push failed.');
+}
+
+async function loadProcore() {
+  loadProcoreStatus();
+  loadProcoreLinks();
+  loadProcoreLog();
+  const el = document.getElementById('pc-sync-date');
+  if (el && !el.value) el.value = new Date().toISOString().split('T')[0];
+}
+
+async function loadProcoreStatus() {
+  const el = document.getElementById('procore-status');
+  const r = await fetch('/api/procore/status');
+  const d = await r.json();
+  if (!d.configured) {
+    el.innerHTML = '<p style="color:#856404;background:#fff3cd;padding:14px;border-radius:8px;font-size:13px">' +
+      'Procore is not configured on this server. Set <b>PROCORE_CLIENT_ID</b>, <b>PROCORE_CLIENT_SECRET</b> ' +
+      'and <b>PROCORE_COMPANY_ID</b> (plus <b>PROCORE_REDIRECT_URI</b> for the owner-approval flow), then redeploy.</p>';
+    return;
+  }
+  const badge = d.connected && !d.expired
+    ? '<span class="badge badge-green">Connected</span>'
+    : (d.connected ? '<span class="badge badge-yellow">Token expired &mdash; will refresh</span>'
+                   : '<span class="badge badge-red">Not connected</span>');
+  const expires = d.expires_at ? new Date(d.expires_at * 1000).toLocaleString() : '&mdash;';
+  let html = '<table>' +
+    '<tr><th>Status</th><td>' + badge + '</td></tr>' +
+    '<tr><th>Auth mode</th><td>' + d.mode + '</td></tr>' +
+    '<tr><th>Environment</th><td>' + d.environment + ' (' + d.api_base_url + ')</td></tr>' +
+    '<tr><th>Company ID</th><td>' + (d.company_id || 'not set') + '</td></tr>' +
+    '<tr><th>Token expires</th><td>' + expires + '</td></tr>' +
+    '<tr><th>Auto-sync</th><td>' + (d.auto_sync ? 'On' : 'Off') + '</td></tr>' +
+    '<tr><th>Linked sites</th><td>' + d.linked_sites + '</td></tr>' +
+    '</table><div style="margin-top:16px">';
+  if (d.mode === 'authorization_code') {
+    html += '<a class="btn" style="text-decoration:none" href="/procore/connect">' +
+            (d.connected ? 'Reconnect Procore' : 'Connect Procore') + '</a> ';
+  }
+  if (d.connected) {
+    html += '<button class="btn btn-red" onclick="procoreDisconnect()">Disconnect</button>';
+  }
+  html += '</div>';
+  if (d.warning) {
+    html += '<p style="margin-top:12px;color:#856404;font-size:13px">' + d.warning + '</p>';
+  }
+  el.innerHTML = html;
+}
+
+async function procoreDisconnect() {
+  if (!confirm('Disconnect Lumia from Procore?')) return;
+  await fetch('/api/procore/disconnect', {method:'POST'});
+  loadProcoreStatus();
+}
+
+async function loadProcoreProjects() {
+  const sel = document.getElementById('pc-project');
+  sel.innerHTML = '<option value="">Loading...</option>';
+  const r = await fetch('/api/procore/projects');
+  const d = await r.json();
+  if (!r.ok) {
+    sel.innerHTML = '<option value="">Could not load projects</option>';
+    document.getElementById('pc-link-msg').style.color = '#d9534f';
+    document.getElementById('pc-link-msg').textContent = d.error || 'Procore request failed.';
+    return;
+  }
+  procoreProjects = d;
+  if (!d.length) { sel.innerHTML = '<option value="">No projects found</option>'; return; }
+  sel.innerHTML = d.map(p =>
+    '<option value="' + p.id + '">' + (p.name || ('Project ' + p.id)) +
+    (p.address ? ' — ' + p.address : '') + '</option>').join('');
+}
+
+async function saveProcoreLink() {
+  const kw  = document.getElementById('pc-keyword').value.trim();
+  const sel = document.getElementById('pc-project');
+  const msg = document.getElementById('pc-link-msg');
+  if (!kw || !sel.value) {
+    msg.style.color = '#d9534f';
+    msg.textContent = 'Enter a site keyword and pick a Procore project.';
+    return;
+  }
+  const project = procoreProjects.find(p => String(p.id) === sel.value) || {};
+  const r = await fetch('/api/procore/link', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({site_keyword: kw, procore_project_id: sel.value,
+                          procore_project_name: project.name || ''})});
+  const d = await r.json();
+  msg.style.color = d.ok ? '#2e7d32' : '#d9534f';
+  msg.textContent = d.message;
+  if (d.ok) { document.getElementById('pc-keyword').value = ''; loadProcoreLinks(); loadProcoreStatus(); }
+}
+
+async function loadProcoreLinks() {
+  const el = document.getElementById('procore-links');
+  const r = await fetch('/api/procore/links');
+  const d = await r.json();
+  if (!d.length) { el.innerHTML = '<p style="color:#999">No sites linked yet.</p>'; return; }
+  const rows = d.map(l => '<tr>' +
+    '<td><b>' + l.site_keyword + '</b></td>' +
+    '<td>' + (l.procore_project_name || '—') + '</td>' +
+    '<td>' + l.procore_project_id + '</td>' +
+    '<td><button class="btn btn-sm btn-red" onclick="procoreUnlink(\'' + l.id + '\')">Unlink</button></td>' +
+    '</tr>').join('');
+  el.innerHTML = '<table><tr><th>Site Keyword</th><th>Procore Project</th><th>Project ID</th><th></th></tr>' +
+                 rows + '</table>';
+}
+
+async function procoreUnlink(id) {
+  if (!confirm('Remove this link? Check-ins for that site will stop syncing.')) return;
+  await fetch('/api/procore/unlink/' + id, {method:'POST'});
+  loadProcoreLinks(); loadProcoreStatus();
+}
+
+async function procoreSyncDay() {
+  const msg = document.getElementById('pc-sync-msg');
+  msg.style.color = '#555';
+  msg.textContent = 'Pushing to Procore...';
+  const r = await fetch('/api/procore/sync-day', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({date: document.getElementById('pc-sync-date').value})});
+  const d = await r.json();
+  msg.style.color = d.ok ? '#2e7d32' : '#d9534f';
+  msg.textContent = d.message;
+  loadProcoreLog();
+}
+
+async function procoreImportProjects() {
+  const msg = document.getElementById('pc-sync-msg');
+  msg.style.color = '#555';
+  msg.textContent = 'Importing Procore projects...';
+  const r = await fetch('/api/procore/import-projects', {method:'POST'});
+  const d = await r.json();
+  msg.style.color = d.ok ? '#2e7d32' : '#d9534f';
+  msg.textContent = d.message || d.error || 'Import failed.';
+}
+
+async function loadProcoreLog() {
+  const el = document.getElementById('procore-log');
+  const r = await fetch('/api/procore/sync-log?limit=25');
+  const d = await r.json();
+  if (!d.length) { el.innerHTML = '<p style="color:#999">Nothing synced yet.</p>'; return; }
+  function syncBadge(st) {
+    if (st === 'synced')  return '<span class="badge badge-green">Synced</span>';
+    if (st === 'partial') return '<span class="badge badge-yellow">Partial</span>';
+    if (st === 'unlinked') return '<span class="badge badge-yellow">No linked project</span>';
+    return '<span class="badge badge-red">' + st + '</span>';
+  }
+  const rows = d.map(l => '<tr>' +
+    '<td>' + (l.created_at || '').replace('T', ' ').substring(0, 16) + '</td>' +
+    '<td>' + syncBadge(l.status) + '</td>' +
+    '<td>' + (l.procore_project_id || '—') + '</td>' +
+    '<td style="font-size:12px;color:#555">' + (l.detail || '—') + '</td>' +
+    '</tr>').join('');
+  el.innerHTML = '<table><tr><th>When</th><th>Status</th><th>Project</th><th>Detail</th></tr>' +
+                 rows + '</table>';
+}
+
+if (new URLSearchParams(location.search).get('procore') === 'connected') {
+  showTabByName('procore');
+}
+function showTabByName(name) {
+  const tabs = document.querySelectorAll('.tab');
+  for (const t of tabs) {
+    if (t.textContent.trim().toLowerCase() === name) { t.click(); return; }
+  }
 }
 
 loadOverview();
@@ -2516,8 +2777,13 @@ try:
     _scheduler = BackgroundScheduler(timezone="America/Winnipeg")
     _scheduler.add_job(_run_daily_reports, "cron", hour=18, minute=0,
                        id="daily_reports", replace_existing=True)
+    # Catch-up sweep: anything that failed to reach Procore at submit time
+    # (network blip, project linked later in the day) is retried here.
+    _scheduler.add_job(sync_day, "cron", hour=18, minute=15,
+                       id="procore_daily_sync", replace_existing=True)
     _scheduler.start()
     print("[Scheduler] Daily report scheduler started — runs at 18:00 Winnipeg time")
+    print("[Scheduler] Procore daily-log sync scheduled for 18:15 Winnipeg time")
 except Exception as _sched_exc:
     print(f"[Scheduler] Could not start scheduler: {_sched_exc}")
 

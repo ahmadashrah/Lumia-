@@ -550,8 +550,8 @@ HTML = """<!DOCTYPE html>
   <!-- PWA — installable on iPhone & Android -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#1F3864">
-  <link rel="icon" href="/static/logo.png?v=2" type="image/png">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180-v4.png">
+  <link rel="icon" href="/static/logo.png?v=3" type="image/png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180-v5.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Lumia">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -864,7 +864,7 @@ HTML = """<!DOCTYPE html>
 <body>
 <div class="card">
   <div class="header">
-    <img src="/static/logo.png?v=2" alt="Ashrah Painting">
+    <img src="/static/logo.png?v=3" alt="Ashrah Painting">
     <p>Daily Check-In</p>
   </div>
 
@@ -2491,8 +2491,8 @@ EMPLOYEE_LOGIN_HTML = """<!DOCTYPE html>
 <!-- PWA — installable on iPhone & Android -->
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1F3864">
-<link rel="icon" href="/static/logo.png?v=2" type="image/png">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180-v4.png">
+<link rel="icon" href="/static/logo.png?v=3" type="image/png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180-v5.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Lumia">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2522,7 +2522,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .staff-link { font-size:12px; color:#1F3864; text-align:center; margin-top:12px; display:block; }
 </style></head><body>
 <div class="card">
-  <div class="header"><img src="/static/logo.png?v=2" alt="Ashrah Painting"><p>Employee Login</p></div>
+  <div class="header"><img src="/static/logo.png?v=3" alt="Ashrah Painting"><p>Employee Login</p></div>
   <div class="body">
     <form method="POST" action="/employee-login">
       <div class="field">
@@ -2617,7 +2617,7 @@ CREW_CHAT_HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Lumia — Crew Chat</title>
 <link rel="manifest" href="/static/manifest.json">
-<link rel="apple-touch-icon" href="/static/icons/icon-180-v4.png">
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v5.png">
 <meta name="theme-color" content="#1F3864">
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -3227,7 +3227,7 @@ DM_THREAD_HTML = r"""<!DOCTYPE html>
 <html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Lumia — Message</title>
-<link rel="apple-touch-icon" href="/static/icons/icon-180-v4.png">
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v5.png">
 <meta name="theme-color" content="#1F3864">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
@@ -3315,7 +3315,7 @@ DM_HUB_HTML = r"""<!DOCTYPE html>
 <html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Lumia — Messages</title>
-<link rel="apple-touch-icon" href="/static/icons/icon-180-v4.png"><meta name="theme-color" content="#1F3864">
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v5.png"><meta name="theme-color" content="#1F3864">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
@@ -3891,7 +3891,7 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Lumia — Team Messages</title>
-<link rel="apple-touch-icon" href="/static/icons/icon-180-v4.png"><meta name="theme-color" content="#1F3864">
+<link rel="apple-touch-icon" href="/static/icons/icon-180-v5.png"><meta name="theme-color" content="#1F3864">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
@@ -4035,7 +4035,7 @@ DM_ROOMS_HTML = r"""<!DOCTYPE html>
 DM_ROOM_THREAD_HTML = r"""<!DOCTYPE html>
 <html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Lumia — Message</title><link rel="apple-touch-icon" href="/static/icons/icon-180-v4.png"><meta name="theme-color" content="#1F3864">
+<title>Lumia — Message</title><link rel="apple-touch-icon" href="/static/icons/icon-180-v5.png"><meta name="theme-color" content="#1F3864">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
@@ -4328,7 +4328,7 @@ def api_room_reply():
 SINGLE_ROOM_HTML = r"""<!DOCTYPE html>
 <html lang="{{ 'ar' if viewer_lang=='ar' else 'en' }}" dir="{{ 'rtl' if viewer_lang=='ar' else 'ltr' }}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Lumia — {{ title }}</title><link rel="apple-touch-icon" href="/static/icons/icon-180-v4.png"><meta name="theme-color" content="#1F3864">
+<title>Lumia — {{ title }}</title><link rel="apple-touch-icon" href="/static/icons/icon-180-v5.png"><meta name="theme-color" content="#1F3864">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#eef1f7;color:#1F3864;display:flex;flex-direction:column}
@@ -4442,7 +4442,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .ok  { color:#2e7d32; font-size:13px; margin-top:12px; text-align:center; }
 </style></head><body>
 <div class="card">
-  <div class="header"><img src="/static/logo.png?v=2" alt="Ashrah Painting"><p>Set Your Password</p></div>
+  <div class="header"><img src="/static/logo.png?v=3" alt="Ashrah Painting"><p>Set Your Password</p></div>
   <div class="body">
     {% if expired %}
       <p class="err" style="font-size:15px;margin-top:8px">This link has expired or is invalid.<br>Please ask Ahmad to send a new one.</p>
@@ -5874,7 +5874,7 @@ CLIENT_CHAT_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <header>
-    <img src="/static/logo.png?v=2" alt="Ashrah Painting">
+    <img src="/static/logo.png?v=3" alt="Ashrah Painting">
     <div class="titles">
       <h1>Ask Lumia</h1>
       <div class="sub">{{ client_name }} &middot; Ashrah Painting</div>
@@ -6037,7 +6037,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 .hint { font-size:12px; color:#999; text-align:center; margin-top:16px; }
 </style></head><body>
 <div class="card">
-  <div class="header"><img src="/static/logo.png?v=2" alt="Ashrah Painting"><p>Staff Login</p></div>
+  <div class="header"><img src="/static/logo.png?v=3" alt="Ashrah Painting"><p>Staff Login</p></div>
   <div class="body">
     <form method="POST" action="/login">
       <input type="hidden" name="next" value="{{ next }}">
@@ -6302,7 +6302,7 @@ tr:hover td { background:#fafbfd; }
 
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:12px;">
-    <img src="/static/logo.png?v=2" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
+    <img src="/static/logo.png?v=3" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
     <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">{% if user_role == "production_manager" %}Production Manager Dashboard{% elif user_role == "cfo" %}CFO — Job Finances{% elif user_role == "estimator" %}Estimator — Bids &amp; Quotes{% else %}Owner Dashboard{% endif %}</span>
   </div>
   <div style="display:flex;gap:20px;align-items:center">
@@ -13460,7 +13460,7 @@ textarea:focus { border-color:#1F3864; }
 
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:12px;">
-    <img src="/static/logo.png?v=2" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
+    <img src="/static/logo.png?v=3" alt="Ashrah Painting" style="height:38px;border-radius:6px;">
     <span style="font-size:13px;font-weight:600;opacity:.9;letter-spacing:.5px;">Manager Review</span>
   </div>
   <div style="display:flex;gap:16px;align-items:center">
@@ -14095,7 +14095,7 @@ def api_send_client_test_invite():
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;'
         'max-width:560px;margin:0 auto;color:#1a1a2e;">'
         f'<div style="text-align:center;padding:20px 0;border-bottom:3px solid #1F3864;margin-bottom:24px;">'
-        f'<img src="{APP_BASE_URL}/static/logo.png?v=2" alt="Ashrah Painting" style="width:160px;">'
+        f'<img src="{APP_BASE_URL}/static/logo.png?v=3" alt="Ashrah Painting" style="width:160px;">'
         f'</div>'
         f'<p style="font-size:16px;">Hi {first},</p>'
         '<p style="font-size:15px;line-height:1.6;">We\'ve added a new way for you to stay on top of your project. '
@@ -18823,7 +18823,7 @@ def _quote_html(q: dict) -> str:
   <table style="width:100%;border-bottom:3px solid #1E40AF;padding-bottom:14px;margin-bottom:18px;">
     <tr>
       <td style="width:120px;vertical-align:top;">
-        <img src="/static/logo.png?v=2" alt="Ashrah Painting"
+        <img src="/static/logo.png?v=3" alt="Ashrah Painting"
              style="width:110px;height:110px;object-fit:contain;border-radius:8px;">
       </td>
       <td style="vertical-align:top;padding-left:14px;text-align:right;">
@@ -22642,7 +22642,7 @@ SITE_TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% if page_title %}{{ page_title }} — {% endif %}{{ settings.company_name }}</title>
 <meta name="description" content="{{ meta_description or settings.tagline }}">
-<link rel="icon" href="/static/logo.png?v=2" type="image/png">
+<link rel="icon" href="/static/logo.png?v=3" type="image/png">
 <style>
 :root {
   /* Brand palette pulled straight from the AP logo */
@@ -22896,7 +22896,7 @@ a { color: var(--primary); }
 <header class="topnav">
   <div class="container">
     <a href="/site/" class="brand">
-      <img src="/static/logo.png?v=2" alt="{{ settings.company_name }} logo">
+      <img src="/static/logo.png?v=3" alt="{{ settings.company_name }} logo">
       <span class="b-text">
         <span class="b-name">{{ settings.company_name }}</span>
         <span class="b-tag">Brushing life with color</span>
@@ -23044,7 +23044,7 @@ a { color: var(--primary); }
 <footer class="footer">
   <div class="container">
     <div class="col brand-block">
-      <img src="/static/logo.png?v=2" alt="{{ settings.company_name }}">
+      <img src="/static/logo.png?v=3" alt="{{ settings.company_name }}">
       <p>{{ settings.tagline }}</p>
     </div>
     <div class="col">

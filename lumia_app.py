@@ -43,6 +43,12 @@ from ashrah_backfill import (
     OWNER_EMAIL,
 )
 
+try:
+    from integrations import outbox as _integrations_outbox
+except Exception as _integ_exc:            # never let an integration break boot
+    _integrations_outbox = None
+    print(f"[Lumia] integrations unavailable: {_integ_exc}")
+
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "lumia-ashrah-secret-2026")
 
@@ -2392,7 +2398,7 @@ def submit():
         # Save to Supabase
         if supabase_client:
             try:
-                supabase_client.table("checkins").insert({
+                _ins = supabase_client.table("checkins").insert({
                     "entry_date":        entry.entry_date,
                     "worker_name":       entry.worker_name,
                     "site_address":      entry.site_address,
@@ -2416,6 +2422,15 @@ def submit():
                     "hours_worked":   float(data.get("hours_worked")) if data.get("hours_worked") else None,
                 }).execute()
                 print(f"[App] Saved to Supabase ✓")
+                # Fan the check-in out to any mapped construction platform.
+                # Queued off-thread: a slow or broken GC API must never slow
+                # down or fail a crew member's submission.
+                if _integrations_outbox is not None:
+                    _saved = (getattr(_ins, "data", None) or [{}])[0]
+                    threading.Thread(
+                        target=_integrations_outbox.submit_checkin,
+                        args=(_saved,), daemon=True,
+                    ).start()
             except Exception as exc:
                 print(f"[App] Supabase error: {exc}")
 
@@ -21558,6 +21573,9 @@ if _acquire_scheduler_lock():
                            id="client_escalation_digest", replace_existing=True)
         _scheduler.add_job(_send_tender_reminders, "cron", hour=8, minute=0,
                            id="tender_reminders", replace_existing=True)
+        if _integrations_outbox is not None:
+            _scheduler.add_job(_integrations_outbox.process, "interval", minutes=5,
+                               id="integrations_outbox", replace_existing=True)
         _scheduler.add_job(_scan_zoho_for_tenders, "interval", minutes=15,
                            id="zoho_tender_scan", replace_existing=True)
         _scheduler.add_job(_send_attention_digest, "cron", hour=7, minute=0,
@@ -23416,6 +23434,63 @@ def api_site_page_save(slug):
         return jsonify({"ok": True, "page": _site_load_page(slug)})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Construction platform integrations (Procore, etc.) ──────────────────
+@app.route("/api/integrations/status")
+@require_operator
+def api_integrations_status():
+    """Which connectors are live, and what the outbox is doing."""
+    if _integrations_outbox is None:
+        return jsonify({"ok": False, "error": "integrations package unavailable"}), 503
+    from integrations import registry as _reg, store as _store
+    counts = {}
+    sb = _store.client()
+    if sb:
+        for st in ("pending", "sent", "failed"):
+            try:
+                counts[st] = len(sb.table(_store.OUTBOX_TABLE).select("id")
+                                 .eq("status", st).limit(1000).execute().data or [])
+            except Exception as exc:
+                counts[st] = f"error: {exc}"
+    return jsonify({
+        "ok": True,
+        "connectors": [c.health() for c in _reg.all_connectors().values()],
+        "outbox": counts or "supabase not configured",
+    })
+
+
+@app.route("/api/integrations/map", methods=["POST"])
+@require_operator
+def api_integrations_map():
+    """Map a Lumia job to a platform project.
+
+    Defaults to dry_run=True: a new mapping validates end to end without
+    writing anything into the GC's project until it's explicitly armed.
+    """
+    if _integrations_outbox is None:
+        return jsonify({"ok": False, "error": "integrations package unavailable"}), 503
+    from integrations import store as _store
+    d = request.get_json(silent=True) or {}
+    job_id, platform = str(d.get("job_id") or ""), (d.get("platform") or "").strip()
+    project_ref = str(d.get("project_ref") or "")
+    if not (job_id and platform and project_ref):
+        return jsonify({"ok": False, "error": "job_id, platform and project_ref are required"}), 400
+    row = _store.set_mapping(job_id, platform, project_ref,
+                             enabled=bool(d.get("enabled", True)),
+                             dry_run=bool(d.get("dry_run", True)))
+    if row is None:
+        return jsonify({"ok": False, "error": "could not save mapping (Supabase configured?)"}), 500
+    return jsonify({"ok": True, "mapping": row})
+
+
+@app.route("/api/integrations/drain", methods=["POST"])
+@require_operator
+def api_integrations_drain():
+    """Run the outbox now instead of waiting for the 5-minute schedule."""
+    if _integrations_outbox is None:
+        return jsonify({"ok": False, "error": "integrations package unavailable"}), 503
+    return jsonify({"ok": True, "result": _integrations_outbox.process()})
 
 
 # ─── Mount Lio (sales/marketing assistant) at /lio/* ─────────────────────────
